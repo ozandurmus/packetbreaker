@@ -810,6 +810,11 @@ function App() {
                           <td>
                             <strong>{c.name}</strong>
                             <small title={c.path}>{c.path}</small>
+                            {c.inventory.warnings?.map((w) => (
+                              <small className="red" key={w}>
+                                {w}
+                              </small>
+                            ))}
                             {c.error && (
                               <small className="red">{c.error}</small>
                             )}

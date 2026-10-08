@@ -42,6 +42,7 @@ def metadata(path, cancel=None):
         f.seek(0)
         endian, section, local = "<", -1, []
         counters = {}
+        packet_count = 0
         size = path.stat().st_size
         while f.tell() < size:
             if cancel and cancel.is_set():
@@ -49,7 +50,8 @@ def metadata(path, cancel=None):
             start = f.tell()
             head = f.read(12)
             if len(head) != 12:
-                raise ValueError("Truncated pcapng block")
+                result["damaged_tail"] = True
+                break
             if head[:4] == b"\x0a\x0d\x0d\x0a":
                 if head[8:12] not in (b"\x4d\x3c\x2b\x1a", b"\x1a\x2b\x3c\x4d"):
                     raise ValueError("Invalid pcapng byte order")
@@ -57,7 +59,10 @@ def metadata(path, cancel=None):
                 section += 1
                 local = []
             kind, length = struct.unpack(endian + "II", head[:8])
-            if length < 12 or length % 4 or start + length > size:
+            if start + length > size:
+                result["damaged_tail"] = True
+                break
+            if length < 12 or length % 4:
                 raise ValueError("Invalid pcapng block length")
             # Packet blocks are skipped by seeking, including very large payloads.
             if kind in (1, 5):
@@ -86,10 +91,16 @@ def metadata(path, cancel=None):
                             counters[key] = max(counters.get(key, 0), struct.unpack(endian + "Q", value)[0])
             f.seek(start + length - 4)
             if struct.unpack(endian + "I", f.read(4))[0] != length:
+                if start + length == size:
+                    result["damaged_tail"] = True
+                    break
                 raise ValueError("Mismatched pcapng block trailer")
+            if kind in (2, 3, 6):
+                packet_count += 1
         for code, name in ((5, "ifdrop"), (7, "osdrop")):
             values = [v for k, v in counters.items() if k[2] == code]
             if values:
                 result[name] = sum(values)
         result["multiple_sections"] = section > 0
+        result["complete_records"] = packet_count
     return result

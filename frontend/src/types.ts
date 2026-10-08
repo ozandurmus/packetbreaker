@@ -54,6 +54,7 @@ export type Capture = {
   checkpoint: number;
   error: string | null;
   inventory: {
+    warnings?: string[];
     start?: number;
     end?: number;
     duration?: number;

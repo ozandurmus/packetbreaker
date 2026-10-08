@@ -179,3 +179,11 @@ TestClient uses httpx2 with Starlette >=1.7. Starlette deprecation warnings are 
 errors, not suppressed warnings. Project metadata carries the analysis engine
 version; changing it clears old reports without reparsing current-schema indexes.
 The application and bundled frontend identify themselves as 0.1.1.
+
+## Phase 2 / Part 1: damaged final records
+
+A known tshark cut-short tail error after usable frames is recoverable. Committed
+and pending batches are retained and the capture becomes ready with a visible
+warning and usable count. The pcapng metadata walk tolerates an incomplete final
+block so tshark can read preceding packets. Other errors and zero usable frames
+still fail. Completed warned captures use the normal cache and do not resume-loop.

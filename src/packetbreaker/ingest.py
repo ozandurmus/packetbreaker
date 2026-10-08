@@ -1,4 +1,5 @@
 import csv
+import re
 import hashlib
 import json
 import os
@@ -21,7 +22,7 @@ ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstpor
  tcp.analysis.out_of_order tcp.analysis.ack_lost_segment tcp.analysis.zero_window tcp.analysis.ack_rtt
  ip.flags.mf ip.frag_offset ipv6.fraghdr.offset ipv6.fraghdr.more frame.protocols frame.md5_hash dns.id dns.flags.response""".split()
 CAPLEN_INDEX = list(PACKET_COLUMNS).index("caplen")
-PARSER_VERSION = 4
+PARSER_VERSION = 5
 csv.field_size_limit(16 * 1024 * 1024)
 
 
@@ -262,9 +263,18 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                 proc.wait()
                 if cancel.is_set():
                     raise InterruptedError("Ingest cancelled; committed frames can be resumed")
-                if proc.returncode:
-                    errors.seek(0)
-                    raise ValueError("tshark failed: " + errors.read(4000))
+                errors.seek(0)
+                stderr = errors.read(8000)
+                tail_error = bool(
+                    re.search(
+                        r"cut short|short read|truncat(?:ed|ion).*(?:packet|record|block)", stderr, re.I
+                    )
+                )
+                tail_error = tail_error or bool(
+                    info.get("damaged_tail") and re.search(r"damaged|corrupt|block length", stderr, re.I)
+                )
+                if proc.returncode and not (last > 0 and tail_error):
+                    raise ValueError("tshark failed: " + stderr)
                 flush()
                 if path.stat().st_size != stat.st_size or path.stat().st_mtime_ns != stat.st_mtime_ns:
                     raise ValueError("Capture changed during ingestion; attach it again to rebuild")
@@ -275,6 +285,13 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                         FROM packets WHERE capture_id=?""",
                         [cid],
                     ).fetchone()
+                    if not r[2]:
+                        raise ValueError("Capture contains zero usable frames")
+                    info["warnings"] = (
+                        [f"File ends mid-packet; last partial record ignored; {r[2]} packets usable"]
+                        if tail_error or info.get("damaged_tail")
+                        else []
+                    )
                     info.update(
                         start=r[0],
                         end=r[1],
