@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "packetbreaker"
+version = "0.1.0"
+description = "Local, evidence-first multi-hop packet capture correlation"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["duckdb>=1.2,<2", "numpy>=2,<3", "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "python-multipart>=0.0.20,<1"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "httpx>=0.28,<1", "build>=1.2,<2", "ruff>=0.11,<1"]
+
+[project.scripts]
+packetbreaker = "packetbreaker.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+packetbreaker = ["static/**/*", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

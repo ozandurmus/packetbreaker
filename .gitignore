@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+frontend/node_modules/
+*.duckdb*
+demo/
+node_modules/
+*.tsbuildinfo
+.spill/
+demo/project/
+*.duckdb
+.DS_Store

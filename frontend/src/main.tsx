@@ -1,0 +1,1479 @@
+import React, { useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { api, num, time, reverseTuple } from "./api";
+import { Coverage, LadderChart } from "./Charts";
+import { TopologyEditor } from "./TopologyEditor";
+import type { State, Topology, Ref, Flow, Ladder, Segment, Job } from "./types";
+import "./style.css";
+
+function Tip({ children, text }: { children: React.ReactNode; text: string }) {
+  return (
+    <span title={text} tabIndex={0} className="tip">
+      {children}
+      <sup>ⓘ</sup>
+    </span>
+  );
+}
+function Badge({
+  children,
+  kind = "neutral",
+}: {
+  children: React.ReactNode;
+  kind?: string;
+}) {
+  return <span className={"badge " + kind}>{children}</span>;
+}
+function Evidence({ refs, onClose }: { refs: Ref[]; onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <section
+        className="evidence-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Frame evidence"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="section-head">
+          <div>
+            <span className="eyebrow">Verify in Wireshark</span>
+            <h2>Frame evidence</h2>
+          </div>
+          <button className="secondary" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <p className="hint">
+          Open the named file in Wireshark and paste its display filter. Times
+          are UTC.
+        </p>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Capture point / file</th>
+                <th>Frame</th>
+                <th>Observed</th>
+                <th>Corrected</th>
+                <th>Display filter</th>
+              </tr>
+            </thead>
+            <tbody>
+              {refs.map((e, i) => (
+                <tr key={i}>
+                  <td>
+                    <strong>{e.point}</strong>
+                    <small>{e.file}</small>
+                  </td>
+                  <td>{e.frame}</td>
+                  <td>{time(e.observed_time)}</td>
+                  <td>{time(e.corrected_time)}</td>
+                  <td>
+                    <code>{e.display_filter}</code>
+                    <button
+                      className="icon"
+                      title="Copy Wireshark filter"
+                      onClick={() =>
+                        navigator.clipboard.writeText(e.display_filter)
+                      }
+                    >
+                      Copy
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!refs.length && (
+          <div className="empty">No frame evidence available.</div>
+        )}
+      </section>
+    </div>
+  );
+}
+function App() {
+  const [state, setState] = useState<State | null>(null),
+    [tab, setTab] = useState("Overview"),
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState(""),
+    [job, setJob] = useState<Job>({ state: "idle", busy: false }),
+    [topology, setTopology] = useState<Topology | null>(null),
+    [evidence, setEvidence] = useState<Ref[] | null>(null),
+    [path, setPath] = useState(""),
+    [projectPath, setProjectPath] = useState(""),
+    [uploadPercent, setUploadPercent] = useState<number | null>(null);
+  const [flows, setFlows] = useState<{ total: number; items: Flow[] }>({
+      total: 0,
+      items: [],
+    }),
+    [flowOffset, setFlowOffset] = useState(0),
+    [search, setSearch] = useState(""),
+    [filter, setFilter] = useState(""),
+    [sort, setSort] = useState("bytes"),
+    [selectedFlow, setSelectedFlow] = useState<Flow | null>(null),
+    [ladder, setLadder] = useState<Ladder | null>(null),
+    [ladderOffset, setLadderOffset] = useState(0);
+  const [events, setEvents] = useState<{
+    label: string;
+    items: {
+      id: string;
+      kind: string;
+      reason: string;
+      ts: number;
+      recovery_ms: number | null;
+      evidence: Ref[];
+    }[];
+    total: number;
+    segment: Segment;
+    offset: number;
+  } | null>(null);
+  const [tsharkPath, setTsharkPath] = useState(""),
+    [prefix, setPrefix] = useState(64);
+  async function refresh() {
+    const s = await api<State>("/state");
+    setState(s);
+    setTopology(s.topology);
+    setJob(s.job);
+    setProjectPath(s.project);
+    setTsharkPath(s.settings.tshark || "");
+    setPrefix(s.settings.prefix_bytes || 64);
+  }
+  const fail = (e: unknown) =>
+    setError(e instanceof Error ? e.message : String(e));
+  useEffect(() => {
+    refresh().catch(fail);
+  }, []);
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [tab]);
+  useEffect(() => {
+    if (!job.busy) return;
+    const id = setInterval(() => {
+      api<Job>("/jobs")
+        .then((j) => {
+          setJob(j);
+          if (!j.busy) {
+            if (j.error) setError(j.error);
+            refresh().catch(fail);
+          }
+        })
+        .catch(fail);
+    }, 700);
+    return () => clearInterval(id);
+  }, [job.busy]);
+  useEffect(() => {
+    if (!state?.report) {
+      setFlows({ total: 0, items: [] });
+      setSelectedFlow(null);
+      setLadder(null);
+      setEvents(null);
+      return;
+    }
+    if (job.busy) return;
+    let active = true;
+    const timer = setTimeout(
+      () =>
+        api<{ total: number; items: Flow[] }>(
+          `/flows?offset=${flowOffset}&search=${encodeURIComponent(search)}&filter_by=${filter}&sort=${sort}`,
+        )
+          .then((r) => {
+            if (active) setFlows(r);
+          })
+          .catch(fail),
+      150,
+    );
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [state?.report, flowOffset, search, filter, sort, job.busy]);
+  useEffect(() => {
+    if (!selectedFlow) return;
+    let active = true;
+    api<Ladder>(`/flows/${selectedFlow.flow}/ladder?offset=${ladderOffset}`)
+      .then((r) => {
+        if (active) setLadder(r);
+      })
+      .catch(fail);
+    return () => {
+      active = false;
+    };
+  }, [selectedFlow, ladderOffset]);
+  async function action(fn: () => Promise<unknown>) {
+    setError("");
+    setNotice("");
+    try {
+      await fn();
+    } catch (e) {
+      fail(e);
+    }
+  }
+  async function saveTopology(t: Topology) {
+    const saved = await api<Topology>("/topology", "PUT", t);
+    setTopology(saved);
+    setState((s) => (s ? { ...s, topology: saved, report: null } : s));
+    setNotice("Topology saved. Run analysis to refresh results.");
+  }
+  async function analyze() {
+    if (!topology) return;
+    setSelectedFlow(null);
+    setLadder(null);
+    setEvents(null);
+    setJob(await api<Job>("/analyze", "POST", topology));
+  }
+  async function waitIngest() {
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 500));
+      const j = await api<Job>("/jobs");
+      setJob(j);
+      if (!j.busy) {
+        if (j.error) throw new Error(j.error);
+        return;
+      }
+    }
+  }
+  async function upload(files: FileList | null) {
+    if (!files) return;
+    for (const f of Array.from(files)) {
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(
+          "POST",
+          "/api/captures/upload?name=" + encodeURIComponent(f.name),
+        );
+        xhr.setRequestHeader("X-PacketBreaker", "local");
+        xhr.upload.onprogress = (e) =>
+          setUploadPercent(
+            e.lengthComputable ? Math.round((e.loaded / e.total) * 100) : 0,
+          );
+        xhr.onload = () => {
+          setUploadPercent(null);
+          if (xhr.status < 300) {
+            setJob(JSON.parse(xhr.responseText));
+            resolve();
+          } else reject(new Error(xhr.responseText));
+        };
+        xhr.onerror = () => {
+          setUploadPercent(null);
+          reject(new Error("Upload failed"));
+        };
+        xhr.send(f);
+      });
+      await waitIngest();
+    }
+    await refresh();
+  }
+  async function showEvents(s: Segment, offset = 0) {
+    const page = await api<{
+      items: NonNullable<typeof events>["items"];
+      total: number;
+    }>(
+      `/events?a=${s.point_a}&b=${s.point_b}&direction=${s.direction}&offset=${offset}`,
+    );
+    setEvents({ label: s.label, ...page, segment: s, offset });
+  }
+  if (!state || !topology)
+    return (
+      <div className="loading">
+        <div className="brand-mark">P↯</div>
+        <h1>PacketBreaker</h1>
+        <p>{error || "Opening local workspace…"}</p>
+      </div>
+    );
+  const report = state.report;
+  const ready = state.captures.filter((c) => c.state === "ready").length;
+  const kinds =
+    report?.findings.reduce(
+      (acc, f) => {
+        acc[f.type] = (acc[f.type] || 0) + f.metrics.count;
+        return acc;
+      },
+      {} as Record<string, number>,
+    ) || {};
+  const busy = job.busy || uploadPercent !== null;
+  return (
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand">
+          <div className="brand-mark">P↯</div>
+          <div>
+            PacketBreaker<small>FOLLOW THE PACKET</small>
+          </div>
+        </div>
+        <div className="workspace-label">LOCAL WORKSPACE</div>
+        <nav>
+          {["Overview", "Captures", "Path", "Flows", "Settings"].map((x, i) => (
+            <button
+              key={x}
+              className={tab === x ? "active" : ""}
+              onClick={() => setTab(x)}
+            >
+              <span>{["◈", "▤", "⌘", "≋", "⚙"][i]}</span>
+              {x}
+              {x === "Captures" && <b>{state.captures.length}</b>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-bottom">
+          <span className="local-dot" /> Local processing only
+          <p>
+            No cloud. No telemetry.
+            <br />
+            Your captures stay on this computer.
+          </p>
+          <small>PHASE 1 · v0.1.0</small>
+        </div>
+      </aside>
+      <main>
+        <header>
+          <div>
+            <div className="breadcrumbs">
+              Workspace <span>/</span> {state.project.split(/[\\/]/).pop()}
+            </div>
+            <h1>
+              {tab === "Overview"
+                ? "Path investigation"
+                : tab === "Captures"
+                  ? "Capture inventory"
+                  : tab === "Path"
+                    ? "Map the traffic path"
+                    : tab === "Flows"
+                      ? "Follow a conversation"
+                      : "Workspace settings"}
+            </h1>
+            <p>
+              {tab === "Overview"
+                ? "Find where the evidence changes, one capture point at a time."
+                : tab === "Captures"
+                  ? "Understand capture quality before interpreting the network."
+                  : tab === "Path"
+                    ? "Your diagram is the authority. Connect capture points in traffic order."
+                    : tab === "Flows"
+                      ? "Trace packets across every point and verify the original frames."
+                      : "Local tools, analysis thresholds and clock overrides."}
+            </p>
+          </div>
+          <div className="header-actions">
+            <Badge kind="neutral">● OFFLINE</Badge>
+            <button
+              disabled={busy || ready < 2 || topology.forward.length < 2}
+              onClick={() => action(analyze)}
+            >
+              ▶ Analyze path
+            </button>
+          </div>
+        </header>
+        {error && (
+          <div className="alert" role="alert">
+            {error}
+            <button onClick={() => setError("")}>Dismiss</button>
+          </div>
+        )}
+        {notice && <div className="notice">{notice}</div>}
+        {state.tshark.error && (
+          <div className="alert">{state.tshark.error}</div>
+        )}
+        {busy && (
+          <div className="job-bar" role="status">
+            <div className="spinner" />
+            <strong>
+              {uploadPercent !== null
+                ? `Uploading · ${uploadPercent}%`
+                : job.state}
+            </strong>
+            <span>
+              {job.file}{" "}
+              {job.frames != null ? `· ${num(job.frames, " frames", 0)}` : ""}{" "}
+              {job.file_count
+                ? `· File ${job.file_index} of ${job.file_count}`
+                : ""}
+            </span>
+            {job.kind === "ingest" && job.busy && (
+              <button
+                className="secondary"
+                onClick={() => action(() => api("/jobs/cancel", "POST"))}
+              >
+                Cancel ingest
+              </button>
+            )}
+          </div>
+        )}
+        <div className="content">
+          {tab === "Overview" && (
+            <>
+              <div className="stats">
+                <div>
+                  <Tip text="Completed captures available for correlation. Incomplete files are excluded.">
+                    Ready captures
+                  </Tip>
+                  <strong>
+                    {ready}
+                    <small> / {state.captures.length}</small>
+                  </strong>
+                </div>
+                <div>
+                  <Tip text="Canonical 5-tuple conversations, combined across confirmed NAT mappings.">
+                    Conversations
+                  </Tip>
+                  <strong>
+                    {report ? num(report.flow_count, "", 0) : "—"}
+                  </strong>
+                </div>
+                <div>
+                  <Tip text="Missing original TCP segments with delivered retransmission and recovery at or above the configured stall threshold.">
+                    Impactful loss
+                  </Tip>
+                  <strong className={kinds.impactful_loss ? "red" : ""}>
+                    {report ? num(kinds.impactful_loss || 0, "", 0) : "—"}
+                  </strong>
+                </div>
+                <div>
+                  <Tip text="Intermediate capture absence contradicted by later packet or ACK evidence. These are not network loss.">
+                    Capture misses
+                  </Tip>
+                  <strong>
+                    {report ? num(kinds.capture_miss || 0, "", 0) : "—"}
+                  </strong>
+                </div>
+              </div>
+              {!report ? (
+                <section className="empty-start">
+                  <div className="path-illustration">
+                    ◉ <span>·····</span> ◇ <span>·····</span> ◇{" "}
+                    <span>·····</span> ◉
+                  </div>
+                  <span className="eyebrow">FROM CAPTURES TO EVIDENCE</span>
+                  <h2>One path. Multiple perspectives.</h2>
+                  <p>
+                    Attach the captures, connect their capture points, then
+                    analyze the same traffic across the path.
+                  </p>
+                  <div className="steps">
+                    <button onClick={() => setTab("Captures")}>
+                      <b>01</b> Attach captures →
+                    </button>
+                    <button onClick={() => setTab("Path")}>
+                      <b>02</b> Map the path →
+                    </button>
+                    <button
+                      disabled={topology.forward.length < 2 || busy}
+                      onClick={() => action(analyze)}
+                    >
+                      <b>03</b> Analyze →
+                    </button>
+                  </div>
+                </section>
+              ) : (
+                <>
+                  <section className="verdict">
+                    <div>
+                      <span className="eyebrow">EVIDENCE SUMMARY</span>
+                      <h2>{report.verdict}</h2>
+                      <p>
+                        {time(report.window.start)} — {time(report.window.end)}
+                      </p>
+                    </div>
+                    <Badge kind={kinds.impactful_loss ? "high" : "neutral"}>
+                      {kinds.impactful_loss ? "INVESTIGATE" : "REVIEW COVERAGE"}
+                    </Badge>
+                  </section>
+                  <section>
+                    <div className="section-head">
+                      <h2>Capture quality comes first</h2>
+                      <button
+                        className="text-button"
+                        onClick={() => setTab("Captures")}
+                      >
+                        Inspect all captures →
+                      </button>
+                    </div>
+                    <div className="quality-grid">
+                      {report.quality.map((q) => (
+                        <button
+                          key={q.point}
+                          className="quality-card"
+                          onClick={() => setEvidence(q.evidence)}
+                        >
+                          <strong>
+                            {topology.points.find((p) => p.id === q.point)
+                              ?.label || q.point}
+                          </strong>
+                          <span title="Capture-reported interface and OS drops. Unknown is not zero.">
+                            Drops: {num(q.ifdrop, "", 0)} /{" "}
+                            {num(q.osdrop, "", 0)}
+                          </span>
+                          <span title="Frames excluded because their fingerprint repeats, conflicts, or is unsupported.">
+                            {num(q.excluded, " excluded", 0)}
+                          </span>
+                          <span title="Captured length is smaller than wire length; only common payload prefixes are compared.">
+                            {num(q.truncated, " truncated", 0)}
+                          </span>
+                          <span title="Payloads above 1500 bytes may be jumbo frames or offload artifacts, not proof of an error.">
+                            {num(q.possible_offload, " large frames", 0)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                  <section>
+                    <div className="section-head">
+                      <h2>Ranked findings</h2>
+                      <small>
+                        First observed event · click for frame evidence
+                      </small>
+                    </div>
+                    {report.findings.length ? (
+                      report.findings.slice(0, 5).map((f) => (
+                        <button
+                          key={f.id}
+                          className="finding"
+                          onClick={() => setEvidence(f.evidence)}
+                        >
+                          <Badge kind={f.severity}>
+                            {f.type.replaceAll("_", " ")}
+                          </Badge>
+                          <div>
+                            <strong>{f.summary}</strong>
+                            <small>
+                              {time(f.time_range[0])} · {f.direction} ·{" "}
+                              {f.confidence}
+                            </small>
+                          </div>
+                          <span>↗</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="empty">
+                        No supported missing-packet events in this analysis.
+                      </div>
+                    )}
+                  </section>
+                  <section>
+                    <div className="section-head">
+                      <h2>Hop-by-hop evidence</h2>
+                      <small>
+                        Click a segment to inspect every missing appearance
+                      </small>
+                    </div>
+                    <div className="table-scroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Path segment</th>
+                            <th>Direction</th>
+                            <th>
+                              <Tip text="Supported loss events divided by eligible data observations at the upstream point.">
+                                Loss
+                              </Tip>
+                            </th>
+                            <th>
+                              <Tip text="95th percentile of corrected matched-packet transit times. This is an estimate with clock uncertainty.">
+                                Transit p95
+                              </Tip>
+                            </th>
+                            <th>
+                              <Tip text="Unambiguous packet appearances matched at both ends of this segment.">
+                                Matched
+                              </Tip>
+                            </th>
+                            <th>Confidence / limitation</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {report.segments.map((s) => (
+                            <tr
+                              key={s.id}
+                              className="clickable"
+                              onClick={() => action(() => showEvents(s))}
+                            >
+                              <td>
+                                <strong>{s.label}</strong>
+                                <small>{s.location}</small>
+                              </td>
+                              <td>{s.direction}</td>
+                              <td>{num(s.loss_percent, "%")}</td>
+                              <td>{num(s.p95_ms, " ms", 3)}</td>
+                              <td>{num(s.matched, "", 0)}</td>
+                              <td>
+                                {s.reason ||
+                                  `Estimated · offset uncertainty ±${num(s.offset_uncertainty_ms, " ms", 3)}`}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                  {events && (
+                    <section>
+                      <div className="section-head">
+                        <h2>{events.label}</h2>
+                        <button
+                          className="secondary"
+                          onClick={() => setEvents(null)}
+                        >
+                          Close
+                        </button>
+                      </div>
+                      {events.items.map((e) => (
+                        <button
+                          className="finding"
+                          key={e.id}
+                          onClick={() => setEvidence(e.evidence)}
+                        >
+                          <Badge>{e.kind.replaceAll("_", " ")}</Badge>
+                          <div>
+                            <strong>{e.reason}</strong>
+                            <small>
+                              {time(e.ts)} · recovery{" "}
+                              {num(e.recovery_ms, " ms")}
+                            </small>
+                          </div>
+                        </button>
+                      ))}
+                      <div className="pagination">
+                        <span>{events.total} events</span>
+                        <button
+                          disabled={!events.offset}
+                          onClick={() =>
+                            action(() =>
+                              showEvents(events.segment, events.offset - 50),
+                            )
+                          }
+                        >
+                          Previous
+                        </button>
+                        <button
+                          disabled={events.offset + 50 >= events.total}
+                          onClick={() =>
+                            action(() =>
+                              showEvents(events.segment, events.offset + 50),
+                            )
+                          }
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </section>
+                  )}
+                </>
+              )}
+              <section>
+                <div className="section-head">
+                  <h2>Capture coverage</h2>
+                  <Badge>{report ? "CLOCK CORRECTED" : "OBSERVED TIME"}</Badge>
+                </div>
+                <Coverage captures={state.captures} report={report} />
+              </section>
+              {report && (
+                <details>
+                  <summary>Interpretation limits</summary>
+                  {report.limitations.map((l) => (
+                    <p key={l}>{l}</p>
+                  ))}
+                  <p>{report.scope}</p>
+                </details>
+              )}
+            </>
+          )}
+          {tab === "Captures" && (
+            <>
+              <section>
+                <div className="section-head">
+                  <h2>Add packet captures</h2>
+                  <Badge>PCAP / PCAPNG</Badge>
+                </div>
+                <div className="upload-area">
+                  <span>⇧</span>
+                  <h3>Bring the path into view</h3>
+                  <p>
+                    Attach local files without copying, or upload them into the
+                    project.
+                  </p>
+                  <label className={"button " + (busy ? "disabled" : "")}>
+                    Choose capture files
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pcap,.pcapng"
+                      hidden
+                      disabled={busy}
+                      onChange={(e) => action(() => upload(e.target.files))}
+                    />
+                  </label>
+                </div>
+                <label>
+                  Absolute local file paths (one per line)
+                  <textarea
+                    value={path}
+                    onChange={(e) => setPath(e.target.value)}
+                    placeholder="/path/to/firewall-ingress.pcap"
+                    rows={3}
+                  />
+                </label>
+                <button
+                  disabled={busy || !path.trim()}
+                  onClick={() =>
+                    action(async () => {
+                      setJob(
+                        await api<Job>("/captures/attach", "POST", {
+                          paths: path
+                            .split("\n")
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        }),
+                      );
+                    })
+                  }
+                >
+                  Attach files
+                </button>
+              </section>
+              <section>
+                <Coverage captures={state.captures} report={report} />
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Capture</th>
+                        <th>Status</th>
+                        <th>
+                          <Tip text="Number of frames successfully indexed by tshark.">
+                            Packets
+                          </Tip>
+                        </th>
+                        <th>Start / end (observed UTC)</th>
+                        <th>
+                          <Tip text="Elapsed time between first and last observed frame; this does not prove continuous capture.">
+                            Duration
+                          </Tip>
+                        </th>
+                        <th>
+                          <Tip text="pcapng interface/OS drop counters. Unknown means the file did not report the counter.">
+                            Drops (if / OS)
+                          </Tip>
+                        </th>
+                        <th>Interfaces / snaplen / link type</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {state.captures.map((c) => (
+                        <tr key={c.id}>
+                          <td>
+                            <strong>{c.name}</strong>
+                            <small title={c.path}>{c.path}</small>
+                            {c.error && (
+                              <small className="red">{c.error}</small>
+                            )}
+                          </td>
+                          <td>
+                            <Badge
+                              kind={c.state === "ready" ? "good" : "unknown"}
+                            >
+                              {c.state}
+                            </Badge>
+                            {!["ready", "ingesting"].includes(c.state) && (
+                              <button
+                                disabled={busy}
+                                onClick={() =>
+                                  action(async () =>
+                                    setJob(
+                                      await api<Job>(
+                                        "/captures/attach",
+                                        "POST",
+                                        { paths: [c.path] },
+                                      ),
+                                    ),
+                                  )
+                                }
+                              >
+                                Resume
+                              </button>
+                            )}
+                          </td>
+                          <td>
+                            {num(
+                              c.inventory.packet_count ?? c.checkpoint,
+                              "",
+                              0,
+                            )}
+                          </td>
+                          <td>
+                            {time(c.inventory.start)}
+                            <small>{time(c.inventory.end)}</small>
+                          </td>
+                          <td>{num(c.inventory.duration, " s")}</td>
+                          <td>
+                            {num(c.inventory.ifdrop, "", 0)} /{" "}
+                            {num(c.inventory.osdrop, "", 0)}
+                          </td>
+                          <td>
+                            {c.inventory.interfaces.map((x, i) => (
+                              <small key={i}>
+                                #{x.id} {x.name} · {x.snaplen} B · DLT{" "}
+                                {x.link_type}
+                              </small>
+                            ))}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </>
+          )}
+          {tab === "Path" && (
+            <>
+              <section>
+                <TopologyEditor
+                  topology={topology}
+                  captures={state.captures}
+                  report={report}
+                  onChange={setTopology}
+                  onSave={(t) => action(() => saveTopology(t))}
+                  onError={setError}
+                />
+              </section>
+              <section>
+                <div className="section-head">
+                  <h2>Translation mappings</h2>
+                  <small>
+                    Confirmed mappings combine the two 5-tuples and their
+                    reverse direction.
+                  </small>
+                </div>
+                {report?.nat_suggestions.length ? (
+                  <>
+                    {report.nat_suggestions.map((s, i) => (
+                      <div className="mapping" key={i}>
+                        <div>
+                          <Badge>
+                            {num(s.samples, " matching packets", 0)}
+                          </Badge>
+                          <code>{s.tuple_a}</code>
+                          <span>↓</span>
+                          <code>{s.tuple_b}</code>
+                        </div>
+                        <button
+                          disabled={topology.nat_mappings.some(
+                            (m) =>
+                              m.point_a === s.point_a &&
+                              m.point_b === s.point_b &&
+                              ((m.tuple_a === s.tuple_a &&
+                                m.tuple_b === s.tuple_b) ||
+                                (reverseTuple(m.tuple_a) === s.tuple_a &&
+                                  reverseTuple(m.tuple_b) === s.tuple_b)),
+                          )}
+                          onClick={() =>
+                            setTopology({
+                              ...topology,
+                              nat_mappings: [...topology.nat_mappings, s],
+                            })
+                          }
+                        >
+                          Confirm mapping
+                        </button>
+                        <button
+                          className="secondary"
+                          onClick={() => setEvidence(s.evidence || [])}
+                        >
+                          Evidence
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <p className="hint">
+                    Declare both sides of a device as NAT and run analysis to
+                    learn candidates. Candidates remain unapplied until
+                    confirmed.
+                  </p>
+                )}
+                {topology.nat_mappings.map((m, i) => (
+                  <div className="mapping" key={i}>
+                    <Badge kind="good">Confirmed</Badge>
+                    <div>
+                      <input
+                        aria-label="Original tuple"
+                        value={m.tuple_a}
+                        onChange={(e) =>
+                          setTopology({
+                            ...topology,
+                            nat_mappings: topology.nat_mappings.map((x, j) =>
+                              i === j ? { ...x, tuple_a: e.target.value } : x,
+                            ),
+                          })
+                        }
+                      />
+                      <input
+                        aria-label="Translated tuple"
+                        value={m.tuple_b}
+                        onChange={(e) =>
+                          setTopology({
+                            ...topology,
+                            nat_mappings: topology.nat_mappings.map((x, j) =>
+                              i === j ? { ...x, tuple_b: e.target.value } : x,
+                            ),
+                          })
+                        }
+                      />
+                    </div>
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        setTopology({
+                          ...topology,
+                          nat_mappings: topology.nat_mappings.filter(
+                            (_, j) => i !== j,
+                          ),
+                        })
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  disabled={busy}
+                  onClick={() => action(() => saveTopology(topology))}
+                >
+                  Save mapping decisions
+                </button>
+              </section>
+            </>
+          )}
+          {tab === "Flows" && (
+            <>
+              <section>
+                <div className="section-head">
+                  <h2>Conversations</h2>
+                  <Badge>{num(flows.total, " TOTAL", 0)}</Badge>
+                </div>
+                <div className="toolbar">
+                  <input
+                    aria-label="Search conversations"
+                    placeholder="Search an address or port…"
+                    value={search}
+                    onChange={(e) => {
+                      setSearch(e.target.value);
+                      setFlowOffset(0);
+                    }}
+                  />
+                  <select
+                    aria-label="Quick filter"
+                    value={filter}
+                    onChange={(e) => {
+                      setFilter(e.target.value);
+                      setFlowOffset(0);
+                    }}
+                  >
+                    <option value="">All conversations</option>
+                    <option value="impactful">Impactful loss</option>
+                    <option value="handshakes">Incomplete handshakes</option>
+                    <option value="resets">Resets observed</option>
+                  </select>
+                  <select
+                    aria-label="Sort conversations"
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value)}
+                  >
+                    <option value="bytes">Sort by bytes</option>
+                    <option value="max_stall_ms">Sort by recovery wait</option>
+                    <option value="impactful_loss">
+                      Sort by impactful loss
+                    </option>
+                    <option value="retrans_observations">
+                      Sort by retransmissions
+                    </option>
+                    <option value="start">Sort by start</option>
+                  </select>
+                </div>
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Canonical conversation</th>
+                        <th>
+                          <Tip text="Sum of lengths of distinct packet signatures across the selected points, including retransmitted wire packets.">
+                            Bytes
+                          </Tip>
+                        </th>
+                        <th>
+                          <Tip text="Elapsed corrected time between first and last packet in this 5-tuple conversation.">
+                            Duration
+                          </Tip>
+                        </th>
+                        <th>
+                          <Tip text="Wireshark retransmission observations summed across capture points; the same retransmission may be observed at several points.">
+                            Retrans observations
+                          </Tip>
+                        </th>
+                        <th>
+                          <Tip text="Impactful / recovered / capture miss events. A capture miss is not network loss.">
+                            Loss classes
+                          </Tip>
+                        </th>
+                        <th>
+                          <Tip text="Largest observed interval from missing original to delivered retransmission; not device processing time.">
+                            Max recovery
+                          </Tip>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {flows.items.map((f) => (
+                        <tr
+                          className="clickable"
+                          key={f.flow}
+                          onClick={() => {
+                            setSelectedFlow(f);
+                            setLadderOffset(0);
+                          }}
+                        >
+                          <td>
+                            <code>{f.tuple}</code>
+                            <small>
+                              {f.has_reset ? "RST observed · " : ""}
+                              {f.handshake_incomplete
+                                ? "Handshake incomplete in captures"
+                                : ""}
+                            </small>
+                          </td>
+                          <td>{num(f.bytes, " B", 0)}</td>
+                          <td>
+                            {num(
+                              f.start != null && f.end != null
+                                ? f.end - f.start
+                                : null,
+                              " s",
+                            )}
+                          </td>
+                          <td>{f.retrans_observations}</td>
+                          <td>
+                            {f.impactful_loss} / {f.recovered_loss} /{" "}
+                            {f.capture_miss}
+                          </td>
+                          <td>{num(f.max_stall_ms, " ms")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {!report && (
+                  <div className="empty">
+                    Run analysis to populate conversations.
+                  </div>
+                )}
+                <div className="pagination">
+                  <span>
+                    {flows.total
+                      ? `${flowOffset + 1}–${Math.min(flowOffset + 50, flows.total)} of ${flows.total}`
+                      : "No conversations"}
+                  </span>
+                  <button
+                    disabled={flowOffset === 0}
+                    onClick={() => setFlowOffset(flowOffset - 50)}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    disabled={flowOffset + 50 >= flows.total}
+                    onClick={() => setFlowOffset(flowOffset + 50)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </section>
+              {selectedFlow && ladder && (
+                <section>
+                  <div className="section-head">
+                    <div>
+                      <span className="eyebrow">STREAM DRILL-DOWN</span>
+                      <h2>Multi-hop packet ladder</h2>
+                    </div>
+                    <button
+                      className="secondary"
+                      onClick={() => setSelectedFlow(null)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <p className="hint">
+                    Teal: original · amber: retransmission · red ×: missing
+                    appearance. Click a line or row for Wireshark frame filters.
+                  </p>
+                  {ladder.local_metrics && (
+                    <div className="table-scroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Capture point / local tuple</th>
+                            <th>
+                              <Tip text="Observed SYN to matching SYN/ACK at this capture point. Same-clock interval; frame numbers identify the pair.">
+                                SYN → SYN/ACK
+                              </Tip>
+                            </th>
+                            <th>
+                              <Tip text="Observed SYN/ACK to matching ACK at this capture point.">
+                                SYN/ACK → ACK
+                              </Tip>
+                            </th>
+                            <th>
+                              <Tip text="Largest Wireshark data/ACK RTT observed at this capture point.">
+                                Max RTT
+                              </Tip>
+                            </th>
+                            <th>
+                              <Tip text="Observed zero receive windows. These may indicate a receiver/application stall.">
+                                Zero windows
+                              </Tip>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ladder.local_metrics.map((m) => (
+                            <tr key={m.point}>
+                              <td>
+                                <strong>{m.point}</strong>
+                                <small>{m.tuple}</small>
+                              </td>
+                              <td>
+                                {num(m.handshake?.syn_to_synack_ms, " ms")}
+                                <small>
+                                  {m.handshake
+                                    ? `Frames #${m.handshake.syn_frame} → #${m.handshake.synack_frame}`
+                                    : ""}
+                                </small>
+                              </td>
+                              <td>
+                                {num(m.handshake?.synack_to_ack_ms, " ms")}
+                              </td>
+                              <td>{num(m.max_rtt_ms, " ms")}</td>
+                              <td>{m.zero_windows}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <LadderChart
+                    data={ladder}
+                    points={topology.forward.map((id) =>
+                      topology.points.find((p) => p.id === id)!,
+                    )}
+                    onEvidence={setEvidence}
+                  />
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Direction</th>
+                          <th>Sequence / ACK</th>
+                          <th>Length</th>
+                          <th>Appearances</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ladder.items.map((p) => (
+                          <tr
+                            className="clickable"
+                            key={p.packet_key}
+                            onClick={() => setEvidence(p.evidence)}
+                          >
+                            <td>
+                              {time(p.ts)}{" "}
+                              {p.retrans && <Badge kind="low">retrans</Badge>}
+                            </td>
+                            <td>{p.direction}</td>
+                            <td>
+                              {p.seq} / {p.ack}
+                            </td>
+                            <td>{p.length} B</td>
+                            <td>
+                              {p.evidence
+                                .map((e) => `${e.point} #${e.frame}`)
+                                .join(" · ")}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="pagination">
+                    <span>
+                      {ladderOffset + 1}–
+                      {Math.min(ladderOffset + 100, ladder.total)} of{" "}
+                      {ladder.total} packet identities
+                    </span>
+                    <button
+                      disabled={!ladderOffset}
+                      onClick={() => setLadderOffset(ladderOffset - 100)}
+                    >
+                      Previous
+                    </button>
+                    <button
+                      disabled={ladderOffset + 100 >= ladder.total}
+                      onClick={() => setLadderOffset(ladderOffset + 100)}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+          {tab === "Settings" && (
+            <>
+              <section>
+                <h2>Project directory</h2>
+                <p className="hint">
+                  Create a project in an empty directory or reopen an existing
+                  project. Completed captures are cached in its DuckDB file.
+                </p>
+                <div className="toolbar">
+                  <input
+                    aria-label="Project directory"
+                    value={projectPath}
+                    onChange={(e) => setProjectPath(e.target.value)}
+                  />
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      action(async () => {
+                        await api("/project", "POST", { path: projectPath });
+                        await refresh();
+                        setSelectedFlow(null);
+                      })
+                    }
+                  >
+                    Open / create project
+                  </button>
+                </div>
+              </section>
+              <section>
+                <h2>Packet dissection</h2>
+                <p className="hint">
+                  Detected: {state.tshark.path || "unknown"}
+                </p>
+                <label>
+                  tshark override (blank = auto-detect)
+                  <input
+                    value={tsharkPath}
+                    onChange={(e) => setTsharkPath(e.target.value)}
+                  />
+                </label>
+                <label>
+                  <Tip text="Maximum captured L4 payload prefix stored for matching. Reattach existing files after changing this value to rebuild their cache.">
+                    Payload prefix bytes
+                  </Tip>
+                  <input
+                    type="number"
+                    min="8"
+                    max="4096"
+                    value={prefix}
+                    onChange={(e) => setPrefix(Number(e.target.value))}
+                  />
+                </label>
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    action(async () => {
+                      await api("/settings", "POST", {
+                        tshark: tsharkPath || null,
+                        prefix_bytes: prefix,
+                      });
+                      setNotice(
+                        "Settings saved. Reattach files to apply a changed payload prefix.",
+                      );
+                      await refresh();
+                    })
+                  }
+                >
+                  Save settings
+                </button>
+              </section>
+              <section>
+                <h2>Analysis window and thresholds</h2>
+                <div className="two-col">
+                  <label>
+                    <Tip text="Recovery waits at or above this threshold are impactful loss. Default 200 ms.">
+                      Impactful stall threshold (ms)
+                    </Tip>
+                    <input
+                      type="number"
+                      value={topology.stall_ms}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          stall_ms: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <div className="notice">
+                    Blank window bounds use the common clock-corrected overlap.
+                    Results outside coverage remain unknown.
+                  </div>
+                  <label>
+                    Start (Unix seconds, optional)
+                    <input
+                      type="number"
+                      value={topology.start ?? ""}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          start: e.target.value ? Number(e.target.value) : null,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    End (Unix seconds, optional)
+                    <input
+                      type="number"
+                      value={topology.end ?? ""}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          end: e.target.value ? Number(e.target.value) : null,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              </section>
+              <section>
+                <h2>Clock alignment</h2>
+                <p className="hint">
+                  Offset is capture clock minus reference clock. Drift is parts
+                  per million relative to the reference epoch. Estimates assume
+                  symmetric minimum path delay; they are not calibrated
+                  measurements.
+                </p>
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Capture</th>
+                        <th>Estimated offset / drift</th>
+                        <th>Confidence</th>
+                        <th>Override offset (ms)</th>
+                        <th>Override drift (ppm)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {state.captures.map((c) => {
+                        const m = report?.clocks[c.id],
+                          o = topology.clock_overrides[c.id];
+                        return (
+                          <tr key={c.id}>
+                            <td>{c.name}</td>
+                            <td title={m?.reason}>
+                              {num(
+                                m?.offset != null ? m.offset * 1000 : null,
+                                " ms",
+                                3,
+                              )}
+                              <small>
+                                {num(m?.drift_ppm, " ppm", 3)} ·{" "}
+                                {m?.samples ?? 0} pairs
+                              </small>
+                            </td>
+                            <td title={m?.reason}>
+                              <Badge>{m?.confidence || "unknown"}</Badge>
+                              {!!m?.evidence?.length && (
+                                <button
+                                  className="icon"
+                                  onClick={() => setEvidence(m.evidence)}
+                                >
+                                  Frames
+                                </button>
+                              )}
+                              <small>
+                                ±
+                                {num(
+                                  m?.uncertainty != null
+                                    ? m.uncertainty * 1000
+                                    : null,
+                                  " ms",
+                                  3,
+                                )}
+                              </small>
+                            </td>
+                            <td>
+                              <input
+                                aria-label={`Offset ${c.name}`}
+                                type="number"
+                                step="any"
+                                value={o?.offset_ms ?? ""}
+                                placeholder="Automatic"
+                                onChange={(e) => {
+                                  const overrides = {
+                                    ...topology.clock_overrides,
+                                  };
+                                  if (e.target.value === "")
+                                    delete overrides[c.id];
+                                  else
+                                    overrides[c.id] = {
+                                      offset_ms: Number(e.target.value),
+                                      drift_ppm: o?.drift_ppm || 0,
+                                    };
+                                  setTopology({
+                                    ...topology,
+                                    clock_overrides: overrides,
+                                  });
+                                }}
+                              />
+                            </td>
+                            <td>
+                              <input
+                                aria-label={`Drift ${c.name}`}
+                                disabled={!o}
+                                type="number"
+                                step="any"
+                                value={o?.drift_ppm ?? ""}
+                                onChange={(e) =>
+                                  setTopology({
+                                    ...topology,
+                                    clock_overrides: {
+                                      ...topology.clock_overrides,
+                                      [c.id]: {
+                                        offset_ms: o.offset_ms,
+                                        drift_ppm: Number(e.target.value),
+                                      },
+                                    },
+                                  })
+                                }
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <button
+                  disabled={busy}
+                  onClick={() => action(() => saveTopology(topology))}
+                >
+                  Save analysis settings
+                </button>
+              </section>
+            </>
+          )}
+        </div>
+        <footer>
+          PacketBreaker <span>Evidence first. Uncertainty visible.</span>
+          <span>All analysis stays on this computer.</span>
+        </footer>
+      </main>
+      {evidence && (
+        <Evidence refs={evidence} onClose={() => setEvidence(null)} />
+      )}
+    </div>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<App />);
