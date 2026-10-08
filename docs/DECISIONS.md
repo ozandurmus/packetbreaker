@@ -88,3 +88,13 @@ The measured five-file workload is highly skewed and showed no concurrency speed
 (293.49 s serial versus 302.45 s with four workers). Keep parallelism for independent
 files and per-file controls without claiming a measured throughput gain. The RAM
 ratio is a worker scheduling estimate, not a hard aggregate memory cap.
+
+## Phase 2 / Part 2 — ingest default
+
+The equal-file benchmark reached 1.34× initially and 1.48× after bounded tuple and
+signature memoization. It did not reach 1.5× even with five instead of four allowed
+workers. Keep the measured serial path as default; opt into parallel via Settings,
+`parallel: true` in preferences, or `demo --parallel-ingest`. Independent tshark
+processes still feed Python row/CSV work under the GIL and serialized DuckDB writes.
+A process/shard rewrite is not justified by this bounded request; do not claim an
+unmeasured speedup. Exact packet-field equality was verified on all 5,000,750 rows.

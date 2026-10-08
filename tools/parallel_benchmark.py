@@ -13,7 +13,7 @@ from packetbreaker.batch_ingest import ingest_many
 from packetbreaker.store import Project
 
 
-def run(source, output, mode):
+def run(source, output, mode, profiling=False):
     paths = [source / "captures" / f"point-{i}.pcap" for i in range(5)]
     assert all(p.is_file() for p in paths)
     output.mkdir(parents=True, exist_ok=True)
@@ -24,6 +24,8 @@ def run(source, output, mode):
     process = psutil.Process()
     stop = threading.Event()
     peak = 0
+    child_cpu = {}
+    profile = {} if profiling else None
 
     def memory():
         nonlocal peak
@@ -32,6 +34,8 @@ def run(source, output, mode):
             for child in process.children(recursive=True):
                 try:
                     total += child.memory_info().rss
+                    cpu = child.cpu_times()
+                    child_cpu[child.pid] = cpu.user + cpu.system
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
             peak = max(peak, total)
@@ -52,7 +56,14 @@ def run(source, output, mode):
 
     start = time.monotonic()
     try:
-        ingest_many(project, paths, workers=1 if mode == "serial" else None, progress=progress)
+        ingest_many(
+            project,
+            paths,
+            workers=1 if mode == "serial" else None,
+            parallel=mode == "parallel",
+            progress=progress,
+            profile=profile,
+        )
     finally:
         elapsed = time.monotonic() - start
         stop.set()
@@ -61,6 +72,8 @@ def run(source, output, mode):
     frames = sum(c["inventory"]["packet_count"] for c in captures)
     result = dict(
         mode=mode,
+        profile=profile,
+        tshark_cpu_seconds_sampled=sum(child_cpu.values()),
         files=len(paths),
         frames=frames,
         input_bytes=sum(p.stat().st_size for p in paths),
@@ -81,5 +94,6 @@ if __name__ == "__main__":
     parser.add_argument("mode", choices=["serial", "parallel"])
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--profile", action="store_true")
     args = parser.parse_args()
-    run(args.source, args.output, args.mode)
+    run(args.source, args.output, args.mode, args.profile)

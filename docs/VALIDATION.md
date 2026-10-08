@@ -268,3 +268,48 @@ The GitHub repository is private; `demo/`, capture files and databases are untra
 The initial baseline was pushed to main once as requested; all Part 1 work is on
 `phase2-part1`, with one commit for each numbered item. PR #1 stays open with
 no auto-merge. Other Phase 2 work remains outside scope.
+
+## Phase 2 / Part 2 — equal-file ingest re-check (item 0)
+
+Five equal synthetic inputs, each **1,000,150 frames / 262,010,524 bytes**:
+**5,000,750 frames / 1,310,052,620 bytes** total. Fresh indexes for every run,
+warm local SSD caches, timed stages sequential without concurrent tests/builds.
+The machine has 10 logical cores. No real capture was read for this benchmark.
+
+| Implementation | Mode / workers | Ingest seconds | Frames/s | `time -l` peak RSS (B) | Sampled process-tree peak RSS (B) |
+|---|---|---:|---:|---:|---:|
+| before | serial / 1 | 267.91 | 18666 | 655,163,392 | 1,248,722,944 |
+| before | parallel / 4 | 199.36 | 25084 | 861,634,560 | 2,604,679,168 |
+| after | serial / 1 | 271.29 | 18433 | 744,095,744 | 1,359,822,848 |
+| after | parallel / 5 | 183.54 | 27247 | 932,954,112 | 2,849,832,960 |
+
+Initial speedup: **1.34×**. Repeated tuple serialization and packet-signature hashing
+were reduced with bounded 65,536-entry caches, preserving the exact stored values.
+Afterward: **1.48×**, still below 1.5×. Available RAM selected four workers before
+and five afterward (8.29 / 8.66 decimal GB available); this is not a controlled
+claim that caching alone produced the wall-time improvement. Even the more
+favorable five-worker run did not meet the threshold. **Serial is the default**;
+parallel remains an explicit API/CLI/UI option with the same resource budget.
+
+The parallel profile measured 171.52 / 171.99 sampled tshark CPU seconds before /
+after. Python row-processing CPU was 117.28 / 104.11 seconds and CSV-write CPU
+38.03 / 39.18 seconds. Aggregate DuckDB connection-wait/open wall time was 34.82 /
+136.19 seconds; held-connection wall time was 111.49 / 137.30 seconds. More
+simultaneous files increase contention at the single writer. Python row processing
+and CSV serialization retain the GIL; tshark parallelism does not make the entire
+pipeline parallel. These summed per-file durations overlap and must not be added
+to predict wall time. Counters are sampled per process or collected per batch;
+connection-wait includes connection opening, not just lock acquisition.
+
+Exact before/after comparison: **5,000,750 rows, zero mismatches across all 39 packet
+fields**, with the random capture ID normalized by filename (the 40th column).
+The parser/cache/cancel regressions passed. `time -l` RSS is a per-process high-water
+mark; the separately sampled 100 ms process-tree sum can count shared pages twice.
+The resource ratio remains a scheduling estimate, not an enforced RSS limit.
+
+Reproduce with `tools/large_benchmark.py generate INPUT --frames 1000000
+--small-frames 1000000`, then `/usr/bin/time -l python tools/parallel_benchmark.py
+serial|parallel INPUT FRESH_OUTPUT --profile`. The script explicitly opts into
+parallel mode. Use `tools/compare_indexes.py BEFORE_PROJECT AFTER_PROJECT OUTPUT.json`
+for exact equality. [Raw measurements](phase2-part2-benchmark.json) retain the
+profile totals, exact frame counts and both memory measurements.

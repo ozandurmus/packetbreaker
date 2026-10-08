@@ -22,6 +22,7 @@ class Attach(BaseModel):
 
 
 class Settings(BaseModel):
+    parallel: bool = False
     tshark: str | None = None
     prefix_bytes: int = Field(default=64, ge=8, le=4096)
 

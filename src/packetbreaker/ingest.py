@@ -1,4 +1,5 @@
 import csv
+from functools import lru_cache
 import re
 import hashlib
 import json
@@ -51,8 +52,14 @@ def number(value, default=0):
     return int(value, 16) if value.startswith("0x") else int(value) if value else default
 
 
+@lru_cache(maxsize=65536)
 def tuple_id(proto, src, sport, dst, dport):
     return json.dumps([proto, src, sport, dst, dport], separators=(",", ":"))
+
+
+@lru_cache(maxsize=65536)
+def packet_signature(*identity):
+    return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 
 
 def parse_packet(values, capture_id, prefix_bytes):
@@ -125,7 +132,7 @@ def parse_packet(values, capture_id, prefix_bytes):
         caplen=caplen,
         prefix=payload,
         payload_hash=hashlib.sha256(bytes.fromhex(payload)).hexdigest() if payload else "",
-        signature=hashlib.sha256(json.dumps(identity).encode()).hexdigest(),
+        signature=packet_signature(*identity),
         tuple_key=tuple_id(proto, src, sport, dst, dport),
         reverse_tuple=tuple_id(proto, dst, dport, src, sport),
         stream=number(g("tcp.stream"), -1),
@@ -151,7 +158,9 @@ def parse_packet(values, capture_id, prefix_bytes):
     return [p[k] for k in PACKET_COLUMNS]
 
 
-def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=None, batch_size=50000):
+def ingest(
+    project, path, tshark=None, prefix_bytes=64, cancel=None, progress=None, batch_size=50000, profile=None
+):
     cancel = cancel or threading.Event()
     progress = progress or (lambda **kw: None)
     path = Path(path).expanduser().resolve()
@@ -214,6 +223,7 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
         cmd += ["-c", str(info["frame_limit"])]
     for field in FIELDS:
         cmd += ["-e", field]
+    metrics = dict(csv_write_cpu_s=0.0, duckdb_cpu_s=0.0, duckdb_wait_s=0.0, duckdb_hold_s=0.0)
     batch, last, seen = [], checkpoint, 0
     excluded = []
     with tempfile.TemporaryDirectory(prefix="ingest-", dir=project.path) as temp:
@@ -222,11 +232,19 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
         def flush():
             if not batch and not excluded:
                 return
+            cpu_start = time.thread_time() if profile is not None else 0
             with batch_path.open("w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow(PACKET_COLUMNS)
                 writer.writerows(batch)
+            if profile is not None:
+                metrics["csv_write_cpu_s"] += time.thread_time() - cpu_start
+            wait_start = time.monotonic() if profile is not None else 0
+            cpu_start = time.thread_time() if profile is not None else 0
             with project.connect(allow_external=True) as db:
+                hold_start = time.monotonic() if profile is not None else 0
+                if profile is not None:
+                    metrics["duckdb_wait_s"] += hold_start - wait_start
                 db.execute("BEGIN")
                 try:
                     if batch:
@@ -241,6 +259,9 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                 except BaseException:
                     db.execute("ROLLBACK")
                     raise
+            if profile is not None:
+                metrics["duckdb_hold_s"] += time.monotonic() - hold_start
+                metrics["duckdb_cpu_s"] += time.thread_time() - cpu_start
             batch.clear()
             excluded.clear()
             progress(state="ingesting", frames=last, bytes_total=stat.st_size, bytes_observed=seen)
@@ -260,6 +281,7 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
 
             watcher = threading.Thread(target=cancel_watcher, daemon=True)
             watcher.start()
+            parse_cpu_start = time.thread_time() if profile is not None else 0
             try:
                 for values in csv.reader(proc.stdout, delimiter="\t"):
                     if cancel.is_set():
@@ -371,6 +393,14 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                     )
                 raise
             finally:
+                if profile is not None:
+                    metrics["row_processing_cpu_s"] = (
+                        time.thread_time()
+                        - parse_cpu_start
+                        - metrics["csv_write_cpu_s"]
+                        - metrics["duckdb_cpu_s"]
+                    )
+                    profile[cid] = metrics
                 done.set()
                 if proc.poll() is None:
                     proc.terminate()
