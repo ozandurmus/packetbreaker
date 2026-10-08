@@ -74,3 +74,12 @@ See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and u
   the tested FastAPI/Starlette versions; do not silence the warning.
 - Invalidate cached reports when the engine version changes so a pre-hardening
   false-negative report cannot be presented as a current result.
+
+## Phase 2 / Part 1 scope
+
+Only ingest robustness, resource-bounded parallel ingestion, inventory fidelity,
+headline deduplication and repository/CI setup are authorized in this part.
+No onset detection, sequence randomization, vendor adapters or other Phase 2
+features are included. Capture fixtures are generated synthetically; real inputs
+stay local and gitignored. Push CI is one macOS/Python job; pull requests and
+manual dispatch use all six supported OS/Python combinations. No auto-merge.
