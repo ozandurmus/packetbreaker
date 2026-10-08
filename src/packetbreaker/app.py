@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .analysis import analyze, event_page, flow_page, ladder
+from .analysis import analyze, event_page, flow_page, ladder, findings_page
 from .ingest import find_tshark
 from .batch_ingest import ingest_many, normalize_paths
 from .store import Project
@@ -227,6 +227,13 @@ def create_app(project_path):
         with project.connect() as db:
             return project.get(db, "report")
 
+    @app.get("/api/findings")
+    def findings(
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
+    ):
+        return findings_page(project, start, end)
+
     @app.get("/api/timeseries")
     def timeseries():
         return timeseries_page(project)
@@ -238,18 +245,32 @@ def create_app(project_path):
         search: str = "",
         filter_by: str = "",
         sort: str = "bytes",
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
     ):
-        return flow_page(project, offset, limit, search, filter_by, sort)
+        return flow_page(project, offset, limit, search, filter_by, sort, start, end)
 
     @app.get("/api/flows/{flow}/ladder")
-    def flow_ladder(flow: str, offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=200)):
-        return ladder(project, flow, offset, limit)
+    def flow_ladder(
+        flow: str,
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=200),
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
+    ):
+        return ladder(project, flow, offset, limit, start, end)
 
     @app.get("/api/events")
     def events(
-        a: str, b: str, direction: str, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200)
+        a: str,
+        b: str,
+        direction: str,
+        offset: int = Query(0, ge=0),
+        limit: int = Query(50, ge=1, le=200),
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
     ):
-        return event_page(project, a, b, direction, offset, limit)
+        return event_page(project, a, b, direction, offset, limit, start, end)
 
     static = Path(__file__).parent / "static"
     if static.exists():

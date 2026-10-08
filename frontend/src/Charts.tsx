@@ -3,14 +3,16 @@ import * as echarts from "echarts";
 import type { EChartsOption } from "echarts";
 import type { Capture, Ladder, Point, Report, Ref } from "./types";
 
-function Chart({
+export function Chart({
   option,
   height = 260,
   onClick,
+  onBrush,
 }: {
   option: EChartsOption;
   height?: number;
   onClick?: (params: unknown) => void;
+  onBrush?: (params: unknown) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -18,13 +20,21 @@ function Chart({
     const chart = echarts.init(ref.current);
     chart.setOption(option);
     if (onClick) chart.on("click", onClick);
+    if (onBrush) {
+      chart.on("brushEnd", onBrush);
+      chart.dispatchAction({
+        type: "takeGlobalCursor",
+        key: "brush",
+        brushOption: { brushType: "lineX", brushMode: "single" },
+      });
+    }
     const resize = new ResizeObserver(() => chart.resize());
     resize.observe(ref.current);
     return () => {
       resize.disconnect();
       chart.dispose();
     };
-  }, [option, onClick]);
+  }, [option, onClick, onBrush]);
   return (
     <div
       role="img"

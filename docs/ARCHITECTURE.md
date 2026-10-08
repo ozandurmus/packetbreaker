@@ -255,3 +255,10 @@ values, clock uncertainty and original-frame evidence are retained in the report
 Only supported network loss and matched transit p95 are hop-attributable onset
 signals; RTT, retransmissions and volume remain contextual metrics. Capture-quality
 or coverage gaps break continuity rather than creating a network onset.
+
+The heatmap is an ECharts grid with metric selection, missing-data states and onset
+diamonds. A horizontal brush selects a half-open corrected-time interval. Flow rows
+are filtered by observations in the interval (their totals still describe the full
+analysis); findings are regrouped from interval events with fresh frame evidence;
+ladder packet identities and event/point metrics are filtered by time. Analysis and
+its baseline remain unchanged when brushing. Onset summaries remain full-window.

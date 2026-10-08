@@ -22,3 +22,22 @@ def test_coverage_and_exact_bucket_rates(scenarios):
     assert inside["pps"] == packets / 2 and inside["throughput_bps"] == bits / 2
     assert report["timeseries"]["bucket_seconds"] == 2
     assert all(m["tooltip"] for m in data["metrics"].values())
+
+
+def test_transient_unmatchability_is_not_zero_loss(scenarios):
+    project, truth, topology, _ = scenarios("healthy", rounds=40)
+    with project.connect() as db:
+        cid = topology["points"][2]["capture_id"]
+        start = truth["reference_epoch"] + 8 - 0.08
+        db.execute(
+            "UPDATE packets SET unsupported='unsupported_identity' WHERE capture_id=? AND ts>=? AND ts<?",
+            [cid, start, start + 1],
+        )
+    report = analyze(project, topology)
+    segment = next(s for s in report["segments"] if s["id"] == "forward:p1:p2")
+    assert segment["eligible_ratio"] >= 0.9
+    bucket = next(
+        r for r in timeseries_page(project)["items"] if r["segment"] == segment["id"] and r["bucket"] == 8
+    )
+    assert bucket["loss_percent"] is None and bucket["latency_p95_ms"] is None
+    assert "Insufficient matchable" in bucket["reason"]

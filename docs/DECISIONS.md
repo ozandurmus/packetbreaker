@@ -115,3 +115,6 @@ unmeasured speedup. Exact packet-field equality was verified on all 5,000,750 ro
 - Propagation order is temporal evidence, not proof of device causation. Tied
   buckets are unresolved; clock uncertainty may further limit ordering. Earliest
   observed segments are prime suspects, never confirmed root causes.
+- Brushing filters evidence views without refitting the baseline. Packet evidence
+  may include the same packet at another point just outside the brush, preserving
+  its cross-hop context. All fixtures and performance inputs are synthetic.

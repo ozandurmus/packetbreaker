@@ -114,7 +114,7 @@ def build_timeseries(db, topology, segments, coverage, window):
             r["bucket"]: r
             for r in rows(
                 db,
-                """SELECT bucket,count(*) AS packets,
+                """SELECT bucket,count(*) AS packets,count(*) FILTER(WHERE eligible) AS matchable,
             sum(wirelen)*8 AS bits,count(*) FILTER(WHERE proto='TCP') AS tcp,
             count(*) FILTER(WHERE retrans) AS retrans,
             count(*) FILTER(WHERE eligible AND (length>0 OR (proto='TCP' AND (flags&7)>0) OR proto IN ('UDP','ICMP'))) AS eligible,
@@ -125,6 +125,14 @@ def build_timeseries(db, topology, segments, coverage, window):
                 [a, d],
             )
         }
+        downstream_quality = dict(
+            db.execute(
+                """SELECT bucket,
+            count(*) FILTER(WHERE eligible)::DOUBLE/count(*) FROM bucket_obs
+            WHERE point=? AND direction=? GROUP BY bucket""",
+                [b, d],
+            ).fetchall()
+        )
         latency = {
             r["bucket"]: r
             for r in rows(
@@ -160,6 +168,11 @@ def build_timeseries(db, topology, segments, coverage, window):
             eligible = x.get("eligible", 0)
             miss, unknown = (ev.get(k, {}).get("n", 0) for k in ("capture_miss", "unknown"))
             reason = s["reason"]
+            ratio = min(
+                x.get("matchable", 0) / x["packets"] if x.get("packets") else 1, downstream_quality.get(i, 1)
+            )
+            if not reason and ratio < topology.min_eligible_ratio:
+                reason = f"Insufficient matchable packets in this bucket ({100 * (1 - ratio):.1f}% excluded)"
             metrics = dict.fromkeys(METRICS)
             if state == "capturing":
                 metrics.update(
