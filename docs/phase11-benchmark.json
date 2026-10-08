@@ -1,0 +1,132 @@
+{
+  "ingest": {
+    "frames": 5400750,
+    "input_bytes": 1414852620,
+    "seconds": 279.1021388749359,
+    "frames_per_second": 19350.44289438443,
+    "files": [
+      {
+        "file": "/private/tmp/packetbreaker-phase11-benchmark/captures/point-0.pcap",
+        "frames": 5000150,
+        "input_bytes": 1310010524,
+        "seconds": 257.33884212502744,
+        "frames_per_second": 19430.218768026825,
+        "capture_id": "a924d196a5eb4a15933447444ffc61e5"
+      },
+      {
+        "file": "/private/tmp/packetbreaker-phase11-benchmark/captures/point-1.pcap",
+        "frames": 100150,
+        "input_bytes": 26210524,
+        "seconds": 5.47926954110153,
+        "frames_per_second": 18277.983816774646,
+        "capture_id": "f007c7f36af94c2c8a8121a9a47f911e"
+      },
+      {
+        "file": "/private/tmp/packetbreaker-phase11-benchmark/captures/point-2.pcap",
+        "frames": 100150,
+        "input_bytes": 26210524,
+        "seconds": 5.44893720804248,
+        "frames_per_second": 18379.730978030246,
+        "capture_id": "f398a42b01bf45bf989df53a8c312bb8"
+      },
+      {
+        "file": "/private/tmp/packetbreaker-phase11-benchmark/captures/point-3.pcap",
+        "frames": 100150,
+        "input_bytes": 26210524,
+        "seconds": 5.275951875024475,
+        "frames_per_second": 18982.35661968304,
+        "capture_id": "8187a619a5434961a28c2fa7a689c91d"
+      },
+      {
+        "file": "/private/tmp/packetbreaker-phase11-benchmark/captures/point-4.pcap",
+        "frames": 100150,
+        "input_bytes": 26210524,
+        "seconds": 5.480378833017312,
+        "frames_per_second": 18274.28414193418,
+        "capture_id": "ec40f48c0af447bb8856345460773757"
+      }
+    ],
+    "parent_peak_rss_bytes": 667746304,
+    "child_peak_rss_bytes": 1605877760,
+    "time_l_peak_rss_bytes": 1605877760
+  },
+  "analysis": {
+    "seconds": 85.82520616694819,
+    "verdict": "No supported network loss in the selected window",
+    "flow_count": 50,
+    "findings": 1,
+    "segments": 8,
+    "parent_peak_rss_bytes": 1884618752,
+    "child_peak_rss_bytes": 0,
+    "time_l_peak_rss_bytes": 1884618752
+  },
+  "dpkt": {
+    "frames": 5000150,
+    "core_seconds": 154.93457720801234,
+    "core_frames_per_second": 32272.653981473028,
+    "tshark_enrichment_seconds": 84.51643695798703,
+    "hybrid_seconds": 239.51069762499537,
+    "hybrid_frames_per_second": 20876.520546187843,
+    "tshark_only_seconds": 257.33884212502744,
+    "core_speedup": 1.6609516530291943,
+    "hybrid_speedup": 1.0744356919203075,
+    "parent_peak_rss_bytes": 1182728192,
+    "child_peak_rss_bytes": 2071838720,
+    "time_l_peak_rss_bytes": 2071838720
+  },
+  "equality": {
+    "rows": 5000150,
+    "mismatched_rows": 0,
+    "fields": [
+      "capture_id",
+      "frame",
+      "ts",
+      "iface",
+      "src",
+      "dst",
+      "sport",
+      "dport",
+      "proto",
+      "ipid",
+      "seq",
+      "ack",
+      "flags",
+      "length",
+      "wirelen",
+      "caplen",
+      "prefix",
+      "payload_hash",
+      "signature",
+      "tuple_key",
+      "reverse_tuple",
+      "stream",
+      "ttl",
+      "dscp",
+      "mss",
+      "window",
+      "retrans",
+      "fast_retrans",
+      "spurious",
+      "out_of_order",
+      "acked_unseen",
+      "zero_window",
+      "rtt",
+      "unsupported",
+      "frame_hash",
+      "icmp_id",
+      "icmp_seq",
+      "icmp_type",
+      "dns_id",
+      "dns_response"
+    ],
+    "exactly_equal": true,
+    "parent_peak_rss_bytes": 861044736,
+    "child_peak_rss_bytes": 0,
+    "time_l_peak_rss_bytes": 862846976
+  },
+  "method": "macOS /usr/bin/time -l; timed phases serial; warm local SSD; caches not flushed; peak RSS is high-water mark, not concurrent process sum",
+  "adopt_dpkt": false,
+  "adoption_reason": "Core index 1.66x and complete hybrid 1.07x; below required 2x gate despite exact equality of all 40 fields.",
+  "input_scope": "Largest file 5,000,150 frames / 1,310,010,524 bytes; four prefix captures 100,150 frames each. Analysis processed 5,400,750 indexed rows; common window covers the shorter captures.",
+  "capture_quality": "25 capture misses at the prefix capture boundary; receiver ACK evidence prevents classifying them as network loss."
+}

@@ -146,3 +146,17 @@ is explicitly inconclusive. The browser supplies its IANA timezone; JSON records
 local and UTC event times plus the clock uncertainty caveat. First event time is
 not a Phase 2 change-point onset. Later unrelated resets do not inflate recovered
 packet stall metrics.
+
+## Phase 1.1 / item 6
+
+Direction, reversed/canonical tuples and source-CIDR membership are computed only
+for distinct tuples/addresses, then joined in SQL. No Python UDF runs per packet.
+Ingest checkpoints now contain at most 50,000 rows. Whole-table metadata, clock,
+occurrence and session transforms use CREATE TABLE AS SELECT rather than UPDATE;
+the latter exhausted the 512 MB SQL budget at 5.4M rows. Analysis disables
+insertion-order preservation and explicitly orders occurrences. Spill remains
+project-local. NAT candidate scans are restricted to declared NAT boundaries;
+unmapped tuples at those boundaries remain translation-unknown even with clock
+overrides. Equal-size repeated sequences use their monotone ordinal pairing;
+unequal sequences use nearest-time gaps within the window. dpkt remains a
+benchmark-only dependency; its measured complete path did not meet the 2x gate.

@@ -111,3 +111,42 @@ Item 5: headline checks verify the demo's 9 losses (5 quick recoveries / 4 measu
 stalls), exact data-packet denominators, omission of upstream no-loss claims under
 incomplete matchability, event-date DST handling, and isolation of an unrelated
 later reset from quick-recovery stall metrics. TypeScript/build passed.
+
+## Phase 1.1 large benchmark (item 6)
+
+Five real synthetic PCAP files: **5,400,750 frames / 1,414,852,620 bytes** total.
+The largest file has **5,000,150 frames / 1,310,010,524 bytes**; each of the four
+others has 100,150 frames. Fifty concurrent TCP streams. The smaller files cover
+a prefix, so common-window metrics cover that prefix, while indexing and analysis
+preparation process all 5.4M rows. Twenty-five boundary capture misses were correctly
+supported by ACK evidence; there were no network-loss findings.
+
+| Measurement | Wall time | Throughput | `/usr/bin/time -l` peak RSS |
+|---|---:|---:|---:|
+| Production ingest, all 5 files | 279.10 s | 19,350 frames/s | 1,605,877,760 B (1.50 GiB) |
+| Analysis, all indexed rows | 85.83 s | — | 1,884,618,752 B (1.76 GiB) |
+| tshark-only ingest, largest file | 257.34 s | 19,430 frames/s | Included above |
+| dpkt core index, largest file | 154.93 s | 32,273 frames/s | Included in hybrid below |
+| Mandatory tshark enrichment of dpkt | 84.52 s | — | Included in hybrid below |
+| Complete dpkt + tshark hybrid | 239.51 s | 20,877 frames/s | 2,071,838,720 B (1.93 GiB) |
+| Exact full-row equality check | 7.01 s | 5,000,150 rows / 40 fields | 862,846,976 B |
+
+**Equality: zero mismatched rows across all 40 stored fields**, including tshark's
+TCP analysis flags. Raw first-pass speedup: **1.66x**. Complete speedup: **1.07x**.
+**dpkt not adopted**: neither meets the required 2x threshold. The experiment is
+limited to the full-snaplen Ethernet/IPv4/TCP workload; it is not a new production
+parser or a claim of equivalence for all capture formats.
+
+Commands: `tools/large_benchmark.py generate|ingest|analyze|dpkt|verify DIRECTORY`;
+timed stages were prefixed with `/usr/bin/time -l`. The first sandboxed run lacked
+OS counters (`sysctl kern.clockrate` was denied), so an uncached index was rebuilt
+with read access to those counters. That repeat is the table above. The original
+279/285-second ingest logs and the failed UPDATE analysis log are retained in the
+scratch benchmark directory. The first large analysis failed at 23.85 s with a
+512 MB allocation error; after replacing whole-table UPDATEs with CTAS, the same
+input completed. These are warm local SSD runs; caches were not flushed. Timed
+phases ran serially. RSS is the high-water mark reported by time, not a sum of
+simultaneous process footprints. Ingest parent RSS was 667,746,304 B and tshark
+child RSS 1,605,877,760 B. The SQL memory budget is not a process-RSS cap.
+
+Exact machine-readable results: [phase11-benchmark.json](phase11-benchmark.json).

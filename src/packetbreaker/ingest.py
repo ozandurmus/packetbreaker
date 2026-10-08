@@ -20,6 +20,7 @@ ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstpor
  tcp.analysis.retransmission tcp.analysis.fast_retransmission tcp.analysis.spurious_retransmission
  tcp.analysis.out_of_order tcp.analysis.ack_lost_segment tcp.analysis.zero_window tcp.analysis.ack_rtt
  ip.flags.mf ip.frag_offset ipv6.fraghdr.offset ipv6.fraghdr.more frame.protocols frame.md5_hash dns.id dns.flags.response""".split()
+CAPLEN_INDEX = list(PACKET_COLUMNS).index("caplen")
 PARSER_VERSION = 4
 csv.field_size_limit(16 * 1024 * 1024)
 
@@ -146,7 +147,7 @@ def parse_packet(values, capture_id, prefix_bytes):
     return [p[k] for k in PACKET_COLUMNS]
 
 
-def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=None, batch_size=5000):
+def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=None, batch_size=50000):
     cancel = cancel or threading.Event()
     progress = progress or (lambda **kw: None)
     path = Path(path).expanduser().resolve()
@@ -254,7 +255,7 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                         continue
                     packet = parse_packet(values, cid, prefix_bytes)
                     last = frame
-                    seen += packet[list(PACKET_COLUMNS).index("caplen")]
+                    seen += packet[CAPLEN_INDEX]
                     batch.append(packet)
                     if len(batch) >= batch_size:
                         flush()

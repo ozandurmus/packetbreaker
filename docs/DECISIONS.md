@@ -58,3 +58,8 @@ See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and u
   distinct buckets; repeated short retries are not falsely called long stalls.
 - Use event-date IANA timezone rules (tzdata on Windows), retaining UTC alongside
   local time. All timestamp conclusions retain a clock uncertainty caveat.
+- Keep the 512 MB SQL budget and use spillable CTAS transforms. Raising the limit
+  would hide the whole-table UPDATE allocation problem rather than bound it.
+- Retain tshark-only production ingest. dpkt's raw first pass was 1.66x faster;
+  including mandatory tshark TCP analysis enrichment gave only 1.07x. All 40 fields
+  matched, but the required 2x speed gate was not met.

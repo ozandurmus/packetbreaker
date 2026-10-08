@@ -1,5 +1,5 @@
 include README.md pyproject.toml
-recursive-include docs *.md
+recursive-include docs *.md *.json
 recursive-include frontend/src *.ts *.tsx *.css
 include frontend/package.json frontend/package-lock.json frontend/tsconfig.json frontend/vite.config.ts frontend/index.html
 recursive-include tests *.py

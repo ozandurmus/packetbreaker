@@ -51,18 +51,16 @@ def prepare(db, topology):
             params.append(point.interface)
         if point.source_cidr:
             network = ipaddress.ip_network(point.source_cidr, strict=False)
-            db.create_function(
-                "point_source",
-                lambda value: bool(value) and ipaddress.ip_address(value) in network,
-                ["VARCHAR"],
-                "BOOLEAN",
-            )
-            clause += " AND point_source(src)"
+            addresses = db.execute("SELECT DISTINCT src FROM packets WHERE " + clause, params).fetchall()
+            accepted = [(src,) for (src,) in addresses if src and ipaddress.ip_address(src) in network]
+            db.execute("CREATE OR REPLACE TEMP TABLE point_sources(src VARCHAR)")
+            if accepted:
+                db.executemany("INSERT INTO point_sources VALUES (?)", accepted)
+            clause += " AND src IN (SELECT src FROM point_sources)"
         db.execute(f"INSERT INTO obs SELECT *,?,tuple_key FROM packets WHERE {clause}", [point.id, *params])
-        if point.source_cidr:
-            db.remove_function("point_source")
     db.execute("ALTER TABLE obs ADD COLUMN corrected DOUBLE")
     db.execute("ALTER TABLE obs ADD COLUMN direction VARCHAR")
+    db.execute("ALTER TABLE obs ADD COLUMN canon_reverse VARCHAR")
     db.execute("ALTER TABLE obs ADD COLUMN packet_key VARCHAR")
     db.execute("ALTER TABLE obs ADD COLUMN flow VARCHAR")
     db.execute("ALTER TABLE obs ADD COLUMN eligible BOOLEAN DEFAULT false")
@@ -71,12 +69,24 @@ def prepare(db, topology):
         GROUP BY capture_id,frame HAVING count(*)>1)""").fetchone()[0]
     if duplicates:
         raise ValueError("Capture-point selections overlap: use distinct file/interface/source filters")
-    db.execute("""CREATE OR REPLACE TEMP TABLE nat_candidates AS
-        SELECT *,md5(signature || left(prefix,16)) AS nat_key FROM obs
-        WHERE coalesce(unsupported,'')='' AND length(prefix)>=16
-        QUALIFY count(*) OVER(PARTITION BY point,nat_key)=1""")
-    suggestions = []
     points = {p.id: p for p in topology.points}
+    nat_points = sorted(
+        {
+            point
+            for a, b in zip(topology.forward, topology.forward[1:])
+            if points[a].device == points[b].device
+            and "nat" in (points[a].translation, points[b].translation)
+            for point in (a, b)
+        }
+    )
+    db.execute(
+        """CREATE OR REPLACE TEMP TABLE nat_candidates AS
+        SELECT *,md5(signature || left(prefix,16)) AS nat_key FROM obs
+        WHERE coalesce(unsupported,'')='' AND length(prefix)>=16 AND point IN (SELECT unnest(?::VARCHAR[]))
+        QUALIFY count(*) OVER(PARTITION BY point,nat_key)=1""",
+        [nat_points],
+    )
+    suggestions = []
     for a, b in zip(topology.forward, topology.forward[1:]):
         pa, pb = points[a], points[b]
         if pa.device != pb.device or "nat" not in (pa.translation, pb.translation):
@@ -131,8 +141,6 @@ def prepare(db, topology):
                 seen[conflict_key] = other
             ra, rb = root(a), root(b)
             parent[rb] = ra
-    for key in parent:
-        db.execute("UPDATE obs SET canon=? WHERE tuple_key=?", [root(key), key])
     nets = [ipaddress.ip_network(n, strict=False) for n in topology.client_cidrs]
 
     def direction(key):
@@ -144,17 +152,31 @@ def prepare(db, topology):
         except ValueError:
             return "unknown"
 
-    db.create_function("get_direction", direction, ["VARCHAR"], "VARCHAR")
-    db.create_function("reverse_key", reverse_tuple, ["VARCHAR"], "VARCHAR")
-    db.execute("""UPDATE obs SET direction=get_direction(canon), packet_key=md5(canon || signature),
-        flow=md5(least(canon,reverse_key(canon)))""")
-    db.remove_function("get_direction")
-    db.remove_function("reverse_key")
+    db.execute(
+        "CREATE OR REPLACE TEMP TABLE tuple_lookup(tuple_key VARCHAR,canon VARCHAR,canon_reverse VARCHAR,direction VARCHAR)"
+    )
+    distinct = db.execute("SELECT DISTINCT tuple_key FROM obs").fetchall()
+    metadata = []
+    for (key,) in distinct:
+        canon = root(key) if key in parent else key
+        metadata.append((key, canon, reverse_tuple(canon), direction(canon)))
+    if metadata:
+        db.executemany("INSERT INTO tuple_lookup VALUES (?,?,?,?)", metadata)
+    db.execute("""CREATE OR REPLACE TABLE obs AS SELECT o.* REPLACE(
+        t.canon AS canon,t.canon_reverse AS canon_reverse,t.direction AS direction,
+        md5(t.canon || o.signature) AS packet_key,md5(least(t.canon,t.canon_reverse)) AS flow)
+        FROM obs o JOIN tuple_lookup t ON o.tuple_key=t.tuple_key""")
     # Compare the shared captured prefix, not the digest of different-length payloads.
     db.execute("""CREATE OR REPLACE TEMP TABLE prefix_lengths AS
         SELECT packet_key,min(coalesce(length(prefix),0)) AS n FROM obs GROUP BY packet_key""")
-    db.execute("""UPDATE obs SET packet_key=md5(obs.packet_key || left(coalesce(prefix,''),p.n))
-        FROM prefix_lengths p WHERE obs.packet_key=p.packet_key""")
+    db.execute("""CREATE OR REPLACE TABLE obs AS SELECT o.* REPLACE(
+        md5(o.packet_key || left(coalesce(o.prefix,''),p.n)) AS packet_key)
+        FROM obs o JOIN prefix_lengths p ON o.packet_key=p.packet_key""")
+    db.execute(
+        """CREATE OR REPLACE TEMP TABLE nat_point_tuples AS
+        SELECT DISTINCT point,canon FROM obs WHERE point IN (SELECT unnest(?::VARCHAR[]))""",
+        [nat_points],
+    )
     prepare_occurrences(db, topology.duplicate_us)
     return suggestions
 
@@ -222,12 +244,16 @@ def align(db, topology):
             break
     for p in order:
         models.setdefault(points[p].capture_id, ClockModel(epoch=epoch))
-    for cid, model in models.items():
-        if model.offset is not None:
-            db.execute(
-                "UPDATE obs SET corrected=?+(ts-?-?)/(1+?) WHERE capture_id=?",
-                [model.epoch, model.epoch, model.offset, model.drift, cid],
-            )
+    db.execute(
+        "CREATE OR REPLACE TEMP TABLE clock_values(capture_id VARCHAR,epoch DOUBLE,offset_s DOUBLE,drift DOUBLE)"
+    )
+    db.executemany(
+        "INSERT INTO clock_values VALUES (?,?,?,?)",
+        [(cid, m.epoch, m.offset, m.drift) for cid, m in models.items()],
+    )
+    db.execute("""CREATE OR REPLACE TABLE obs AS SELECT o.* REPLACE(
+        c.epoch+(o.ts-c.epoch-c.offset_s)/(1+c.drift) AS corrected)
+        FROM obs o LEFT JOIN clock_values c USING(capture_id)""")
     return models
 
 
@@ -237,6 +263,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         raise ValueError("Connect at least two capture points in a forward path")
     progress = progress or (lambda **kw: None)
     with project.connect() as db:
+        db.execute("SET preserve_insertion_order=false")
         project.set(db, "report", None)
         progress(state="matching")
         suggestions = prepare(db, topology)
@@ -283,6 +310,20 @@ def analyze(project, topology: Topology | dict, progress=None):
                     )
                     for x in suggestions
                 )
+                if pa.device == pb.device and "nat" in (pa.translation, pb.translation):
+                    confirmed = []
+                    for m in topology.nat_mappings:
+                        if {m.point_a, m.point_b} == {a, b}:
+                            confirmed.extend(
+                                (m.tuple_a, m.tuple_b, reverse_tuple(m.tuple_a), reverse_tuple(m.tuple_b))
+                            )
+                    unresolved = db.execute(
+                        """SELECT count(*) FROM nat_point_tuples x WHERE x.point IN (?,?)
+                        AND NOT EXISTS(SELECT 1 FROM nat_point_tuples y WHERE y.point IN (?,?) AND y.point<>x.point AND y.canon=x.canon)
+                        AND x.canon NOT IN (SELECT canon FROM tuple_lookup WHERE tuple_key IN (SELECT unnest(?::VARCHAR[])))""",
+                        [a, b, a, b, confirmed],
+                    ).fetchone()[0]
+                    pending_nat = pending_nat or unresolved > 0
                 ma, mb = models[pa.capture_id], models[pb.capture_id]
                 clocks_ok = ma.offset is not None and mb.offset is not None
                 matched = rows(
@@ -399,11 +440,10 @@ def analyze(project, topology: Topology | dict, progress=None):
                     AND u.corrected<=r.recovery_time GROUP BY m.packet_key""")
                 db.execute("""UPDATE recoveries SET attempts=c.attempts FROM retry_counts c
                     WHERE recoveries.packet_key=c.packet_key""")
-                db.create_function("rev_canon", reverse_tuple, ["VARCHAR"], "VARCHAR")
                 db.execute(
                     """CREATE OR REPLACE TEMP TABLE acked AS
                     SELECT m.packet_key,arg_min(ack.packet_key,ack.corrected) AS ack_key FROM missing m JOIN obs ack ON ack.point=? AND ack.proto='TCP'
-                    AND ack.stream=m.stream AND ack.canon=rev_canon(m.canon) AND (ack.flags & 16)>0
+                    AND ack.stream=m.stream AND ack.canon=m.canon_reverse AND (ack.flags & 16)>0
                     AND ack.corrected>m.corrected AND ack.corrected<=m.corrected+60
                     AND ((ack.ack-m.seq-m.length-CASE WHEN (m.flags&3)>0 THEN 1 ELSE 0 END+4294967296)%4294967296)<2147483648
                     WHERE m.proto='TCP' AND (m.length>0 OR (m.flags&3)>0) AND (m.flags&4)=0 AND NOT EXISTS(
@@ -414,7 +454,7 @@ def analyze(project, topology: Topology | dict, progress=None):
                 db.execute("""INSERT INTO acked
                     SELECT m.packet_key,arg_min(reply.packet_key,reply.corrected) AS ack_key
                     FROM missing m JOIN obs reply ON reply.point=m.point AND reply.proto=m.proto
-                    AND reply.canon=rev_canon(m.canon) AND reply.corrected>m.corrected AND reply.corrected<=m.corrected+60
+                    AND reply.canon=m.canon_reverse AND reply.corrected>m.corrected AND reply.corrected<=m.corrected+60
                     WHERE (m.proto='UDP' AND m.dns_id IS NOT NULL AND NOT m.dns_response
                            AND reply.dns_id=m.dns_id AND reply.dns_response
                            AND NOT EXISTS(SELECT 1 FROM obs retry WHERE retry.point=m.point AND retry.canon=m.canon
@@ -426,7 +466,6 @@ def analyze(project, topology: Topology | dict, progress=None):
                              AND retry.icmp_type=8 AND retry.icmp_id=m.icmp_id AND retry.icmp_seq=m.icmp_seq
                              AND retry.corrected>m.corrected AND retry.corrected<reply.corrected AND retry.eligible))
                     GROUP BY m.packet_key""")
-                db.remove_function("rev_canon")
                 db.execute(
                     """CREATE OR REPLACE TEMP TABLE failures AS
                     SELECT m.packet_key,min(f.corrected) AS failure_time,arg_min(f.packet_key,f.corrected) AS failure_key

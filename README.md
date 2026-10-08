@@ -185,7 +185,7 @@ reports measured ingest/analysis times. Example:
 python tools/benchmark.py /path/to/scratch --hops 10 --rounds 10000
 ```
 
-Ingest uses bounded 5,000-row batches; analysis uses DuckDB SQL with a 512 MB SQL
+Ingest uses bounded 50,000-row batches; analysis uses DuckDB SQL with a 512 MB SQL
 memory budget and disk spill. tshark has its own memory usage. Large real-world
 PCAP throughput and several-GB-per-file workloads are **unverified**; see
 [validation notes](docs/VALIDATION.md) for the measured workload and remaining gaps.

@@ -6,9 +6,6 @@ def prepare_occurrences(db, duplicate_us=20):
     db.execute("ALTER TABLE obs ADD COLUMN occurrence BIGINT")
     db.execute("ALTER TABLE obs ADD COLUMN excluded_reason VARCHAR")
     db.execute(
-        "UPDATE obs SET base_key=packet_key, eligible=coalesce(unsupported,'')='', excluded_reason=nullif(unsupported,'')"
-    )
-    db.execute(
         """CREATE OR REPLACE TEMP TABLE span_duplicates AS
         SELECT point,frame FROM (
             SELECT point,frame,ts-lag(ts) OVER(PARTITION BY point,frame_hash ORDER BY ts,frame) AS gap
@@ -16,8 +13,10 @@ def prepare_occurrences(db, duplicate_us=20):
         WHERE gap>=0 AND gap<=?""",
         [duplicate_us / 1e6 + 0.0000005],
     )
-    db.execute("""UPDATE obs SET eligible=false,excluded_reason='span_duplicate'
-        FROM span_duplicates d WHERE obs.point=d.point AND obs.frame=d.frame""")
+    db.execute("""CREATE OR REPLACE TABLE obs AS SELECT o.* REPLACE(
+        o.packet_key AS base_key,coalesce(o.unsupported,'')='' AND d.frame IS NULL AS eligible,
+        CASE WHEN d.frame IS NOT NULL THEN 'span_duplicate' ELSE nullif(o.unsupported,'') END AS excluded_reason)
+        FROM obs o LEFT JOIN span_duplicates d ON o.point=d.point AND o.frame=d.frame""")
     # Repeated signatures may calibrate only after an independent clock fit. They remain eligible.
     db.execute("""CREATE OR REPLACE TEMP TABLE calibration AS
         SELECT point,capture_id,frame,ts,packet_key,direction,eligible FROM obs WHERE eligible
@@ -29,8 +28,8 @@ def match_occurrences(db, topology):
         SELECT point,frame,base_key,corrected,direction,
             row_number() OVER(PARTITION BY point,flow,base_key ORDER BY corrected,ts,frame) AS occurrence
         FROM obs WHERE eligible""")
-    db.execute("""UPDATE obs SET occurrence=n.occurrence FROM occurrences n
-        WHERE obs.point=n.point AND obs.frame=n.frame""")
+    db.execute("""CREATE OR REPLACE TABLE obs AS SELECT o.* REPLACE(n.occurrence AS occurrence)
+        FROM obs o LEFT JOIN occurrences n ON o.point=n.point AND o.frame=n.frame""")
     db.execute("""CREATE OR REPLACE TEMP TABLE repeated_keys AS
         SELECT DISTINCT base_key FROM occurrences WHERE occurrence>1""")
     if not db.execute("SELECT count(*) FROM repeated_keys").fetchone()[0]:
@@ -55,31 +54,46 @@ def match_occurrences(db, topology):
     db.execute("""CREATE OR REPLACE TEMP TABLE anchors AS
         SELECT r.*,r.point || ':' || r.frame AS anchor_id FROM repeat_obs r
         JOIN anchor_points a ON r.base_key=a.base_key AND r.point=a.point""")
+    db.execute(
+        """CREATE OR REPLACE TEMP TABLE balanced_pairs AS
+        WITH sizes AS (SELECT point,base_key,count(*) AS n FROM repeat_obs GROUP BY point,base_key),
+        anchor_sizes AS (SELECT base_key,count(*) AS n FROM anchors GROUP BY base_key)
+        SELECT r.*,a.anchor_id,a.occurrence AS anchor_order,abs(r.match_time-a.match_time) AS distance
+        FROM repeat_obs r JOIN anchors a ON r.base_key=a.base_key AND r.occurrence=a.occurrence
+        JOIN sizes s ON r.point=s.point AND r.base_key=s.base_key JOIN anchor_sizes z ON r.base_key=z.base_key
+        WHERE s.n=z.n QUALIFY bool_and(distance<=?) OVER(PARTITION BY r.point,r.base_key)""",
+        [topology.match_window_ms / 1000],
+    )
+    db.execute("""CREATE OR REPLACE TEMP TABLE unmatched_repeats AS
+        SELECT r.* FROM repeat_obs r ANTI JOIN balanced_pairs b ON r.point=b.point AND r.frame=b.frame""")
+    # Equal-length sequences have one monotone bijection. Unequal sequences retain time-based gaps.
     # ASOF predecessor/successor joins bound work even for millions of equal signatures.
     db.execute("""CREATE OR REPLACE TEMP TABLE before_candidates AS
         SELECT r.*,a.anchor_id,a.occurrence AS anchor_order,abs(r.match_time-a.match_time) AS distance
-        FROM repeat_obs r ASOF LEFT JOIN anchors a ON r.base_key=a.base_key AND r.match_time>=a.match_time""")
+        FROM unmatched_repeats r ASOF LEFT JOIN anchors a ON r.base_key=a.base_key AND r.match_time>=a.match_time""")
     db.execute("""CREATE OR REPLACE TEMP TABLE after_candidates AS
         SELECT r.*,a.anchor_id,a.occurrence AS anchor_order,abs(r.match_time-a.match_time) AS distance
-        FROM repeat_obs r ASOF LEFT JOIN anchors a ON r.base_key=a.base_key AND r.match_time<=a.match_time""")
+        FROM unmatched_repeats r ASOF LEFT JOIN anchors a ON r.base_key=a.base_key AND r.match_time<=a.match_time""")
     db.execute(
         """CREATE OR REPLACE TEMP TABLE nearest AS
         SELECT * FROM (SELECT * FROM before_candidates UNION ALL SELECT * FROM after_candidates)
         WHERE distance<=? QUALIFY row_number() OVER(PARTITION BY point,frame ORDER BY distance,anchor_order)=1""",
         [topology.match_window_ms / 1000],
     )
+    db.execute("INSERT INTO nearest SELECT * FROM balanced_pairs")
     db.execute("""CREATE OR REPLACE TEMP TABLE assigned AS
         SELECT * FROM nearest QUALIFY row_number() OVER(PARTITION BY point,anchor_id ORDER BY distance,occurrence)=1""")
     # Distinct nearest assignments are monotone in corrected-time order; no rank shifting across gaps.
-    db.execute("""UPDATE obs SET packet_key=obs.point || ':' || obs.frame
-        FROM repeated_keys r WHERE obs.base_key=r.base_key""")
-    db.execute("""UPDATE obs SET packet_key=a.anchor_id FROM assigned a
-        WHERE obs.point=a.point AND obs.frame=a.frame""")
-    db.execute("""UPDATE obs SET eligible=false,excluded_reason='occurrence_timing_collision'
-        WHERE EXISTS(SELECT 1 FROM nearest n WHERE n.point=obs.point AND n.frame=obs.frame)
-        AND NOT EXISTS(SELECT 1 FROM assigned a WHERE a.point=obs.point AND a.frame=obs.frame)""")
-    db.execute("""UPDATE obs SET eligible=false,excluded_reason='clock_alignment_unknown'
-        WHERE base_key IN (SELECT base_key FROM repeated_keys) AND corrected IS NULL""")
+    db.execute("""CREATE OR REPLACE TABLE obs AS SELECT o.* REPLACE(
+        CASE WHEN r.base_key IS NULL THEN o.packet_key ELSE coalesce(a.anchor_id,o.point || ':' || o.frame) END AS packet_key,
+        CASE WHEN r.base_key IS NOT NULL AND (o.corrected IS NULL OR (n.frame IS NOT NULL AND a.frame IS NULL))
+            THEN false ELSE o.eligible END AS eligible,
+        CASE WHEN r.base_key IS NOT NULL AND o.corrected IS NULL THEN 'clock_alignment_unknown'
+            WHEN n.frame IS NOT NULL AND a.frame IS NULL THEN 'occurrence_timing_collision'
+            ELSE o.excluded_reason END AS excluded_reason)
+        FROM obs o LEFT JOIN repeated_keys r USING(base_key)
+        LEFT JOIN assigned a ON o.point=a.point AND o.frame=a.frame
+        LEFT JOIN nearest n ON o.point=n.point AND o.frame=n.frame""")
 
 
 def link_tcp_sessions(db, topology):
@@ -119,5 +133,5 @@ def link_tcp_sessions(db, topology):
             "INSERT INTO session_map VALUES (?,?,?,?)",
             [(*s, hashlib.sha256(repr(root(s)).encode()).hexdigest()[:32]) for s in sessions],
         )
-        db.execute("""UPDATE obs SET flow=s.new_flow FROM session_map s
-            WHERE obs.point=s.point AND obs.stream=s.stream AND obs.flow=s.old_flow""")
+        db.execute("""CREATE OR REPLACE TABLE obs AS SELECT o.* REPLACE(coalesce(s.new_flow,o.flow) AS flow)
+            FROM obs o LEFT JOIN session_map s ON o.point=s.point AND o.stream=s.stream AND o.flow=s.old_flow""")
