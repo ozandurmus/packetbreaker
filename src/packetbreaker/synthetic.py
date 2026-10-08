@@ -67,6 +67,10 @@ def generate(
     ip_id="increment",
     ipv6=False,
 ):
+    if scenario.startswith("onset_"):
+        from .onset_synthetic import generate_onset
+
+        return generate_onset(directory, scenario, ip_id, ipv6, loss_hop, onset)
     if scenario.startswith("realistic_"):
         from .realistic import generate_realistic
 

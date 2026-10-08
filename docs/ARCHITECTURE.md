@@ -238,7 +238,8 @@ headline shape is regenerated; current-schema packet indexes remain reusable.
 buckets default to 1 second (`bucket_seconds`, 0.1–3600 seconds). The grid covers
 the requested interval, or the union of validated capture coverage; missing-loss
 classification remains bounded by the analysis overlap. Outside endpoint coverage
-is `not capturing`, boundary buckets are `partial coverage`, and unavailable
+is `not capturing`, missing clock coverage is `unknown coverage`, boundary buckets
+are `partial coverage`, and unavailable
 metrics are SQL NULL. Zero is used only for an observed zero count/rate in a full
 covered bucket. The grid is limited to 200,000 cells; larger windows require a
 coarser bucket or a narrower interval.
@@ -262,3 +263,8 @@ are filtered by observations in the interval (their totals still describe the fu
 analysis); findings are regrouped from interval events with fresh frame evidence;
 ladder packet identities and event/point metrics are filtered by time. Analysis and
 its baseline remain unchanged when brushing. Onset summaries remain full-window.
+
+The per-bucket matchable fraction is checked independently at both endpoints. A
+brief unmatchable interval cannot inherit a healthy whole-window ratio and turn
+into a false zero-loss cell or onset. Part 2 ships as 0.1.3; old reports are
+invalidated, while current packet indexes remain reusable.

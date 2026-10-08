@@ -26,6 +26,10 @@ def main():
         "--scenario",
         default="demo",
         choices=[
+            "onset_loss",
+            "onset_delay",
+            "onset_propagation",
+            "onset_capture_miss",
             "healthy",
             "demo",
             "capture_miss",
@@ -46,7 +50,9 @@ def main():
             "realistic_syn_blocked",
         ],
     )
-    demo.add_argument("--parallel-ingest", action="store_true", help="Opt in to resource-bounded parallel ingestion")
+    demo.add_argument(
+        "--parallel-ingest", action="store_true", help="Opt in to resource-bounded parallel ingestion"
+    )
     demo.add_argument("--rounds", type=int, default=100)
     demo.add_argument("--ip-id", choices=["increment", "zero", "constant", "random"], default="increment")
     demo.add_argument("--ipv6", action="store_true")

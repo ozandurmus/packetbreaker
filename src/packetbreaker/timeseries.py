@@ -158,8 +158,10 @@ def build_timeseries(db, topology, segments, coverage, window):
         for i in range(count):
             start, end = origin + i * width, origin + (i + 1) * width
             state = (
-                "not capturing"
-                if left is None or right is None or end <= left or start >= right
+                "unknown coverage"
+                if left is None or right is None
+                else "not capturing"
+                if end <= left or start >= right
                 else "partial coverage"
                 if start < left or end > right
                 else "capturing"

@@ -598,7 +598,12 @@ function App() {
                 </section>
               )}
               {report && series && (
-                <Heatmap data={series} report={report} onSelect={selectRange} />
+                <Heatmap
+                  data={series}
+                  report={report}
+                  onSelect={selectRange}
+                  selectedRange={range}
+                />
               )}
               <div className="stats">
                 <div>
@@ -759,7 +764,11 @@ function App() {
                         })
                     ) : (
                       <div className="empty">
-                        No supported missing-packet events in this analysis.
+                        {range && rangeFindings === null
+                          ? "Loading selected findings…"
+                          : range
+                            ? "No supported missing-packet events in the selected interval."
+                            : "No supported missing-packet events in this analysis."}
                       </div>
                     )}
                   </section>

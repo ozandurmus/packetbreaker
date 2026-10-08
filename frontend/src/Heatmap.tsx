@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EChartsOption } from "echarts";
 import { Chart } from "./Charts";
 import type { Report, TimeSeries } from "./types";
@@ -7,13 +7,18 @@ export function Heatmap({
   data,
   report,
   onSelect,
+  selectedRange,
 }: {
   data: TimeSeries;
+  selectedRange: [number, number] | null;
   report: Report;
   onSelect: (range: [number, number] | null) => void;
 }) {
   const [metric, setMetric] = useState("loss_percent");
   const [clear, setClear] = useState(0);
+  useEffect(() => {
+    if (selectedRange === null) setClear((n) => n + 1);
+  }, [selectedRange]);
   const descriptor = data.metrics[metric];
   const onBrush = useCallback(
     (event: unknown) => {

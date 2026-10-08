@@ -3,7 +3,7 @@
 A local desktop web app for correlating packet captures along a traffic path.
 Attach captures, draw capture points, and inspect **which segment first loses an
 original packet**, how it is recovered, and the frame evidence supporting that
-conclusion. Runs offline after installation. Phase 2 / Part 1 infrastructure and ingest robustness. Other Phase 2 features are not implemented.
+conclusion. Runs offline after installation. Phase 2 / Parts 1–2: robust ingest, explainable onset detection and a path × time heatmap. Later phases remain out of scope.
 
 ## Install on macOS (Intel or Apple Silicon)
 
@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.1.2-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.1.3-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -103,10 +103,11 @@ Other scenarios: `healthy`, `capture_miss`, `acked_unseen`, `recovered_loss`,
 
 The generator's Python API also accepts point count, offsets, drift, loss hop,
 loss start time, added delay, NAT hop and capture-miss point. It writes ground
-truth and topology JSON next to the captures. Phase 2/3 fixture types are not yet
-implemented.
+truth and topology JSON next to the captures. Part 2 adds `onset_loss`, `onset_delay`,
+`onset_propagation` and `onset_capture_miss`: 40-second fixtures with explicit
+hop/time ground truth, also available with `--ip-id zero|constant` and `--ipv6`.
 
-## What Phase 1.1 measures, estimates and leaves unknown
+## What PacketBreaker measures, estimates and leaves unknown
 
 | Result | Meaning |
 |---|---|
@@ -117,7 +118,8 @@ implemented.
 | Per-hop latency | Clock-corrected matched-packet transit; negative/inconsistent values are suppressed, not clamped |
 | Handshake halves and RTT | Same-capture SYN/SYN-ACK/ACK intervals and tshark TCP ACK RTT, with frame references |
 | Unrecovered disappearance | Covered absence is `unrecovered_loss`; a reset or observed stall makes it impactful. Policy cause stays unknown. |
-| First event time | First observed classified event; **not** a change-point onset estimate |
+| First event time | First observed classified event; distinct from change-point onset |
+| Degradation onset | Sustained bucket-level departure from an early healthy median/MAD baseline, with threshold and frame evidence |
 
 Repeated fingerprints are matched as separate time-ordered occurrences. Only
 byte-identical full frames within the configured microsecond threshold are marked
@@ -130,14 +132,14 @@ TCP conversation rows join local streams through shared packet occurrences;
 port-reuse sessions remain separate. UDP/ICMP use endpoint conversations. Retransmission observations are counted per capture point, not globally
 unique retransmissions. Covered UDP disappearance without delivery evidence is unrecovered loss with an
 unknown cause; insufficient coverage/clock/translation evidence remains unknown. Recovery/ACK searches are bounded to 60 seconds; longer waits remain unknown. Window changes affect hop findings/latency; conversation inventory
-and drilldown retain the full selected captures for context.
+and drilldown retain the full selected captures for context. The heatmap brush additionally
+filters flow membership, findings and ladder packets without refitting the baseline.
 
 Declared full proxies and sequence randomizers stop packet-level attribution.
 Automatic sequence offsets, offload byte-range matching, fragment reassembly,
-tunnel decapsulation selection, vendor inspection-point adapters, change-point
-onset/heatmaps, waterfall, HTML export, MTU/security attribution, packaging as
-native executables and the AI placeholder belong to Phase 2/3. No other Phase 2 work is
-included. Positive device-drop classification awaits device-stage evidence.
+tunnel decapsulation selection, vendor inspection-point adapters,
+waterfall, HTML export, MTU/security attribution, packaging as
+native executables and the AI placeholder remain deferred beyond Parts 1–2. Positive device-drop classification awaits device-stage evidence.
 
 ## Offline JSON / API
 
@@ -227,8 +229,27 @@ never used for coverage or clock fitting. Older indexes need one reattach for
 timestamp validation; completed validated indexes still reopen from cache.
 
 Inventory distinguishes header snaplen, maximum stored caplen and the observed
-truncation range. Multi-file attach/upload runs one tshark per file, bounded by
+truncation range. Serial ingestion is the default after the equal-file re-check.
+Optional parallel attach/upload runs one tshark per file, bounded by
 `min(files, CPU cores - 1, floor(available RAM / 1.6 GiB))`. The job panel supports
 per-file cancellation/resume; completed files survive other file failures. SQL
 commits stay serialized. A segment now has one headline with short finding-class
-lines. No later Phase 2 functionality is included.
+lines. Parallel can be enabled in Settings or with `demo --parallel-ingest`.
+
+## Phase 2 / Part 2 investigation
+
+Analyze the path, then use **Overview → Path × time**. Select a metric and drag
+horizontally to filter flows, findings and ladder packets. Grey `NC` means not
+capturing; `?` means partial/unknown coverage or an unavailable metric, never zero.
+Clear selection returns to the full analysis. Flow totals and the executive onset
+summary describe the complete analysis; the selection does not refit its baseline.
+
+Settings exposes the bucket width (1 second by default); save and re-analyze after
+changing it. Onset explanations show baseline, MAD, threshold, first crossing and
+confirming bucket, with clickable evidence. The executive summary lists temporal
+propagation order and explicitly unknown baselines. Earliest observed segments
+are suspects, not proof of device causation. Clock uncertainty still applies.
+
+`GET /api/timeseries` returns stored buckets and metric tooltips. Optional `start` /
+`end` parameters on `/api/flows`, `/api/findings`, `/api/events` and flow `/ladder`
+use a half-open interval in corrected Unix seconds.

@@ -313,3 +313,50 @@ serial|parallel INPUT FRESH_OUTPUT --profile`. The script explicitly opts into
 parallel mode. Use `tools/compare_indexes.py BEFORE_PROJECT AFTER_PROJECT OUTPUT.json`
 for exact equality. [Raw measurements](phase2-part2-benchmark.json) retain the
 profile totals, exact frame counts and both memory measurements.
+
+## Phase 2 / Part 2 — onset and heatmap acceptance
+
+Part 2 started only after PR #1 was explicitly authorized and merged into main
+(`eccf81e19ef3a9a267a6453a760972acdaa916fb`). Work is on `phase2-part2`; no direct
+main push or auto-merge. The package and bundled UI identify as **0.1.3**.
+
+The suite now contains **228 tests** (203 in Part 1). Focused local gates passed:
+
+- Four 40-second synthetic scenarios: loss onset, delay onset, upstream loss then
+  a later downstream delay, and capture-miss only. Every scenario is tested with
+  zero/constant IPv4 IDs and both corresponding IPv6 variants: 16 combinations.
+- All expected onsets were detected at the correct forward segment within one
+  bucket. No unexpected forward onset appeared. Capture-miss-only generated no
+  onset in either direction. Propagation ordering and the prime-suspect segment
+  matched ground truth. Original-frame evidence and threshold explanations exist.
+- 0.5 s and 2 s buckets retained the correct onset/order on the IPv6 propagation
+  fixture. Insufficient or already-lossy baselines report unknown; isolated spikes
+  do not confirm onset. These are deterministic synthetic acceptance checks, not
+  a general statistical false-positive/false-negative guarantee.
+- Stored throughput/pps and loss-class denominators were checked against SQL
+  counts. Coverage outside the captures remains NULL / not capturing. Unknown
+  clock coverage remains unknown, not not-capturing. Transient bucket-level
+  unmatchability suppresses loss/latency even if whole-window matchability is high.
+- API checks verify half-open time filtering for flow membership, findings and
+  ladder packets, and reject non-finite times. Existing API/headline regressions
+  passed. Ruff and the TypeScript/Vite production build passed.
+
+Interactive local QA used only generated IPv6/zero-ID propagation captures in a
+scratch project. A healthy brush interval removed the later loss findings and
+restricted ladder packet times to that selection. Transit-p95 selection displayed
+the later downstream change and onset diamonds. Widening the synthetic analysis
+window showed grey `NC` cells on both ends, with partial/unknown cells distinct
+from zero. Metric tooltips, default-serial preference and the 0.1.3 footer were
+visually checked. No production capture was used in Part 2.
+
+CI policy is unchanged: pushes run macos-14/Python 3.12; PR/manual runs execute all
+six OS/Python combinations, including Windows tshark installation/auto-detection.
+[Part 2 CI runs](https://github.com/ozandurmus/packetbreaker/actions?query=branch%3Aphase2-part2)
+retain the authoritative final results; the final run URL is also recorded in the
+PR close-out. Documentation-only amendments are avoided after that final run.
+
+Limits: the baseline is observational, not proof that the network was historically
+healthy. Onsets use supported network loss and matched transit-p95; traffic volume,
+RTT, retransmission, reset and window counters are contextual heatmap metrics.
+Time order is uncertain within overlapping buckets/clock bounds and does not prove
+causation. The 200,000-cell limit requires coarser buckets for very long windows.
