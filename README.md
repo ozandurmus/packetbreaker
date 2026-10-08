@@ -3,7 +3,7 @@
 A local desktop web app for correlating packet captures along a traffic path.
 Attach captures, draw capture points, and inspect **which segment first loses an
 original packet**, how it is recovered, and the frame evidence supporting that
-conclusion. Runs offline after installation. Phase 1.1 correctness hardening. Phase 2 has not started.
+conclusion. Runs offline after installation. Phase 2 / Part 1 infrastructure and ingest robustness. Other Phase 2 features are not implemented.
 
 ## Install on macOS (Intel or Apple Silicon)
 
@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.1.1-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.1.2-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -136,7 +136,7 @@ Declared full proxies and sequence randomizers stop packet-level attribution.
 Automatic sequence offsets, offload byte-range matching, fragment reassembly,
 tunnel decapsulation selection, vendor inspection-point adapters, change-point
 onset/heatmaps, waterfall, HTML export, MTU/security attribution, packaging as
-native executables and the AI placeholder belong to Phase 2/3. No Phase 2 work is
+native executables and the AI placeholder belong to Phase 2/3. No other Phase 2 work is
 included. Positive device-drop classification awaits device-stage evidence.
 
 ## Offline JSON / API
@@ -217,3 +217,18 @@ identical retransmissions after merging.
 For the large benchmark, install `.[benchmark]` and run the stages of
 `tools/large_benchmark.py` under `/usr/bin/time -l` on macOS. dpkt remains an
 experiment: its complete measured speedup was 1.07x, below the required 2x gate.
+
+## Phase 2 / Part 1 ingest behavior
+
+Known damaged final records preserve preceding usable frames with a visible
+warning. Zero-filled suffixes are detected at container boundaries and tshark is
+limited to preceding record count. Out-of-range timestamps are quarantined and
+never used for coverage or clock fitting. Older indexes need one reattach for
+timestamp validation; completed validated indexes still reopen from cache.
+
+Inventory distinguishes header snaplen, maximum stored caplen and the observed
+truncation range. Multi-file attach/upload runs one tshark per file, bounded by
+`min(files, CPU cores - 1, floor(available RAM / 1.6 GiB))`. The job panel supports
+per-file cancellation/resume; completed files survive other file failures. SQL
+commits stay serialized. A segment now has one headline with short finding-class
+lines. No later Phase 2 functionality is included.

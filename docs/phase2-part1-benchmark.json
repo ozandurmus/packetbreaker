@@ -1,0 +1,45 @@
+{
+  "serial": {
+    "mode": "serial",
+    "files": 5,
+    "frames": 5400750,
+    "input_bytes": 1414852620,
+    "seconds": 293.48645383294206,
+    "frames_per_second": 18402.041830094848,
+    "workers": 1,
+    "cpu_cores": 10,
+    "available_ram_bytes_at_start": 8566800384,
+    "process_tree_peak_rss_bytes": 1795883008,
+    "capture_counts": [
+      5000150,
+      100150,
+      100150,
+      100150,
+      100150
+    ],
+    "time_l_wall_seconds": 293.71,
+    "time_l_maximum_resident_set_size_bytes": 1277034496
+  },
+  "parallel": {
+    "mode": "parallel",
+    "files": 5,
+    "frames": 5400750,
+    "input_bytes": 1414852620,
+    "seconds": 302.45322424999904,
+    "frames_per_second": 17856.4801661228,
+    "workers": 4,
+    "cpu_cores": 10,
+    "available_ram_bytes_at_start": 8270938112,
+    "process_tree_peak_rss_bytes": 1804189696,
+    "capture_counts": [
+      5000150,
+      100150,
+      100150,
+      100150,
+      100150
+    ],
+    "time_l_wall_seconds": 302.67,
+    "time_l_maximum_resident_set_size_bytes": 1205960704
+  },
+  "method": "Fresh indexes, identical synthetic inputs, serial stages, warm local SSD caches; process-tree RSS sampled every 100 ms; time -l RSS is a per-process high-water mark."
+}

@@ -258,35 +258,40 @@ function App() {
     );
   }
   async function upload(files: FileList | null) {
-    if (!files) return;
+    if (!files?.length) return;
+    setUploadPercent(0);
     const paths: string[] = [];
-    for (const f of Array.from(files)) {
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open(
-          "POST",
-          "/api/captures/upload?defer=true&name=" + encodeURIComponent(f.name),
-        );
-        xhr.setRequestHeader("X-PacketBreaker", "local");
-        xhr.upload.onprogress = (e) =>
-          setUploadPercent(
-            e.lengthComputable ? Math.round((e.loaded / e.total) * 100) : 0,
+    try {
+      for (const f of Array.from(files)) {
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open(
+            "POST",
+            "/api/captures/upload?defer=true&name=" +
+              encodeURIComponent(f.name),
           );
-        xhr.onload = () => {
-          setUploadPercent(null);
-          if (xhr.status < 300) {
-            paths.push(JSON.parse(xhr.responseText).path);
-            resolve();
-          } else reject(new Error(xhr.responseText));
-        };
-        xhr.onerror = () => {
-          setUploadPercent(null);
-          reject(new Error("Upload failed"));
-        };
-        xhr.send(f);
-      });
+          xhr.setRequestHeader("X-PacketBreaker", "local");
+          xhr.upload.onprogress = (e) =>
+            setUploadPercent(
+              e.lengthComputable ? Math.round((e.loaded / e.total) * 100) : 0,
+            );
+          xhr.onload = () => {
+            if (xhr.status < 300) {
+              paths.push(JSON.parse(xhr.responseText).path);
+              resolve();
+            } else reject(new Error(xhr.responseText));
+          };
+          xhr.onerror = () => {
+            setUploadPercent(null);
+            reject(new Error("Upload failed"));
+          };
+          xhr.send(f);
+        });
+      }
+      setJob(await api<Job>("/captures/attach", "POST", { paths }));
+    } finally {
+      setUploadPercent(null);
     }
-    setJob(await api<Job>("/captures/attach", "POST", { paths }));
   }
   async function showEvents(s: Segment, offset = 0) {
     const page = await api<{
@@ -346,7 +351,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 1.1 · v0.1.1</small>
+          <small>PHASE 2 / PART 1 · v0.1.2</small>
         </div>
       </aside>
       <main>
@@ -603,25 +608,41 @@ function App() {
                       </small>
                     </div>
                     {report.findings.length ? (
-                      report.findings.slice(0, 5).map((f) => (
-                        <button
-                          key={f.id}
-                          className="finding"
-                          onClick={() => setEvidence(f.evidence)}
-                        >
-                          <Badge kind={f.severity}>
-                            {f.type.replaceAll("_", " ")}
-                          </Badge>
-                          <div>
-                            <strong>{f.headline || f.summary}</strong>
-                            <small>
-                              {time(f.time_range[0])} · {f.direction} ·{" "}
-                              {f.confidence}
-                            </small>
-                          </div>
-                          <span>↗</span>
-                        </button>
-                      ))
+                      [...new Set(report.findings.map((f) => f.hop))]
+                        .slice(0, 5)
+                        .map((hop) => {
+                          const segment = report.segments.find(
+                            (s) => s.id === hop,
+                          )!;
+                          return (
+                            <article key={hop} style={{ marginBottom: 20 }}>
+                              <h3>
+                                {segment.label} · {segment.direction}
+                              </h3>
+                              <p>{segment.headline}</p>
+                              {report.findings
+                                .filter((f) => f.hop === hop)
+                                .map((f) => (
+                                  <button
+                                    key={f.id}
+                                    className="finding"
+                                    onClick={() => setEvidence(f.evidence)}
+                                  >
+                                    <Badge kind={f.severity}>
+                                      {f.type.replaceAll("_", " ")}
+                                    </Badge>
+                                    <div>
+                                      <strong>{f.headline || f.summary}</strong>
+                                      <small>
+                                        {time(f.time_range[0])} · {f.confidence}
+                                      </small>
+                                    </div>
+                                    <span>↗</span>
+                                  </button>
+                                ))}
+                            </article>
+                          );
+                        })
                     ) : (
                       <div className="empty">
                         No supported missing-packet events in this analysis.

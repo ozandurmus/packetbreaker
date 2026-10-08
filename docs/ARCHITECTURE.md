@@ -220,3 +220,14 @@ token/checkpoint/progress record; global cancellation reaches all workers. A fai
 or cancelled file does not discard completed files. DuckDB commits remain serialized
 through the existing project lock. Multi-file uploads are staged, then ingested as
 one batch. Cache hits do not spawn tshark. `psutil` supplies cross-platform RAM data.
+
+## Segment-level headlines
+
+Each segment owns one aggregate headline, clock caveat and headline denominator.
+Its finding classes retain short independent lines and evidence links. Multiple
+classes no longer repeat the same aggregate sentence; the executive view ranks
+unique segments and shows their class lines below the shared headline.
+
+
+Part 1 ships as 0.1.2, invalidating older cached analysis reports so the segment
+headline shape is regenerated; current-schema packet indexes remain reusable.

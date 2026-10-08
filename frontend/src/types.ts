@@ -95,6 +95,9 @@ export type Finding = {
   metrics: Record<string, number>;
 };
 export type Segment = {
+  headline?: string;
+  finding_ids?: string[];
+  severity?: string;
   id: string;
   point_a: string;
   point_b: string;

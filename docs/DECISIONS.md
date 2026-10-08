@@ -29,7 +29,7 @@
    supplies TCP flag semantics, not proof of cross-hop loss. Original implementation.
 
 ## Delivery validation
-See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and unverified platforms. Phase 2 remains unstarted.
+See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and unverified platforms. Only the later explicitly scoped Phase 2 / Part 1 work is included.
 
 ## Phase 1.1 decisions
 
@@ -83,3 +83,8 @@ No onset detection, sequence randomization, vendor adapters or other Phase 2
 features are included. Capture fixtures are generated synthetically; real inputs
 stay local and gitignored. Push CI is one macOS/Python job; pull requests and
 manual dispatch use all six supported OS/Python combinations. No auto-merge.
+
+The measured five-file workload is highly skewed and showed no concurrency speedup
+(293.49 s serial versus 302.45 s with four workers). Keep parallelism for independent
+files and per-file controls without claiming a measured throughput gain. The RAM
+ratio is a worker scheduling estimate, not a hard aggregate memory cap.
