@@ -97,6 +97,11 @@ export type Finding = {
 };
 export type Segment = {
   onset_status?: string;
+  onset_quality_notes?: {
+    capture_misses: number;
+    unknown_events: number;
+    reasons: string[];
+  };
   onset_reasons?: { metric: string; reason: string }[];
   headline?: string;
   finding_ids?: string[];

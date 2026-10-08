@@ -1,6 +1,7 @@
 """Explainable, sustained departures from early loss-free observation buckets."""
 
 from statistics import median
+from collections import Counter
 
 from .evidence import evidence
 from .headlines import time_labels
@@ -13,32 +14,40 @@ MIN_EVENT_BUCKETS = 2
 
 def detect_series(values, metric, floor, baseline_count=5, multiplier=6):
     """Only an early consecutive healthy prefix may seed the rolling baseline."""
+    values = [
+        dict(
+            v,
+            loss_percent=100 * v["loss_count"] / v["eligible_packets"]
+            if v.get("loss_count") is not None and v["eligible_packets"]
+            else v.get("loss_percent"),
+        )
+        for v in values
+    ]
     complete = [
         v
         for v in values
         if v["coverage"] == "capturing"
         and v["reason"] != "Outside classified common window; loss rates unknown"
     ]
-    if len(complete) < baseline_count + 2:
-        return None, "unknown: fewer than five baseline buckets and two confirmation buckets"
-    prefix = complete[:baseline_count]
 
     def usable(x):
-        return (
-            x[metric] is not None
-            and not x["reason"]
-            and x["eligible_packets"] > 0
-            and not x["capture_misses"]
-            and not x["unknown_events"]
-        )
+        return x[metric] is not None and x.get("matchable_packets", x["eligible_packets"]) > 0
 
     def healthy(x):
-        return usable(x) and x["loss_percent"] == 0
+        return usable(x) and (metric != "loss_percent" or x[metric] == 0)
 
-    if not all(healthy(x) for x in prefix) or any(
-        b["bucket"] != a["bucket"] + 1 for a, b in zip(prefix, prefix[1:])
-    ):
-        return None, "unknown: early baseline lacks consecutive covered, matchable, loss-free buckets"
+    prefix = []
+    after_prefix = len(complete)
+    for i, row in enumerate(complete):
+        if usable(row):
+            prefix.append(row)
+            if len(prefix) == baseline_count:
+                after_prefix = i + 1
+                break
+    if len(prefix) < baseline_count or sum(usable(x) for x in complete[after_prefix:]) < 2:
+        return None, "unknown: insufficient covered, matchable samples for baseline and confirmation"
+    if not all(healthy(x) for x in prefix):
+        return None, "unknown: the early measured baseline already contains network loss"
     initial = [v[metric] for v in prefix]
     center = median(initial)
     mad = median(abs(v - center) for v in initial)
@@ -51,7 +60,7 @@ def detect_series(values, metric, floor, baseline_count=5, multiplier=6):
     recent = prefix[:]
     previous = prefix[-1]["bucket"]
     gap = False
-    for x in complete[baseline_count:]:
+    for x in complete[after_prefix:]:
         if not usable(x) or x["bucket"] != previous + 1:
             candidate = None
             # Do not bridge a coverage/quality gap with a stale baseline.
@@ -132,16 +141,40 @@ def detect_series(values, metric, floor, baseline_count=5, multiplier=6):
                 history = history[-baseline_count:]
     return (
         None,
-        "unknown: coverage or capture-quality gaps limit onset chronology"
+        "unknown: coverage or unavailable metric samples limit onset chronology"
         if gap
         else "No sustained departure from the early healthy baseline",
     )
+
+
+def status_summary(segments):
+    counts = dict(Counter(s["onset_status"] for s in segments))
+    valid = sum(n for status, n in counts.items() if status != "unknown")
+    missing = counts.get("unknown", 0)
+    if counts.get("detected"):
+        return "detected", counts, ""
+    if valid:
+        return (
+            ("partial" if missing or counts.get("partial") else "none"),
+            counts,
+            (
+                f"No sustained onset in {valid} segment(s) with measured baselines; "
+                f"{missing} segment(s) have unknown onset status. See per-segment results and quality notes."
+            ),
+        )
+    return "unknown", counts, "Onset unknown: no segment has sufficient covered, matchable baseline samples."
 
 
 def add_onsets(db, topology, segments):
     detections = []
     for s in segments:
         values = rows(db, "SELECT * FROM segment_buckets WHERE segment=? ORDER BY bucket", [s["id"]])
+        quality_notes = dict(
+            capture_misses=sum(v["capture_misses"] for v in values),
+            unknown_events=sum(v["unknown_events"] for v in values),
+            reasons=sorted({v["reason"] for v in values if v["reason"] and v["coverage"] == "capturing"}),
+        )
+        s["onset_quality_notes"] = quality_notes
         unknown = []
         found = []
         for metric, floor in (
@@ -150,7 +183,13 @@ def add_onsets(db, topology, segments):
         ):
             item, reason = detect_series(values, metric, floor)
             if not item:
-                unknown.append(dict(metric=metric, reason=reason))
+                unknown.append(
+                    dict(
+                        metric=metric,
+                        reason=reason,
+                        status="unknown" if reason.startswith("unknown:") else "none",
+                    )
+                )
                 continue
             item.update(
                 segment=s["id"],
@@ -160,6 +199,7 @@ def add_onsets(db, topology, segments):
                 point_b=s["point_b"],
                 time_labels=time_labels(item["time"], topology.report_timezone),
                 clock_uncertainty_ms=s["offset_uncertainty_ms"],
+                quality_notes=quality_notes,
             )
             if metric == "loss_percent":
                 event = db.execute(
@@ -193,12 +233,9 @@ def add_onsets(db, topology, segments):
             found.append(item)
             detections.append(item)
         s["onsets"] = found
+        statuses = {x["status"] for x in unknown}
         s["onset_status"] = (
-            "detected"
-            if found
-            else "unknown"
-            if any(x["reason"].startswith("unknown:") for x in unknown)
-            else "none"
+            "detected" if found else "partial" if len(statuses) > 1 else next(iter(statuses), "unknown")
         )
         s["onset_reasons"] = unknown
         if found:
@@ -229,23 +266,17 @@ def add_onsets(db, topology, segments):
             first_time=groups[0]["time"] if groups else None,
             caveat="Temporal order is evidence, not proof of causation. Overlapping buckets are tied; clock uncertainty may further limit order.",
         )
+    overall, status_counts, fallback_summary = status_summary(segments)
     earliest = min(detections, key=lambda x: x["time"]) if detections else None
     if earliest:
         tied = [x for x in detections if x["time"] < earliest["end"]]
         suspects = list(dict.fromkeys(x["label"] + " (" + x["direction"] + ")" for x in tied))
         summary = f"First detected degradation: {', '.join(suspects)} at {earliest['time_labels']['local']} / {earliest['time_labels']['utc']}. Earliest segments are prime suspects, not proven causes; same-bucket order is unresolved and clock uncertainty applies."
     else:
-        summary = (
-            "Onset unknown: insufficient healthy baseline or matchable coverage."
-            if any(s["onset_status"] == "unknown" for s in segments)
-            else "No supported sustained loss or transit-delay onset detected."
-        )
+        summary = fallback_summary
     return dict(
-        status="detected"
-        if detections
-        else "unknown"
-        if any(s["onset_status"] == "unknown" for s in segments)
-        else "none",
+        status=overall,
+        status_counts=status_counts,
         items=detections,
         directions=directions,
         summary=summary,

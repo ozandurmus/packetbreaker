@@ -83,7 +83,7 @@ def build_timeseries(db, topology, segments, coverage, window):
     db.execute(f"""CREATE OR REPLACE TABLE segment_buckets (
         segment VARCHAR,direction VARCHAR,bucket BIGINT,start DOUBLE,"end" DOUBLE,
         coverage VARCHAR,reason VARCHAR,eligible_packets BIGINT,matched_packets BIGINT,
-        capture_misses BIGINT,unknown_events BIGINT,loss_count BIGINT,{metric_sql})""")
+        capture_misses BIGINT,unknown_events BIGINT,loss_count BIGINT,matchable_packets BIGINT,{metric_sql})""")
     meta = dict(
         bucket_seconds=width,
         start=lo,
@@ -226,6 +226,7 @@ def build_timeseries(db, topology, segments, coverage, window):
                     miss,
                     unknown,
                     sum(ev.get(k, {}).get("n", 0) for k in CLASSES[:4]),
+                    x.get("matchable", 0),
                     *metrics.values(),
                 ]
             )

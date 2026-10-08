@@ -563,29 +563,34 @@ function App() {
                         </p>
                       ),
                   )}
-                  {report.segments.some(
-                    (s) => s.onset_status === "unknown",
-                  ) && (
-                    <details>
-                      <summary>Unknown baselines — reasons by segment</summary>
-                      {report.segments
-                        .filter((s) => s.onset_status === "unknown")
-                        .map((s) => (
-                          <p key={s.id}>
-                            {s.label} · {s.direction}:{" "}
-                            {[
-                              ...new Set(
-                                s.onset_reasons
-                                  ?.filter((r) =>
-                                    r.reason.startsWith("unknown:"),
-                                  )
-                                  .map((r) => r.reason),
-                              ),
-                            ].join("; ")}
+                  <details>
+                    <summary>Onset status and quality notes by segment</summary>
+                    {report.segments.map((s) => (
+                      <div key={s.id}>
+                        <p>
+                          <strong>
+                            {s.label} · {s.direction}: {s.onset_status}
+                          </strong>
+                        </p>
+                        <p className="hint">
+                          Quality notes:{" "}
+                          {s.onset_quality_notes?.capture_misses || 0} capture
+                          misses; {s.onset_quality_notes?.unknown_events || 0}{" "}
+                          unknown events. These are not counted as network loss.
+                        </p>
+                        {s.onset_reasons?.map((r) => (
+                          <p className="hint" key={r.metric}>
+                            {r.metric}: {r.reason}
                           </p>
                         ))}
-                    </details>
-                  )}
+                        {s.onset_quality_notes?.reasons.map((reason) => (
+                          <p className="hint" key={reason}>
+                            {reason}
+                          </p>
+                        ))}
+                      </div>
+                    ))}
+                  </details>
                   {report.onsets.items.map((o, i) => (
                     <button
                       key={i}

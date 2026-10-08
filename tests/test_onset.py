@@ -69,7 +69,7 @@ def test_detector_explains_first_crossing_and_rejects_isolated_spike():
     capture = series([0] * 6 + [30] * 3)
     for row in capture[6:]:
         row["capture_misses"] = 2
-    assert detect_series(capture, "loss_percent", 1)[0] is None
+    assert detect_series(capture, "loss_percent", 1)[0]["bucket"] == 6
 
 
 @pytest.mark.parametrize("width", [0.5, 2.0])
@@ -137,3 +137,24 @@ def test_sparse_capture_fixtures(scenarios, scenario, ipv6):
     )
     assert abs(onset["time"] - expected["time"]) <= 1
     assert onset["evidence"]
+
+
+def test_quality_notes_do_not_poison_baseline_or_invent_loss():
+    values = series([0] * 8 + [20, 20, 20])
+    for row in values:
+        row.update(capture_misses=2, unknown_events=1, reason="capture quality note")
+    onset, _ = detect_series(values, "loss_percent", 0)
+    assert onset["bucket"] == 8
+    for row in values:
+        row.update(loss_count=0, loss_percent=0)
+    onset, reason = detect_series(values, "loss_percent", 0)
+    assert onset is None and not reason.startswith("unknown:")
+
+
+def test_unknown_segments_do_not_overrule_valid_results():
+    from packetbreaker.onset import status_summary
+
+    status, counts, summary = status_summary([{"onset_status": "none"}, {"onset_status": "unknown"}])
+    assert status == "partial" and counts == {"none": 1, "unknown": 1}
+    assert not summary.startswith("Onset unknown") and "1 segment(s) have unknown" in summary
+    assert status_summary([{"onset_status": "unknown"}])[0] == "unknown"
