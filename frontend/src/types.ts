@@ -154,7 +154,19 @@ export type Report = {
   findings: Finding[];
   limitations: string[];
 };
+export type FileJob = {
+  file_id: string;
+  file: string;
+  path: string;
+  state: string;
+  frames: number;
+  usable_packets?: number;
+  error?: string;
+  warnings?: string[];
+};
 export type Job = {
+  files?: FileJob[];
+  workers?: number;
   state: string;
   busy: boolean;
   kind?: string;

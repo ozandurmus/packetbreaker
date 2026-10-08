@@ -257,25 +257,15 @@ function App() {
       }),
     );
   }
-  async function waitIngest() {
-    for (;;) {
-      await new Promise((r) => setTimeout(r, 500));
-      const j = await api<Job>("/jobs");
-      setJob(j);
-      if (!j.busy) {
-        if (j.error) throw new Error(j.error);
-        return;
-      }
-    }
-  }
   async function upload(files: FileList | null) {
     if (!files) return;
+    const paths: string[] = [];
     for (const f of Array.from(files)) {
       await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open(
           "POST",
-          "/api/captures/upload?name=" + encodeURIComponent(f.name),
+          "/api/captures/upload?defer=true&name=" + encodeURIComponent(f.name),
         );
         xhr.setRequestHeader("X-PacketBreaker", "local");
         xhr.upload.onprogress = (e) =>
@@ -285,7 +275,7 @@ function App() {
         xhr.onload = () => {
           setUploadPercent(null);
           if (xhr.status < 300) {
-            setJob(JSON.parse(xhr.responseText));
+            paths.push(JSON.parse(xhr.responseText).path);
             resolve();
           } else reject(new Error(xhr.responseText));
         };
@@ -295,9 +285,8 @@ function App() {
         };
         xhr.send(f);
       });
-      await waitIngest();
     }
-    await refresh();
+    setJob(await api<Job>("/captures/attach", "POST", { paths }));
   }
   async function showEvents(s: Segment, offset = 0) {
     const page = await api<{
@@ -421,7 +410,7 @@ function App() {
               {job.file}{" "}
               {job.frames != null ? `· ${num(job.frames, " frames", 0)}` : ""}{" "}
               {job.file_count
-                ? `· File ${job.file_index} of ${job.file_count}`
+                ? `· ${job.file_count} files · ${job.workers ?? 1} workers`
                 : ""}
             </span>
             {job.kind === "ingest" && job.busy && (
@@ -433,6 +422,61 @@ function App() {
               </button>
             )}
           </div>
+        )}
+        {job.kind === "ingest" && !!job.files?.length && (
+          <section style={{ margin: "18px 38px" }}>
+            <h2>File ingest progress</h2>
+            {job.files.map((f) => (
+              <div className="mapping" key={f.file_id}>
+                <div>
+                  <strong>{f.file}</strong>
+                  <small>
+                    {" "}
+                    · {f.state} · {num(f.usable_packets ?? f.frames, "", 0)}{" "}
+                    {f.usable_packets == null
+                      ? "frames read"
+                      : "usable packets"}
+                  </small>
+                  {f.error && <p className="red">{f.error}</p>}
+                  {f.warnings?.map((w) => (
+                    <p className="hint" key={w}>
+                      {w}
+                    </p>
+                  ))}
+                </div>
+                {job.busy &&
+                  !["ready", "cached", "cancelled", "error"].includes(
+                    f.state,
+                  ) && (
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        action(() =>
+                          api("/jobs/cancel", "POST", { file_id: f.file_id }),
+                        )
+                      }
+                    >
+                      Cancel file
+                    </button>
+                  )}
+                {!job.busy && ["cancelled", "error"].includes(f.state) && (
+                  <button
+                    onClick={() =>
+                      action(async () =>
+                        setJob(
+                          await api<Job>("/captures/attach", "POST", {
+                            paths: [f.path],
+                          }),
+                        ),
+                      )
+                    }
+                  >
+                    Resume file
+                  </button>
+                )}
+              </div>
+            ))}
+          </section>
         )}
         <div className="content">
           {tab === "Overview" && (

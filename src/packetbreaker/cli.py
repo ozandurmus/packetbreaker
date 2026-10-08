@@ -8,7 +8,7 @@ import webbrowser
 
 from . import __version__
 from .analysis import analyze
-from .ingest import ingest
+from .batch_ingest import ingest_many
 from .store import Project
 from .synthetic import generate, bind_capture_ids
 
@@ -63,7 +63,8 @@ def main():
                 args.directory, scenario=args.scenario, rounds=args.rounds, ip_id=args.ip_id, ipv6=args.ipv6
             )
             project = Project(args.directory / "project")
-            bind_capture_ids(topology, {Path(path).name: ingest(project, path) for path in truth["files"]})
+            ids = ingest_many(project, truth["files"])
+            bind_capture_ids(topology, {Path(path).name: cid for path, cid in zip(truth["files"], ids)})
             report = analyze(project, topology)
             if args.confirm_demo_nat:
                 topology["nat_mappings"] = [

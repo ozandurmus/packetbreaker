@@ -361,7 +361,7 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                         "UPDATE captures SET state='ready',inventory=?,error=NULL WHERE id=?",
                         [json.dumps(info), cid],
                     )
-                progress(state="ready", frames=last)
+                progress(state="ready", frames=last, usable_packets=r[2], warnings=info["warnings"])
                 return cid
             except BaseException as exc:
                 with project.connect() as db:

@@ -210,3 +210,13 @@ Inventory retains every interface's declared header snaplen and independently
 reports observed maximum caplen and the min/max caplen of truncated packets.
 A fixed truncation limit is stated only when observed truncated records agree.
 Current indexes can derive these values from stored columns without reparsing.
+
+## Parallel ingest
+
+Batch ingestion uses one tshark subprocess per file, with workers equal to the
+minimum of unique files, CPU cores minus one, and floor(available RAM / 1.6 GiB).
+A zero resource budget is an explicit error. Each file has a separate cancellation
+token/checkpoint/progress record; global cancellation reaches all workers. A failed
+or cancelled file does not discard completed files. DuckDB commits remain serialized
+through the existing project lock. Multi-file uploads are staged, then ingested as
+one batch. Cache hits do not spawn tshark. `psutil` supplies cross-platform RAM data.

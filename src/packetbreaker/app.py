@@ -11,7 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .analysis import analyze, event_page, flow_page, ladder
-from .ingest import find_tshark, ingest
+from .ingest import find_tshark
+from .batch_ingest import ingest_many, normalize_paths
 from .store import Project
 from .topology import Topology
 
@@ -25,6 +26,10 @@ class Settings(BaseModel):
     prefix_bytes: int = Field(default=64, ge=8, le=4096)
 
 
+class CancelFile(BaseModel):
+    file_id: str | None = None
+
+
 class OpenProject(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
 
@@ -34,6 +39,7 @@ class Jobs:
         self.pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="packetbreaker")
         self.lock = threading.Lock()
         self.cancel = threading.Event()
+        self.file_cancels = {}
         self.status = dict(state="idle", busy=False)
 
     def update(self, **values):
@@ -45,6 +51,7 @@ class Jobs:
             if self.status.get("busy"):
                 raise HTTPException(409, "Wait for the current job or cancel ingestion first")
             self.cancel.clear()
+            self.file_cancels = {}
             self.status = dict(state="queued", kind=kind, busy=True)
 
         def run():
@@ -139,13 +146,19 @@ def create_app(project_path):
         return body
 
     def ingest_files(paths):
+        paths = normalize_paths(paths)
         with project.connect() as db:
             preferences = project.get(db, "preferences", {})
-        for index, path in enumerate(paths):
-            if jobs.cancel.is_set():
-                raise InterruptedError("Ingest cancelled")
-            jobs.update(file=Path(path).name, file_index=index + 1, file_count=len(paths))
-            ingest(project, path, **preferences, cancel=jobs.cancel, progress=jobs.update)
+        with jobs.lock:
+            jobs.file_cancels = {str(i): threading.Event() for i in range(len(paths))}
+        ingest_many(
+            project,
+            paths,
+            **preferences,
+            cancel=jobs.cancel,
+            file_cancels=jobs.file_cancels,
+            progress=jobs.update,
+        )
 
     @app.post("/api/captures/attach")
     def attach(body: Attach):
@@ -155,7 +168,7 @@ def create_app(project_path):
         return jobs.start("ingest", lambda: ingest_files(body.paths))
 
     @app.post("/api/captures/upload")
-    async def upload(request: Request, name: str = Query(min_length=1, max_length=255)):
+    async def upload(request: Request, name: str = Query(min_length=1, max_length=255), defer: bool = False):
         idle()
         name = name.replace("\\", "/").split("/")[-1]
         if Path(name).suffix.lower() not in (".pcap", ".pcapng"):
@@ -167,6 +180,8 @@ def create_app(project_path):
             with destination.open("xb") as f:
                 async for chunk in request.stream():
                     f.write(chunk)
+            if defer:
+                return {"path": str(destination)}
             return jobs.start("ingest", lambda: ingest_files([destination]))
         except BaseException:
             destination.unlink(missing_ok=True)
@@ -178,9 +193,18 @@ def create_app(project_path):
             return jobs.status.copy()
 
     @app.post("/api/jobs/cancel")
-    def cancel():
+    def cancel(body: CancelFile | None = None):
         if jobs.status.get("kind") != "ingest" or not jobs.status.get("busy"):
             raise HTTPException(409, "No cancellable ingest is running")
+        if body and body.file_id is not None:
+            with jobs.lock:
+                states = {s["file_id"]: s for s in jobs.status.get("files", [])}
+                if body.file_id not in states:
+                    raise HTTPException(404, "Unknown file job")
+                if states[body.file_id]["state"] in ("ready", "cached", "cancelled", "error"):
+                    raise HTTPException(409, "File is not running")
+                jobs.file_cancels[body.file_id].set()
+            return {"state": "cancelling", "file_id": body.file_id}
         jobs.cancel.set()
         return {"state": "cancelling"}
 

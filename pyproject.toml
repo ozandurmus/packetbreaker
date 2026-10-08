@@ -8,7 +8,7 @@ version = "0.1.1"
 description = "Local, evidence-first multi-hop packet capture correlation"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["duckdb>=1.2,<2", "tzdata>=2025.2", "fastapi>=0.143,<1", "uvicorn>=0.34,<1", "python-multipart>=0.0.20,<1"]
+dependencies = ["duckdb>=1.2,<2", "psutil>=7,<8", "tzdata>=2025.2", "fastapi>=0.143,<1", "uvicorn>=0.34,<1", "python-multipart>=0.0.20,<1"]
 
 [project.optional-dependencies]
 benchmark = ["dpkt==1.9.8"]
