@@ -187,3 +187,19 @@ and pending batches are retained and the capture becomes ready with a visible
 warning and usable count. The pcapng metadata walk tolerates an incomplete final
 block so tshark can read preceding packets. Other errors and zero usable frames
 still fail. Completed warned captures use the normal cache and do not resume-loop.
+
+## Zero tails and timestamp validity
+
+The metadata walker scans the trailing zero suffix once, then walks only container
+record/block boundaries. A padding suffix supplies an exact physical record limit
+to tshark (`-c N`), including any invalid-time records before the suffix so original
+frame numbers are retained. Zero-tail counts are 16-byte pcap record-header slots
+or 12-byte minimum pcapng block slots; byte counts are exact. Protocol payloads are
+not dissected by this walker.
+
+Frames before 2000-01-01 or later than ingest-start + one day are recorded in
+`excluded_frames` with their reason, not in the packet index. Coverage, overlap,
+clock fitting and Gantt therefore only use validated timestamps. Timestamp quality
+also caps segment matchability conservatively at the whole-capture level because
+invalid times cannot be assigned to a selected interval. Schema-4 migration marks
+old indexes stale until this one-time validation occurs; stale Gantt ranges are hidden.

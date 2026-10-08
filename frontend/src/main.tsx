@@ -852,8 +852,18 @@ function App() {
                             )}
                           </td>
                           <td>
-                            {time(c.inventory.start)}
-                            <small>{time(c.inventory.end)}</small>
+                            {time(
+                              c.inventory.timestamps_validated
+                                ? c.inventory.start
+                                : null,
+                            )}
+                            <small>
+                              {time(
+                                c.inventory.timestamps_validated
+                                  ? c.inventory.end
+                                  : null,
+                              )}
+                            </small>
                           </td>
                           <td>{num(c.inventory.duration, " s")}</td>
                           <td>

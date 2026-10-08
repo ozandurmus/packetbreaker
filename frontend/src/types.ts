@@ -55,6 +55,8 @@ export type Capture = {
   error: string | null;
   inventory: {
     warnings?: string[];
+    timestamps_validated?: boolean;
+    timestamp_excluded_counts?: Record<string, number>;
     start?: number;
     end?: number;
     duration?: number;
