@@ -120,20 +120,27 @@ class Project:
 
     def inventory(self):
         with self.connect() as db:
-            return [
-                dict(
-                    id=r[0],
-                    path=r[1],
-                    name=r[2],
-                    state=r[3],
-                    checkpoint=r[4],
-                    inventory=json.loads(r[5]),
-                    error=r[6],
-                )
-                for r in db.execute(
-                    "SELECT id,path,name,state,checkpoint,inventory,error FROM captures ORDER BY name"
-                ).fetchall()
-            ]
+            data = rows(
+                db, "SELECT id,path,name,state,checkpoint,inventory,error FROM captures ORDER BY name"
+            )
+            for capture in data:
+                info = json.loads(capture["inventory"])
+                if capture["state"] == "ready" and "observed_max_caplen" not in info:
+                    stats = db.execute(
+                        """SELECT max(caplen),min(caplen) FILTER(WHERE caplen<wirelen),
+                        max(caplen) FILTER(WHERE caplen<wirelen) FROM packets WHERE capture_id=?""",
+                        [capture["id"]],
+                    ).fetchone()
+                    info.update(
+                        observed_max_caplen=stats[0],
+                        truncated_caplen_min=stats[1],
+                        truncated_caplen_max=stats[2],
+                    )
+                    db.execute(
+                        "UPDATE captures SET inventory=? WHERE id=?", [json.dumps(info), capture["id"]]
+                    )
+                capture["inventory"] = info
+            return data
 
 
 def rows(db, sql, params=None):

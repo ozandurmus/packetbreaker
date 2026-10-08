@@ -315,7 +315,8 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                 with project.connect() as db:
                     r = db.execute(
                         """SELECT min(ts),max(ts),count(*),count(*) FILTER(WHERE caplen<wirelen),
-                        count(*) FILTER(WHERE length>1500),count(*) FILTER(WHERE unsupported IS NOT NULL)
+                        count(*) FILTER(WHERE length>1500),count(*) FILTER(WHERE unsupported IS NOT NULL),
+                        max(caplen),min(caplen) FILTER(WHERE caplen<wirelen),max(caplen) FILTER(WHERE caplen<wirelen)
                         FROM packets WHERE capture_id=?""",
                         [cid],
                     ).fetchone()
@@ -352,6 +353,9 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                         truncated=r[3],
                         possible_offload=r[4],
                         unsupported=r[5],
+                        observed_max_caplen=r[6],
+                        truncated_caplen_min=r[7],
+                        truncated_caplen_max=r[8],
                     )
                     db.execute(
                         "UPDATE captures SET state='ready',inventory=?,error=NULL WHERE id=?",

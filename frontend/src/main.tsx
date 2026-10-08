@@ -877,6 +877,18 @@ function App() {
                                 {x.link_type}
                               </small>
                             ))}
+                            <small title="Largest number of bytes actually stored for a usable packet, independent of the declared interface snaplen.">
+                              Observed max{" "}
+                              {num(c.inventory.observed_max_caplen, " B", 0)}
+                            </small>
+                            {!!c.inventory.truncated && (
+                              <small className="red">
+                                {c.inventory.truncated_caplen_min ===
+                                c.inventory.truncated_caplen_max
+                                  ? `Packets truncated at ${num(c.inventory.truncated_caplen_max, " B", 0)}`
+                                  : `Truncated packet caplen ${num(c.inventory.truncated_caplen_min, " B", 0)}–${num(c.inventory.truncated_caplen_max, " B", 0)}`}
+                              </small>
+                            )}
                           </td>
                         </tr>
                       ))}

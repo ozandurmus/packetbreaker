@@ -61,6 +61,9 @@ export type Capture = {
     end?: number;
     duration?: number;
     packet_count?: number;
+    observed_max_caplen?: number | null;
+    truncated_caplen_min?: number | null;
+    truncated_caplen_max?: number | null;
     truncated?: number;
     possible_offload?: number;
     ifdrop?: number | null;

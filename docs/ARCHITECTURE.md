@@ -203,3 +203,10 @@ clock fitting and Gantt therefore only use validated timestamps. Timestamp quali
 also caps segment matchability conservatively at the whole-capture level because
 invalid times cannot be assigned to a selected interval. Schema-4 migration marks
 old indexes stale until this one-time validation occurs; stale Gantt ranges are hidden.
+
+## Declared versus observed capture lengths
+
+Inventory retains every interface's declared header snaplen and independently
+reports observed maximum caplen and the min/max caplen of truncated packets.
+A fixed truncation limit is stated only when observed truncated records agree.
+Current indexes can derive these values from stored columns without reparsing.

@@ -143,3 +143,32 @@ def test_clock_fit_and_coverage_never_receive_invalid_times(tmp_path, tshark):
     assert report["verdict"] == "Inconclusive"
     with project.connect() as db:
         assert db.execute("SELECT min(ts) FROM obs").fetchone()[0] > 946684800
+
+
+@pytest.mark.parametrize("kind", ["pcap", "pcapng"])
+def test_declared_snaplen_does_not_hide_observed_truncation(tmp_path, tshark, kind):
+    frame = tcp_packet("10.0.0.1", "203.0.113.1", 50000, 443, 1, 1, 24, b"x" * 2000, 42)
+    path = tmp_path / f"truncated.{kind}"
+    if kind == "pcap":
+        path.write_bytes(
+            struct.pack("<IHHIIII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1)
+            + struct.pack("<IIII", 1700000000, 0, 500, len(frame))
+            + frame[:500]
+        )
+    else:
+
+        def block(kind, body):
+            return struct.pack("<II", kind, len(body) + 12) + body + struct.pack("<I", len(body) + 12)
+
+        us = 1700000000 * 1_000_000
+        path.write_bytes(
+            block(0x0A0D0D0A, struct.pack("<IHHq", 0x1A2B3C4D, 1, 0, -1))
+            + block(1, struct.pack("<HHI", 1, 0, 65535))
+            + block(6, struct.pack("<IIIII", 0, us >> 32, us & 0xFFFFFFFF, 500, len(frame)) + frame[:500])
+        )
+    project = Project(tmp_path / "project")
+    ingest(project, path, tshark=tshark)
+    i = project.inventory()[0]["inventory"]
+    assert i["interfaces"][0]["snaplen"] == 65535
+    assert i["observed_max_caplen"] == i["truncated_caplen_min"] == i["truncated_caplen_max"] == 500
+    assert i["truncated"] == 1
