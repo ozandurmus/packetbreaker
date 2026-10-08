@@ -80,3 +80,44 @@ def match_occurrences(db, topology):
         AND NOT EXISTS(SELECT 1 FROM assigned a WHERE a.point=obs.point AND a.frame=obs.frame)""")
     db.execute("""UPDATE obs SET eligible=false,excluded_reason='clock_alignment_unknown'
         WHERE base_key IN (SELECT base_key FROM repeated_keys) AND corrected IS NULL""")
+
+
+def link_tcp_sessions(db, topology):
+    """Union distinct local stream identities via shared packet occurrences, never per packet in Python."""
+    sessions = db.execute(
+        "SELECT DISTINCT point,stream,flow FROM obs WHERE proto='TCP' AND stream>=0"
+    ).fetchall()
+    parent = {s: s for s in sessions}
+
+    def root(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    paths = (topology.forward, topology.reverse or list(reversed(topology.forward)))
+    pairs = {tuple(sorted((a, b))) for path in paths for a, b in zip(path, path[1:])}
+    for a, b in pairs:
+        edges = db.execute(
+            """SELECT DISTINCT a.point,a.stream,a.flow,b.point,b.stream,b.flow
+            FROM obs a JOIN obs b ON a.packet_key=b.packet_key AND a.flow=b.flow
+            WHERE a.point=? AND b.point=? AND a.proto='TCP' AND b.proto='TCP'
+            AND a.stream>=0 AND b.stream>=0 AND a.eligible AND b.eligible""",
+            [a, b],
+        ).fetchall()
+        for edge in edges:
+            left, right = root(edge[:3]), root(edge[3:])
+            if left != right:
+                parent[max(left, right)] = min(left, right)
+    db.execute(
+        "CREATE OR REPLACE TEMP TABLE session_map(point VARCHAR,stream BIGINT,old_flow VARCHAR,new_flow VARCHAR)"
+    )
+    if sessions:
+        import hashlib
+
+        db.executemany(
+            "INSERT INTO session_map VALUES (?,?,?,?)",
+            [(*s, hashlib.sha256(repr(root(s)).encode()).hexdigest()[:32]) for s in sessions],
+        )
+        db.execute("""UPDATE obs SET flow=s.new_flow FROM session_map s
+            WHERE obs.point=s.point AND obs.stream=s.stream AND obs.flow=s.old_flow""")

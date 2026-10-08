@@ -67,6 +67,10 @@ def generate(
     ip_id="increment",
     ipv6=False,
 ):
+    if scenario.startswith("realistic_"):
+        from .realistic import generate_realistic
+
+        return generate_realistic(directory, scenario, rounds, ip_id, ipv6)
     if hops < 3 or hops > 32:
         raise ValueError("Synthetic scenarios require 3–32 capture points")
     if not 0 <= loss_hop < hops - 1:
@@ -286,3 +290,12 @@ def generate(
     (directory / "topology.json").write_text(json.dumps(topology, indent=2))
     (directory / "ground-truth.json").write_text(json.dumps(truth, indent=2))
     return truth, topology
+
+
+def bind_capture_ids(topology, by_filename):
+    for point in topology["points"]:
+        point["capture_id"] = by_filename.get(point["capture_id"], point["capture_id"])
+    topology["clock_overrides"] = {
+        by_filename.get(k, k): v for k, v in topology.get("clock_overrides", {}).items()
+    }
+    return topology

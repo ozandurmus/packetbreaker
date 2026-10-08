@@ -41,6 +41,11 @@ PACKET_COLUMNS = {
     "rtt": "DOUBLE",
     "unsupported": "VARCHAR",
     "frame_hash": "VARCHAR",
+    "icmp_id": "INTEGER",
+    "icmp_seq": "INTEGER",
+    "icmp_type": "INTEGER",
+    "dns_id": "INTEGER",
+    "dns_response": "BOOLEAN",
 }
 
 
@@ -60,15 +65,18 @@ class Project:
                 "UPDATE captures SET state='cancelled', error='Interrupted; resume available' WHERE state='ingesting'"
             )
             version = self.get(db, "schema_version")
-            if version not in (None, 1, 2):
+            if version not in (None, 1, 2, 3):
                 raise ValueError("Unsupported project schema version")
-            if version == 1:
-                db.execute("ALTER TABLE packets ADD COLUMN IF NOT EXISTS frame_hash VARCHAR")
+            if version in (1, 2):
+                for column in ("frame_hash", "icmp_id", "icmp_seq", "icmp_type", "dns_id", "dns_response"):
+                    db.execute(
+                        f"ALTER TABLE packets ADD COLUMN IF NOT EXISTS {column} {PACKET_COLUMNS[column]}"
+                    )
                 db.execute(
                     "UPDATE captures SET state='stale',error='Phase 1.1 index upgrade: reattach to rebuild frame hashes'"
                 )
                 self.set(db, "report", None)
-            self.set(db, "schema_version", 2)
+            self.set(db, "schema_version", 3)
 
     @contextmanager
     def connect(self, allow_external=False):

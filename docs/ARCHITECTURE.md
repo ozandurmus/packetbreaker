@@ -121,3 +121,16 @@ produces `handshake_blocked` (high severity, unknown cause). Covered disappearan
 without recovery/impact evidence use `unrecovered_loss`; `unknown` is reserved for
 insufficient coverage, clocks or translation. Positive device-drop attribution
 still requires device evidence. Failure/ACK support frames accompany the original.
+
+## Phase 1.1 / item 4
+
+TCP stream identities are local to a capture. Build a small graph of distinct
+local streams joined by shared packet occurrences at neighboring points, then
+JOIN its components back onto observations. This preserves reused-port sessions
+without running Python per packet. DNS transaction IDs/response flags and ICMP
+echo IDs/sequences come from tshark. A response without an intervening retry can
+prove delivery through a capture gap just as a TCP ACK can. Schema 3 adds those
+fields; older indexes require a one-time reattach. Realistic fixtures include 50
+concurrent clients, 51 TCP sessions, both IP versions, DNS, ICMP, an asymmetric
+return point and ISB counters. One-way points cannot estimate their own offsets;
+known fixture clocks are explicitly supplied as overrides, not inferred values.

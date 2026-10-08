@@ -48,3 +48,7 @@ See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and u
 - `unrecovered_loss` describes a covered disappearance with unknown cause. It is
   not a confirmed device drop. Late observations without enough remaining
   coverage still remain unknown.
+- Local tshark stream numbers are never assumed equal across files. Shared
+  packet occurrences connect stream components; reused tuples stay separate.
+- DNS responses and ICMP echo replies provide positive delivery evidence, but a
+  response after an intervening retry cannot retroactively prove original delivery.

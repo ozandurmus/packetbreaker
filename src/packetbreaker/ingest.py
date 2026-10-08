@@ -19,8 +19,8 @@ ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstpor
  ip.ttl ipv6.hlim ip.dsfield.dscp tcp.options.mss_val tcp.window_size_value
  tcp.analysis.retransmission tcp.analysis.fast_retransmission tcp.analysis.spurious_retransmission
  tcp.analysis.out_of_order tcp.analysis.ack_lost_segment tcp.analysis.zero_window tcp.analysis.ack_rtt
- ip.flags.mf ip.frag_offset ipv6.fraghdr.offset ipv6.fraghdr.more frame.protocols frame.md5_hash""".split()
-PARSER_VERSION = 3
+ ip.flags.mf ip.frag_offset ipv6.fraghdr.offset ipv6.fraghdr.more frame.protocols frame.md5_hash dns.id dns.flags.response""".split()
+PARSER_VERSION = 4
 csv.field_size_limit(16 * 1024 * 1024)
 
 
@@ -137,6 +137,11 @@ def parse_packet(values, capture_id, prefix_bytes):
         rtt=float(g("tcp.analysis.ack_rtt")) if g("tcp.analysis.ack_rtt") else None,
         unsupported=unsupported,
         frame_hash=g("frame.md5_hash"),
+        icmp_id=number(g("icmp.ident"), None),
+        icmp_seq=number(g("icmp.seq"), None),
+        icmp_type=number(g("icmp.type"), None),
+        dns_id=number(g("dns.id"), None),
+        dns_response=bool(number(g("dns.flags.response"))),
     )
     return [p[k] for k in PACKET_COLUMNS]
 

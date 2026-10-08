@@ -5,7 +5,7 @@ import pytest
 from packetbreaker.analysis import analyze
 from packetbreaker.ingest import find_tshark, ingest
 from packetbreaker.store import Project
-from packetbreaker.synthetic import generate
+from packetbreaker.synthetic import generate, bind_capture_ids
 
 
 @pytest.fixture(scope="session")
@@ -24,8 +24,8 @@ def scenarios(tmp_path_factory, tshark):
             directory = tmp_path_factory.mktemp(name)
             truth, topology = generate(directory, scenario=name, **kwargs)
             project = Project(directory / "project")
-            for point, path in zip(topology["points"], truth["files"]):
-                point["capture_id"] = ingest(project, Path(path), tshark=tshark)
+            names = {Path(path).name: ingest(project, Path(path), tshark=tshark) for path in truth["files"]}
+            bind_capture_ids(topology, names)
             report = analyze(project, topology)
             cache[key] = (project, truth, topology, report)
         return cache[key]

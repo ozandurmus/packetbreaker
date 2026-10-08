@@ -9,7 +9,7 @@ import webbrowser
 from .analysis import analyze
 from .ingest import ingest
 from .store import Project
-from .synthetic import generate
+from .synthetic import generate, bind_capture_ids
 
 
 def main():
@@ -38,6 +38,10 @@ def main():
             "unrecovered_reset",
             "unrecovered_stall",
             "control_capture_miss",
+            "realistic_healthy",
+            "realistic_capture_miss",
+            "realistic_loss",
+            "realistic_syn_blocked",
         ],
     )
     demo.add_argument("--rounds", type=int, default=100)
@@ -57,8 +61,7 @@ def main():
                 args.directory, scenario=args.scenario, rounds=args.rounds, ip_id=args.ip_id, ipv6=args.ipv6
             )
             project = Project(args.directory / "project")
-            for point, path in zip(topology["points"], truth["files"]):
-                point["capture_id"] = ingest(project, path)
+            bind_capture_ids(topology, {Path(path).name: ingest(project, path) for path in truth["files"]})
             report = analyze(project, topology)
             if args.confirm_demo_nat:
                 topology["nat_mappings"] = [

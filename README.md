@@ -125,8 +125,8 @@ identities, fragmentation and possible large offload frames are flagged. Checksu
 are not classified as network errors. Missing pcapng drop counters mean **unknown**,
 not zero. Observed first/last timestamps cannot prove continuous capture coverage.
 
-Conversation rows aggregate canonical 5-tuples, so reused sessions may share a
-row. Retransmission observations are counted per capture point, not globally
+TCP conversation rows join local streams through shared packet occurrences;
+port-reuse sessions remain separate. UDP/ICMP use endpoint conversations. Retransmission observations are counted per capture point, not globally
 unique retransmissions. Generic UDP absence without positive delivery evidence
 stays unknown. Recovery/ACK searches are bounded to 60 seconds; longer waits remain unknown. Window changes affect hop findings/latency; conversation inventory
 and drilldown retain the full selected captures for context.
@@ -191,3 +191,13 @@ PCAP throughput and several-GB-per-file workloads are **unverified**; see
 [validation notes](docs/VALIDATION.md) for the measured workload and remaining gaps.
 
 Design: [architecture](docs/ARCHITECTURE.md), [decisions](docs/DECISIONS.md).
+
+### Phase 1.1 synthetic coverage
+
+`--ip-id increment|zero|constant|random` and `--ipv6` exercise identical
+retransmissions without relying on changing IP IDs. Additional demo scenarios:
+`syn_blocked`, `unrecovered_reset`, `unrecovered_stall`, `control_capture_miss`,
+`realistic_healthy`, `realistic_capture_miss`, `realistic_loss`, and
+`realistic_syn_blocked`. Realistic scenarios have 50 concurrent clients, a reused
+TCP tuple, mixed IPv4/IPv6, DNS and ICMP, a separate return capture point and a
+pcapng ISB. One-way points use explicit ground-truth clock overrides in fixtures.

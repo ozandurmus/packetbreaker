@@ -412,7 +412,7 @@ function App() {
                   </strong>
                 </div>
                 <div>
-                  <Tip text="Canonical 5-tuple conversations, combined across confirmed NAT mappings.">
+                  <Tip text="TCP sessions joined across capture points and confirmed NAT mappings. UDP and ICMP use endpoint conversations.">
                     Conversations
                   </Tip>
                   <strong>

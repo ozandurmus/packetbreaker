@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 
 from .clock import ClockModel, fit_clock
-from .matching import prepare_occurrences, match_occurrences
+from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions
 from .ingest import tuple_id
 from .store import rows
 from .topology import Topology
@@ -242,6 +242,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         progress(state="aligning clocks")
         models = align(db, topology)
         match_occurrences(db, topology)
+        link_tcp_sessions(db, topology)
         points = {p.id: p for p in topology.points}
         coverage = rows(
             db,
@@ -409,6 +410,21 @@ def analyze(project, topology: Topology | dict, progress=None):
                         AND r.stream=m.stream AND r.length=m.length AND r.corrected>m.corrected AND r.corrected<ack.corrected) GROUP BY m.packet_key""",
                     [a],
                 )
+                db.execute("""INSERT INTO acked
+                    SELECT m.packet_key,arg_min(reply.packet_key,reply.corrected) AS ack_key
+                    FROM missing m JOIN obs reply ON reply.point=m.point AND reply.proto=m.proto
+                    AND reply.canon=rev_canon(m.canon) AND reply.corrected>m.corrected AND reply.corrected<=m.corrected+60
+                    WHERE (m.proto='UDP' AND m.dns_id IS NOT NULL AND NOT m.dns_response
+                           AND reply.dns_id=m.dns_id AND reply.dns_response
+                           AND NOT EXISTS(SELECT 1 FROM obs retry WHERE retry.point=m.point AND retry.canon=m.canon
+                             AND retry.dns_id=m.dns_id AND NOT retry.dns_response AND retry.eligible
+                             AND retry.corrected>m.corrected AND retry.corrected<reply.corrected))
+                       OR (m.proto='ICMP' AND m.icmp_type=8 AND reply.icmp_type=0
+                           AND m.icmp_id=reply.icmp_id AND m.icmp_seq=reply.icmp_seq
+                           AND NOT EXISTS(SELECT 1 FROM obs retry WHERE retry.point=m.point AND retry.canon=m.canon
+                             AND retry.icmp_type=8 AND retry.icmp_id=m.icmp_id AND retry.icmp_seq=m.icmp_seq
+                             AND retry.corrected>m.corrected AND retry.corrected<reply.corrected AND retry.eligible))
+                    GROUP BY m.packet_key""")
                 db.remove_function("rev_canon")
                 db.execute(
                     """CREATE OR REPLACE TEMP TABLE failures AS
@@ -436,7 +452,7 @@ def analyze(project, topology: Topology | dict, progress=None):
                         WHEN f.failure_time IS NOT NULL THEN 'impactful_loss' ELSE 'unrecovered_loss' END,
                     CASE WHEN later_seen THEN 'Packet appears again farther along the path'
                         WHEN ? IS NOT NULL THEN ? WHEN ? IS NULL OR m.corrected<? OR m.corrected>? THEN 'Outside common coverage; absence is not proof of loss'
-                        WHEN ack.packet_key IS NOT NULL THEN 'Receiver acknowledged these bytes without a preceding retransmission'
+                        WHEN ack.packet_key IS NOT NULL THEN 'Receiver ACK, DNS response, or echo reply proves delivery without an earlier retry'
                         WHEN r.recovery_time IS NOT NULL THEN 'Original missing downstream; repeated byte range was delivered'
                         WHEN m.corrected+?>? THEN 'Insufficient remaining capture coverage to assess completion'
                         WHEN (m.flags&2)>0 AND m.proto='TCP' THEN 'Handshake control segment stops at this boundary; cause unknown'
@@ -606,7 +622,7 @@ def analyze(project, topology: Topology | dict, progress=None):
                 "Observed coverage does not prove uninterrupted capture.",
                 "Latency is estimated under minimum-path symmetry; offsets include possible path asymmetry.",
                 "SPAN duplicates, unresolved occurrence timing collisions, fragments and unsupported transports are excluded.",
-                "Conversation rows aggregate a canonical 5-tuple; reused TCP sessions may share a row.",
+                "TCP sessions are joined by shared occurrences; streams without a shared packet stay separate.",
                 "Unrecovered disappearance cannot confirm a device drop without positive device evidence.",
             ],
         )

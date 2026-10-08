@@ -98,3 +98,11 @@ Item 3: 32 control/failed-delivery × IP mode × IPv4/IPv6 cases passed. Fixture
 include stopped SYN, unrecovered data followed by RST or a measured stalled
 sequence, and pure capture misses of SYN/SYN-ACK/FIN/RST. A directional hop check
 also verifies reverse SYN/ACK capture-miss location.
+
+Item 4: 17 real-tshark integration cases passed in 111.19 seconds: four realistic
+scenarios × four ID modes, plus all-IPv6 TCP. Each contains >=50 concurrent clients,
+port reuse, DNS query/response, ICMP echo, a different return point and an actual
+pcapng ISB. Tests assert 51 separate TCP sessions (52 with the blocked connection),
+no cross-tuple occurrence collisions, exact per-hop/direction ground truth and
+zero network-loss findings for pure capture misses, including DNS/ICMP requests
+missing at multiple downstream points.
