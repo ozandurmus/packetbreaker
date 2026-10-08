@@ -308,7 +308,43 @@ def analyze(project, topology: Topology | dict, progress=None):
                     if not matched["matched"]
                     else None
                 )
+                classification_reason = reason
+                quality_rows = rows(
+                    db,
+                    """SELECT point,
+                    CASE WHEN direction='unknown' THEN 'direction_unknown'
+                         WHEN NOT eligible THEN coalesce(excluded_reason,'unsupported_identity') ELSE 'eligible' END AS reason,
+                    count(*) AS count FROM obs WHERE point IN (?,?) AND (direction=? OR direction='unknown')
+                    AND (? IS NULL OR coalesce(corrected,ts)>=?) AND (? IS NULL OR coalesce(corrected,ts)<=?)
+                    GROUP BY point,reason""",
+                    [a, b, direction, start, start, end, end],
+                )
+                endpoint_quality = {}
+                excluded_counts = {}
+                for endpoint in (a, b):
+                    q = [r for r in quality_rows if r["point"] == endpoint]
+                    n = sum(r["count"] for r in q)
+                    good = sum(r["count"] for r in q if r["reason"] == "eligible")
+                    excluded = {r["reason"]: r["count"] for r in q if r["reason"] != "eligible"}
+                    endpoint_quality[endpoint] = dict(
+                        total=n, eligible=good, excluded=excluded, eligible_ratio=good / n if n else None
+                    )
+                    for key, value in excluded.items():
+                        excluded_counts[key] = excluded_counts.get(key, 0) + value
+                ratios = [
+                    q["eligible_ratio"] for q in endpoint_quality.values() if q["eligible_ratio"] is not None
+                ]
+                eligible_ratio = min(ratios) if ratios else 0.0
+                if eligible_ratio < topology.min_eligible_ratio:
+                    detail = (
+                        ", ".join(f"{k}: {v}" for k, v in sorted(excluded_counts.items()))
+                        or "no observations"
+                    )
+                    reason = f"Insufficient matchable packets ({100 * (1 - eligible_ratio):.1f}% excluded: {detail})"
                 segment = dict(
+                    eligible_ratio=eligible_ratio,
+                    excluded_counts=excluded_counts,
+                    endpoint_quality=endpoint_quality,
                     id=segment_id,
                     point_a=a,
                     point_b=b,
@@ -393,13 +429,13 @@ def analyze(project, topology: Topology | dict, progress=None):
                         a,
                         b,
                         direction,
-                        reason,
+                        classification_reason,
                         common_start,
                         common_start,
                         common_end,
                         topology.stall_ms,
-                        reason,
-                        reason,
+                        classification_reason,
+                        classification_reason,
                         common_start,
                         common_start,
                         common_end,

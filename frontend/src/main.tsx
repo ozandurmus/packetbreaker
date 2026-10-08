@@ -576,6 +576,11 @@ function App() {
                                 Matched
                               </Tip>
                             </th>
+                            <th>
+                              <Tip text="Lower matchable fraction of the two endpoints; exclusions include SPAN copies, unsupported protocols, and unresolved occurrence timing. Rates are unknown below the configured threshold.">
+                                Matchable
+                              </Tip>
+                            </th>
                             <th>Confidence / limitation</th>
                           </tr>
                         </thead>
@@ -594,6 +599,13 @@ function App() {
                               <td>{num(s.loss_percent, "%")}</td>
                               <td>{num(s.p95_ms, " ms", 3)}</td>
                               <td>{num(s.matched, "", 0)}</td>
+                              <td
+                                title={Object.entries(s.excluded_counts || {})
+                                  .map(([k, v]) => `${k}: ${v}`)
+                                  .join(", ")}
+                              >
+                                {num(s.eligible_ratio * 100, "%")}
+                              </td>
                               <td>
                                 {s.reason ||
                                   `Estimated · offset uncertainty ±${num(s.offset_uncertainty_ms, " ms", 3)}`}
@@ -1297,6 +1309,23 @@ function App() {
               <section>
                 <h2>Analysis window and thresholds</h2>
                 <div className="two-col">
+                  <label>
+                    <Tip text="Suppress loss rates when either endpoint's matchable fraction falls below this value. Default 90%.">
+                      Minimum matchable fraction (%)
+                    </Tip>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={(topology.min_eligible_ratio ?? 0.9) * 100}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          min_eligible_ratio: Number(e.target.value) / 100,
+                        })
+                      }
+                    />
+                  </label>
                   <label>
                     <Tip text="Recovery waits at or above this threshold are impactful loss. Default 200 ms.">
                       Impactful stall threshold (ms)

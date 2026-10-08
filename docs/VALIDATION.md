@@ -90,3 +90,6 @@ uses every existing scenario across four IPv4 ID modes and IPv6.
 Item 1 after: the same zero-ID input now yields **10 recovered losses**, all at
 `forward:p2:p3`, and **0 exclusions** at every point. The 80-case scenario × ID mode
 × IP-version matrix passed in 151.93 seconds. No Phase 2 implementation was used.
+
+Item 2 tests cover explicit exclusion reasons, the default 90% guard, threshold
+overrides, and SPAN-copy quality degradation. Frontend TypeScript/build passed.

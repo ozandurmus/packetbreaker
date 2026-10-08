@@ -36,7 +36,8 @@ def test_every_scenario_every_ip_id_mode(scenarios, scenario, mode, ipv6):
     for f in report["findings"]:
         actual[f["type"]] += f["metrics"]["count"]
     assert actual == expected
-    assert all(s["loss_percent"] is not None for s in report["segments"])
+    if scenario != "duplicate":
+        assert all(s["loss_percent"] is not None for s in report["segments"])
     if scenario in ("recovered_loss", "impactful_loss"):
         assert sum(actual.values()) == 10
         assert {f["hop"] for f in report["findings"]} == {"forward:p2:p3"}

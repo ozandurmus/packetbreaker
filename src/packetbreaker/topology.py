@@ -66,6 +66,7 @@ class Topology(BaseModel):
     client_cidrs: list[str] = Field(default_factory=lambda: ["10.0.0.0/8"])
     nat_mappings: list[NatMapping] = Field(default_factory=list, max_length=10000)
     clock_overrides: dict[str, Override] = Field(default_factory=dict)
+    min_eligible_ratio: float = Field(default=0.9, ge=0, le=1, allow_inf_nan=False)
     duplicate_us: float = Field(default=20, ge=0, le=100, allow_inf_nan=False)
     stall_ms: float = Field(default=200, ge=1, le=60000)
     match_window_ms: float = Field(default=2000, ge=1, le=60000)

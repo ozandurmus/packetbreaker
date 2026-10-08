@@ -40,3 +40,5 @@ See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and u
 - Full captured-frame hashes and a small time threshold isolate potential SPAN
   copies without suppressing later byte-identical retransmissions.
 - No Phase 2 functionality is introduced.
+- Matchability is an explicit denominator, separate from observed loss. A low
+  denominator suppresses aggregate rates, not frame-backed individual events.

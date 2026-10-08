@@ -35,6 +35,8 @@ export type Topology = {
   client_cidrs: string[];
   nat_mappings: Mapping[];
   clock_overrides: Record<string, { offset_ms: number; drift_ppm: number }>;
+  min_eligible_ratio: number;
+  duplicate_us: number;
   stall_ms: number;
   match_window_ms: number;
   start: number | null;
@@ -93,6 +95,8 @@ export type Segment = {
   max_ms: number | null;
   loss_percent: number | null;
   eligible_packets: number;
+  eligible_ratio: number;
+  excluded_counts: Record<string, number>;
   classes: Record<string, number>;
   offset_uncertainty_ms: number | null;
 };

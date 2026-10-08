@@ -101,3 +101,12 @@ ID modes increment/zero/constant/random and constant-flow-label IPv6 are synthet
 fixture dimensions. DuckDB project schema 2 adds frame hashes. Opening a schema-1
 project preserves captures/topology but marks indexes stale and clears the old
 report; reattach once to rebuild with tshark's frame hash.
+
+## Phase 1.1 / item 2
+
+Each directional segment exposes matchable fractions at both endpoints, the lower
+`eligible_ratio`, and explicit excluded counts by reason. Unknown-direction rows
+count against quality rather than silently disappearing. Below `min_eligible_ratio`
+(default 0.9), aggregate `loss_percent` is null and the segment states the excluded
+fraction/reasons. Concrete eligible-packet findings remain visible. Such a segment
+cannot produce a healthy overall verdict. The threshold is editable in Settings.
