@@ -54,10 +54,16 @@ export type Capture = {
   checkpoint: number;
   error: string | null;
   inventory: {
+    warnings?: string[];
+    timestamps_validated?: boolean;
+    timestamp_excluded_counts?: Record<string, number>;
     start?: number;
     end?: number;
     duration?: number;
     packet_count?: number;
+    observed_max_caplen?: number | null;
+    truncated_caplen_min?: number | null;
+    truncated_caplen_max?: number | null;
     truncated?: number;
     possible_offload?: number;
     ifdrop?: number | null;
@@ -89,6 +95,9 @@ export type Finding = {
   metrics: Record<string, number>;
 };
 export type Segment = {
+  headline?: string;
+  finding_ids?: string[];
+  severity?: string;
   id: string;
   point_a: string;
   point_b: string;
@@ -148,7 +157,19 @@ export type Report = {
   findings: Finding[];
   limitations: string[];
 };
+export type FileJob = {
+  file_id: string;
+  file: string;
+  path: string;
+  state: string;
+  frames: number;
+  usable_packets?: number;
+  error?: string;
+  warnings?: string[];
+};
 export type Job = {
+  files?: FileJob[];
+  workers?: number;
   state: string;
   busy: boolean;
   kind?: string;

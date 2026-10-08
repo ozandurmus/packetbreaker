@@ -1,4 +1,5 @@
 import csv
+import re
 import hashlib
 import json
 import os
@@ -7,9 +8,12 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
+import math
 import uuid
 
 from .metadata import metadata
+from .timestamps import timestamp_reason
 from .store import PACKET_COLUMNS
 
 FIELDS = """frame.number frame.time_epoch frame.interface_id ip.src ipv6.src ip.dst ipv6.dst
@@ -21,7 +25,7 @@ ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstpor
  tcp.analysis.out_of_order tcp.analysis.ack_lost_segment tcp.analysis.zero_window tcp.analysis.ack_rtt
  ip.flags.mf ip.frag_offset ipv6.fraghdr.offset ipv6.fraghdr.more frame.protocols frame.md5_hash dns.id dns.flags.response""".split()
 CAPLEN_INDEX = list(PACKET_COLUMNS).index("caplen")
-PARSER_VERSION = 4
+PARSER_VERSION = 6
 csv.field_size_limit(16 * 1024 * 1024)
 
 
@@ -165,12 +169,17 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
             progress(state="cached", frames=existing[3])
             return existing[0]
     binary = find_tshark(tshark)
+    progress(state="scanning metadata", frames=0)
     info = metadata(path, cancel)
+    if info.get("frame_limit") == 0:
+        raise ValueError("Capture contains zero usable frames")
+    timestamp_upper = time.time() + 86400
     cid = existing[0] if existing else uuid.uuid4().hex
     checkpoint = existing[3] if existing and existing[1] == identity else 0
     with project.connect() as db:
         if not checkpoint:
             db.execute("DELETE FROM packets WHERE capture_id=?", [cid])
+            db.execute("DELETE FROM excluded_frames WHERE capture_id=?", [cid])
         db.execute(
             "INSERT OR REPLACE INTO captures VALUES (?,?,?,?,?,?,?,?)",
             [cid, str(path), path.name, identity, "ingesting", checkpoint, json.dumps(info), None],
@@ -201,14 +210,17 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
         "-E",
         "occurrence=f",
     ]
+    if info.get("frame_limit") is not None:
+        cmd += ["-c", str(info["frame_limit"])]
     for field in FIELDS:
         cmd += ["-e", field]
     batch, last, seen = [], checkpoint, 0
+    excluded = []
     with tempfile.TemporaryDirectory(prefix="ingest-", dir=project.path) as temp:
         batch_path = Path(temp) / "batch.csv"
 
         def flush():
-            if not batch:
+            if not batch and not excluded:
                 return
             with batch_path.open("w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
@@ -217,16 +229,20 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
             with project.connect(allow_external=True) as db:
                 db.execute("BEGIN")
                 try:
-                    db.execute(
-                        "INSERT INTO packets SELECT * FROM read_csv(?, header=true, columns=?, nullstr=?)",
-                        [str(batch_path), PACKET_COLUMNS, ""],
-                    )
+                    if batch:
+                        db.execute(
+                            "INSERT INTO packets SELECT * FROM read_csv(?, header=true, columns=?, nullstr=?)",
+                            [str(batch_path), PACKET_COLUMNS, ""],
+                        )
+                    if excluded:
+                        db.executemany("INSERT INTO excluded_frames VALUES (?,?,?,?)", excluded)
                     db.execute("UPDATE captures SET checkpoint=? WHERE id=?", [last, cid])
                     db.execute("COMMIT")
                 except BaseException:
                     db.execute("ROLLBACK")
                     raise
             batch.clear()
+            excluded.clear()
             progress(state="ingesting", frames=last, bytes_total=stat.st_size, bytes_observed=seen)
 
         with open(Path(temp) / "stderr.log", "w+", encoding="utf-8") as errors:
@@ -253,8 +269,27 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                     frame = number(values[0])
                     if frame <= checkpoint:
                         continue
-                    packet = parse_packet(values, cid, prefix_bytes)
                     last = frame
+                    try:
+                        observed_ts = float(values[1])
+                    except (ValueError, IndexError):
+                        observed_ts = None
+                    reason = timestamp_reason(observed_ts, timestamp_upper)
+                    if reason:
+                        excluded.append(
+                            (
+                                cid,
+                                frame,
+                                reason,
+                                observed_ts
+                                if observed_ts is not None and math.isfinite(observed_ts)
+                                else None,
+                            )
+                        )
+                        if len(excluded) >= batch_size:
+                            flush()
+                        continue
+                    packet = parse_packet(values, cid, prefix_bytes)
                     seen += packet[CAPLEN_INDEX]
                     batch.append(packet)
                     if len(batch) >= batch_size:
@@ -262,19 +297,54 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                 proc.wait()
                 if cancel.is_set():
                     raise InterruptedError("Ingest cancelled; committed frames can be resumed")
-                if proc.returncode:
-                    errors.seek(0)
-                    raise ValueError("tshark failed: " + errors.read(4000))
+                errors.seek(0)
+                stderr = errors.read(8000)
+                tail_error = bool(
+                    re.search(
+                        r"cut short|short read|truncat(?:ed|ion).*(?:packet|record|block)", stderr, re.I
+                    )
+                )
+                tail_error = tail_error or bool(
+                    info.get("damaged_tail") and re.search(r"damaged|corrupt|block length", stderr, re.I)
+                )
+                if proc.returncode and not (last > 0 and tail_error):
+                    raise ValueError("tshark failed: " + stderr)
                 flush()
                 if path.stat().st_size != stat.st_size or path.stat().st_mtime_ns != stat.st_mtime_ns:
                     raise ValueError("Capture changed during ingestion; attach it again to rebuild")
                 with project.connect() as db:
                     r = db.execute(
                         """SELECT min(ts),max(ts),count(*),count(*) FILTER(WHERE caplen<wirelen),
-                        count(*) FILTER(WHERE length>1500),count(*) FILTER(WHERE unsupported IS NOT NULL)
+                        count(*) FILTER(WHERE length>1500),count(*) FILTER(WHERE unsupported IS NOT NULL),
+                        max(caplen),min(caplen) FILTER(WHERE caplen<wirelen),max(caplen) FILTER(WHERE caplen<wirelen)
                         FROM packets WHERE capture_id=?""",
                         [cid],
                     ).fetchone()
+                    if not r[2]:
+                        raise ValueError("Capture contains zero usable frames")
+                    info["warnings"] = (
+                        [f"File ends mid-packet; last partial record ignored; {r[2]} packets usable"]
+                        if tail_error or info.get("damaged_tail")
+                        else []
+                    )
+                    if info.get("zero_tail_bytes"):
+                        info["warnings"].append(
+                            f"Zero-filled tail ignored: {info['zero_tail_records']} records / {info['zero_tail_bytes'] / 1_000_000:.2f} MB (likely preallocated or copied while still being written)"
+                        )
+                    reasons = dict(
+                        db.execute(
+                            "SELECT reason,count(*) FROM excluded_frames WHERE capture_id=? GROUP BY reason",
+                            [cid],
+                        ).fetchall()
+                    )
+                    info["timestamp_excluded_counts"] = reasons
+                    if reasons:
+                        info["warnings"].append(
+                            f"Excluded {sum(reasons.values())} packets with invalid capture timestamps: "
+                            + ", ".join(f"{k}: {v}" for k, v in sorted(reasons.items()))
+                        )
+                    info["timestamps_validated"] = True
+                    info["records_read"] = last
                     info.update(
                         start=r[0],
                         end=r[1],
@@ -283,12 +353,15 @@ def ingest(project, path, tshark=None, prefix_bytes=64, cancel=None, progress=No
                         truncated=r[3],
                         possible_offload=r[4],
                         unsupported=r[5],
+                        observed_max_caplen=r[6],
+                        truncated_caplen_min=r[7],
+                        truncated_caplen_max=r[8],
                     )
                     db.execute(
                         "UPDATE captures SET state='ready',inventory=?,error=NULL WHERE id=?",
                         [json.dumps(info), cid],
                     )
-                progress(state="ready", frames=last)
+                progress(state="ready", frames=last, usable_packets=r[2], warnings=info["warnings"])
                 return cid
             except BaseException as exc:
                 with project.connect() as db:

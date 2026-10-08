@@ -41,7 +41,12 @@ export function Coverage({
   captures: Capture[];
   report: Report | null;
 }) {
-  const values = captures.filter((c) => c.inventory.start != null);
+  const values = captures.filter(
+    (c) =>
+      c.state === "ready" &&
+      c.inventory.timestamps_validated &&
+      c.inventory.start != null,
+  );
   const hasClocks = !!report;
   const data = values.map((c, i) => {
     const m = report?.clocks[c.id];

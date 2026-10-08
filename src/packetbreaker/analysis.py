@@ -287,6 +287,9 @@ def analyze(project, topology: Topology | dict, progress=None):
             id VARCHAR, point_a VARCHAR,point_b VARCHAR,direction VARCHAR,kind VARCHAR,reason VARCHAR,
             packet_key VARCHAR,flow VARCHAR,ts DOUBLE,recovery_ms DOUBLE,recovery_key VARCHAR,
             support_key VARCHAR,impact_ms DOUBLE,is_data BOOLEAN)""")
+        inventories = {
+            cid: json.loads(inv) for cid, inv in db.execute("SELECT id,inventory FROM captures").fetchall()
+        }
         segments, findings = [], []
         progress(state="classifying")
         for direction, path in (
@@ -371,6 +374,19 @@ def analyze(project, topology: Topology | dict, progress=None):
                     endpoint_quality[endpoint] = dict(
                         total=n, eligible=good, excluded=excluded, eligible_ratio=good / n if n else None
                     )
+                    inv = inventories[points[endpoint].capture_id]
+                    time_bad = inv.get("timestamp_excluded_counts", {})
+                    if time_bad:
+                        total_valid = inv.get("packet_count", 0)
+                        temporal_ratio = total_valid / (total_valid + sum(time_bad.values()))
+                        current = endpoint_quality[endpoint]["eligible_ratio"]
+                        endpoint_quality[endpoint]["eligible_ratio"] = (
+                            min(current, temporal_ratio) if current is not None else temporal_ratio
+                        )
+                        endpoint_quality[endpoint]["timestamp_quality_scope"] = (
+                            "whole capture; invalid times cannot be placed in the selected window"
+                        )
+                        excluded.update(time_bad)
                     for key, value in excluded.items():
                         excluded_counts[key] = excluded_counts.get(key, 0) + value
                 ratios = [

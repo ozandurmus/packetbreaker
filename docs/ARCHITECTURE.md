@@ -179,3 +179,55 @@ TestClient uses httpx2 with Starlette >=1.7. Starlette deprecation warnings are 
 errors, not suppressed warnings. Project metadata carries the analysis engine
 version; changing it clears old reports without reparsing current-schema indexes.
 The application and bundled frontend identify themselves as 0.1.1.
+
+## Phase 2 / Part 1: damaged final records
+
+A known tshark cut-short tail error after usable frames is recoverable. Committed
+and pending batches are retained and the capture becomes ready with a visible
+warning and usable count. The pcapng metadata walk tolerates an incomplete final
+block so tshark can read preceding packets. Other errors and zero usable frames
+still fail. Completed warned captures use the normal cache and do not resume-loop.
+
+## Zero tails and timestamp validity
+
+The metadata walker scans the trailing zero suffix once, then walks only container
+record/block boundaries. A padding suffix supplies an exact physical record limit
+to tshark (`-c N`), including any invalid-time records before the suffix so original
+frame numbers are retained. Zero-tail counts are 16-byte pcap record-header slots
+or 12-byte minimum pcapng block slots; byte counts are exact. Protocol payloads are
+not dissected by this walker.
+
+Frames before 2000-01-01 or later than ingest-start + one day are recorded in
+`excluded_frames` with their reason, not in the packet index. Coverage, overlap,
+clock fitting and Gantt therefore only use validated timestamps. Timestamp quality
+also caps segment matchability conservatively at the whole-capture level because
+invalid times cannot be assigned to a selected interval. Schema-4 migration marks
+old indexes stale until this one-time validation occurs; stale Gantt ranges are hidden.
+
+## Declared versus observed capture lengths
+
+Inventory retains every interface's declared header snaplen and independently
+reports observed maximum caplen and the min/max caplen of truncated packets.
+A fixed truncation limit is stated only when observed truncated records agree.
+Current indexes can derive these values from stored columns without reparsing.
+
+## Parallel ingest
+
+Batch ingestion uses one tshark subprocess per file, with workers equal to the
+minimum of unique files, CPU cores minus one, and floor(available RAM / 1.6 GiB).
+A zero resource budget is an explicit error. Each file has a separate cancellation
+token/checkpoint/progress record; global cancellation reaches all workers. A failed
+or cancelled file does not discard completed files. DuckDB commits remain serialized
+through the existing project lock. Multi-file uploads are staged, then ingested as
+one batch. Cache hits do not spawn tshark. `psutil` supplies cross-platform RAM data.
+
+## Segment-level headlines
+
+Each segment owns one aggregate headline, clock caveat and headline denominator.
+Its finding classes retain short independent lines and evidence links. Multiple
+classes no longer repeat the same aggregate sentence; the executive view ranks
+unique segments and shows their class lines below the shared headline.
+
+
+Part 1 ships as 0.1.2, invalidating older cached analysis reports so the segment
+headline shape is regenerated; current-schema packet indexes remain reusable.

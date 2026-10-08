@@ -17,8 +17,23 @@ def time_labels(ts, zone=None):
 
 def add_headlines(db, findings, segments, topology, end):
     lookup = {s["id"]: s for s in segments}
+    seen = set()
+    for segment in segments:
+        segment["finding_ids"] = []
     for finding in findings:
         s = lookup[finding["hop"]]
+        s["finding_ids"].append(finding["id"])
+        n = finding["metrics"]["count"]
+        short = f"{finding['type'].replace('_', ' ').capitalize()}: {n} {'event' if n == 1 else 'events'}"
+        wait = finding["metrics"].get("max_recovery_ms")
+        if wait is not None:
+            short += f"; max recovery {wait:.2f} ms"
+        finding["headline"] = short + "."
+        finding["time_labels"] = time_labels(finding["time_range"][0], topology.report_timezone)
+        if finding["hop"] in seen:
+            continue
+        seen.add(finding["hop"])
+        s["severity"] = finding["severity"]
         a, b = s["point_a"], s["point_b"]
         direction = s["direction"]
         labels = time_labels(finding["time_range"][0], topology.report_timezone)
@@ -94,7 +109,7 @@ def add_headlines(db, findings, segments, topology, end):
                 other = lost - quick - stalls
                 if other > 0:
                     text += f" {100 * other / lost:.1f}% remained unrecovered or had other impact."
-                finding["headline_metrics"] = dict(
+                s["headline_metrics"] = dict(
                     start=first,
                     end=end,
                     lost=lost,
@@ -106,6 +121,6 @@ def add_headlines(db, findings, segments, topology, end):
                     other_impact=other,
                     upstream_status=status,
                 )
-        finding["time_labels"] = labels
-        finding["clock_caveat"] = clock
-        finding["headline"] = text + " " + clock
+        s["time_labels"] = labels
+        s["clock_caveat"] = clock
+        s["headline"] = text + " " + clock

@@ -66,7 +66,7 @@ class Project:
                 "UPDATE captures SET state='cancelled', error='Interrupted; resume available' WHERE state='ingesting'"
             )
             version = self.get(db, "schema_version")
-            if version not in (None, 1, 2, 3):
+            if version not in (None, 1, 2, 3, 4):
                 raise ValueError("Unsupported project schema version")
             if version in (1, 2):
                 for column in ("frame_hash", "icmp_id", "icmp_seq", "icmp_type", "dns_id", "dns_response"):
@@ -77,7 +77,15 @@ class Project:
                     "UPDATE captures SET state='stale',error='Phase 1.1 index upgrade: reattach to rebuild frame hashes'"
                 )
                 self.set(db, "report", None)
-            self.set(db, "schema_version", 3)
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS excluded_frames(capture_id VARCHAR,frame BIGINT,reason VARCHAR,observed_ts DOUBLE,PRIMARY KEY(capture_id,frame))"
+            )
+            if version in (1, 2, 3):
+                db.execute(
+                    "UPDATE captures SET state='stale',error='Reattach once to validate capture timestamps'"
+                )
+                self.set(db, "report", None)
+            self.set(db, "schema_version", 4)
             if self.get(db, "analysis_version") != __version__:
                 self.set(db, "report", None)
                 self.set(db, "analysis_version", __version__)
@@ -112,20 +120,27 @@ class Project:
 
     def inventory(self):
         with self.connect() as db:
-            return [
-                dict(
-                    id=r[0],
-                    path=r[1],
-                    name=r[2],
-                    state=r[3],
-                    checkpoint=r[4],
-                    inventory=json.loads(r[5]),
-                    error=r[6],
-                )
-                for r in db.execute(
-                    "SELECT id,path,name,state,checkpoint,inventory,error FROM captures ORDER BY name"
-                ).fetchall()
-            ]
+            data = rows(
+                db, "SELECT id,path,name,state,checkpoint,inventory,error FROM captures ORDER BY name"
+            )
+            for capture in data:
+                info = json.loads(capture["inventory"])
+                if capture["state"] == "ready" and "observed_max_caplen" not in info:
+                    stats = db.execute(
+                        """SELECT max(caplen),min(caplen) FILTER(WHERE caplen<wirelen),
+                        max(caplen) FILTER(WHERE caplen<wirelen) FROM packets WHERE capture_id=?""",
+                        [capture["id"]],
+                    ).fetchone()
+                    info.update(
+                        observed_max_caplen=stats[0],
+                        truncated_caplen_min=stats[1],
+                        truncated_caplen_max=stats[2],
+                    )
+                    db.execute(
+                        "UPDATE captures SET inventory=? WHERE id=?", [json.dumps(info), capture["id"]]
+                    )
+                capture["inventory"] = info
+            return data
 
 
 def rows(db, sql, params=None):

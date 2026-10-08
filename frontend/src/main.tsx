@@ -257,47 +257,41 @@ function App() {
       }),
     );
   }
-  async function waitIngest() {
-    for (;;) {
-      await new Promise((r) => setTimeout(r, 500));
-      const j = await api<Job>("/jobs");
-      setJob(j);
-      if (!j.busy) {
-        if (j.error) throw new Error(j.error);
-        return;
-      }
-    }
-  }
   async function upload(files: FileList | null) {
-    if (!files) return;
-    for (const f of Array.from(files)) {
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open(
-          "POST",
-          "/api/captures/upload?name=" + encodeURIComponent(f.name),
-        );
-        xhr.setRequestHeader("X-PacketBreaker", "local");
-        xhr.upload.onprogress = (e) =>
-          setUploadPercent(
-            e.lengthComputable ? Math.round((e.loaded / e.total) * 100) : 0,
+    if (!files?.length) return;
+    setUploadPercent(0);
+    const paths: string[] = [];
+    try {
+      for (const f of Array.from(files)) {
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open(
+            "POST",
+            "/api/captures/upload?defer=true&name=" +
+              encodeURIComponent(f.name),
           );
-        xhr.onload = () => {
-          setUploadPercent(null);
-          if (xhr.status < 300) {
-            setJob(JSON.parse(xhr.responseText));
-            resolve();
-          } else reject(new Error(xhr.responseText));
-        };
-        xhr.onerror = () => {
-          setUploadPercent(null);
-          reject(new Error("Upload failed"));
-        };
-        xhr.send(f);
-      });
-      await waitIngest();
+          xhr.setRequestHeader("X-PacketBreaker", "local");
+          xhr.upload.onprogress = (e) =>
+            setUploadPercent(
+              e.lengthComputable ? Math.round((e.loaded / e.total) * 100) : 0,
+            );
+          xhr.onload = () => {
+            if (xhr.status < 300) {
+              paths.push(JSON.parse(xhr.responseText).path);
+              resolve();
+            } else reject(new Error(xhr.responseText));
+          };
+          xhr.onerror = () => {
+            setUploadPercent(null);
+            reject(new Error("Upload failed"));
+          };
+          xhr.send(f);
+        });
+      }
+      setJob(await api<Job>("/captures/attach", "POST", { paths }));
+    } finally {
+      setUploadPercent(null);
     }
-    await refresh();
   }
   async function showEvents(s: Segment, offset = 0) {
     const page = await api<{
@@ -357,7 +351,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 1.1 · v0.1.1</small>
+          <small>PHASE 2 / PART 1 · v0.1.2</small>
         </div>
       </aside>
       <main>
@@ -421,7 +415,7 @@ function App() {
               {job.file}{" "}
               {job.frames != null ? `· ${num(job.frames, " frames", 0)}` : ""}{" "}
               {job.file_count
-                ? `· File ${job.file_index} of ${job.file_count}`
+                ? `· ${job.file_count} files · ${job.workers ?? 1} workers`
                 : ""}
             </span>
             {job.kind === "ingest" && job.busy && (
@@ -433,6 +427,61 @@ function App() {
               </button>
             )}
           </div>
+        )}
+        {job.kind === "ingest" && !!job.files?.length && (
+          <section style={{ margin: "18px 38px" }}>
+            <h2>File ingest progress</h2>
+            {job.files.map((f) => (
+              <div className="mapping" key={f.file_id}>
+                <div>
+                  <strong>{f.file}</strong>
+                  <small>
+                    {" "}
+                    · {f.state} · {num(f.usable_packets ?? f.frames, "", 0)}{" "}
+                    {f.usable_packets == null
+                      ? "frames read"
+                      : "usable packets"}
+                  </small>
+                  {f.error && <p className="red">{f.error}</p>}
+                  {f.warnings?.map((w) => (
+                    <p className="hint" key={w}>
+                      {w}
+                    </p>
+                  ))}
+                </div>
+                {job.busy &&
+                  !["ready", "cached", "cancelled", "error"].includes(
+                    f.state,
+                  ) && (
+                    <button
+                      className="secondary"
+                      onClick={() =>
+                        action(() =>
+                          api("/jobs/cancel", "POST", { file_id: f.file_id }),
+                        )
+                      }
+                    >
+                      Cancel file
+                    </button>
+                  )}
+                {!job.busy && ["cancelled", "error"].includes(f.state) && (
+                  <button
+                    onClick={() =>
+                      action(async () =>
+                        setJob(
+                          await api<Job>("/captures/attach", "POST", {
+                            paths: [f.path],
+                          }),
+                        ),
+                      )
+                    }
+                  >
+                    Resume file
+                  </button>
+                )}
+              </div>
+            ))}
+          </section>
         )}
         <div className="content">
           {tab === "Overview" && (
@@ -559,25 +608,41 @@ function App() {
                       </small>
                     </div>
                     {report.findings.length ? (
-                      report.findings.slice(0, 5).map((f) => (
-                        <button
-                          key={f.id}
-                          className="finding"
-                          onClick={() => setEvidence(f.evidence)}
-                        >
-                          <Badge kind={f.severity}>
-                            {f.type.replaceAll("_", " ")}
-                          </Badge>
-                          <div>
-                            <strong>{f.headline || f.summary}</strong>
-                            <small>
-                              {time(f.time_range[0])} · {f.direction} ·{" "}
-                              {f.confidence}
-                            </small>
-                          </div>
-                          <span>↗</span>
-                        </button>
-                      ))
+                      [...new Set(report.findings.map((f) => f.hop))]
+                        .slice(0, 5)
+                        .map((hop) => {
+                          const segment = report.segments.find(
+                            (s) => s.id === hop,
+                          )!;
+                          return (
+                            <article key={hop} style={{ marginBottom: 20 }}>
+                              <h3>
+                                {segment.label} · {segment.direction}
+                              </h3>
+                              <p>{segment.headline}</p>
+                              {report.findings
+                                .filter((f) => f.hop === hop)
+                                .map((f) => (
+                                  <button
+                                    key={f.id}
+                                    className="finding"
+                                    onClick={() => setEvidence(f.evidence)}
+                                  >
+                                    <Badge kind={f.severity}>
+                                      {f.type.replaceAll("_", " ")}
+                                    </Badge>
+                                    <div>
+                                      <strong>{f.headline || f.summary}</strong>
+                                      <small>
+                                        {time(f.time_range[0])} · {f.confidence}
+                                      </small>
+                                    </div>
+                                    <span>↗</span>
+                                  </button>
+                                ))}
+                            </article>
+                          );
+                        })
                     ) : (
                       <div className="empty">
                         No supported missing-packet events in this analysis.
@@ -810,6 +875,11 @@ function App() {
                           <td>
                             <strong>{c.name}</strong>
                             <small title={c.path}>{c.path}</small>
+                            {c.inventory.warnings?.map((w) => (
+                              <small className="red" key={w}>
+                                {w}
+                              </small>
+                            ))}
                             {c.error && (
                               <small className="red">{c.error}</small>
                             )}
@@ -847,8 +917,18 @@ function App() {
                             )}
                           </td>
                           <td>
-                            {time(c.inventory.start)}
-                            <small>{time(c.inventory.end)}</small>
+                            {time(
+                              c.inventory.timestamps_validated
+                                ? c.inventory.start
+                                : null,
+                            )}
+                            <small>
+                              {time(
+                                c.inventory.timestamps_validated
+                                  ? c.inventory.end
+                                  : null,
+                              )}
+                            </small>
                           </td>
                           <td>{num(c.inventory.duration, " s")}</td>
                           <td>
@@ -862,6 +942,18 @@ function App() {
                                 {x.link_type}
                               </small>
                             ))}
+                            <small title="Largest number of bytes actually stored for a usable packet, independent of the declared interface snaplen.">
+                              Observed max{" "}
+                              {num(c.inventory.observed_max_caplen, " B", 0)}
+                            </small>
+                            {!!c.inventory.truncated && (
+                              <small className="red">
+                                {c.inventory.truncated_caplen_min ===
+                                c.inventory.truncated_caplen_max
+                                  ? `Packets truncated at ${num(c.inventory.truncated_caplen_max, " B", 0)}`
+                                  : `Truncated packet caplen ${num(c.inventory.truncated_caplen_min, " B", 0)}–${num(c.inventory.truncated_caplen_max, " B", 0)}`}
+                              </small>
+                            )}
                           </td>
                         </tr>
                       ))}

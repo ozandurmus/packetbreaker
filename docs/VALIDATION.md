@@ -1,7 +1,7 @@
-# PacketBreaker validation — Phase 1 baseline and Phase 1.1 hardening
+# PacketBreaker validation — through Phase 2 / Part 1
 
 The Phase 1.1 measurements and regression results below supersede the historical
-Phase 1 checks. Phase 2 remains unstarted.
+Phase 1 checks. The later Phase 2 / Part 1 section records the currently authorized infrastructure changes. Other Phase 2 work remains unstarted.
 
 ## Historical Phase 1 baseline (2026-10-08)
 
@@ -194,3 +194,77 @@ No Phase 2 work, remote push, live-device access or production capture was used.
 Windows/Intel macOS CI execution remains unverified locally; the matrix is in
 `.github/workflows/ci.yml`. The measured workload and unverified larger/real-world
 workloads must not be conflated.
+
+## Phase 2 / Part 1 acceptance
+
+Scope is limited to ingest/CI robustness, inventory, parallel ingest and segment
+headline deduplication. Tail fixtures are generated in tests for both pcap and
+pcapng: incomplete final records, zero-filled suffixes, invalid timestamps in the
+middle, future timestamps, combinations and header/observed snaplen mismatch.
+A separately authorized local-only manual acceptance check passed. No real input,
+address, source path or decoded packet content is included in tests or this report.
+
+Focused local gates passed for tail/timestamp/length handling, per-file parallel
+cancel/resume, API behavior and headline grouping. Push CI uses only macos-14 and
+Python 3.12. Pull requests and workflow dispatch use the full six-job matrix.
+Application and bundled frontend version: **0.1.2**. The local wheel built with
+installed build tools (`--no-isolation`) and passed isolated-package API, HTML and
+bundled-asset checks. Isolated local build dependency download was unavailable in
+the sandbox; CI performs the normal isolated build. The suite contains **203 tests**
+(up from 183). The authorized local manual
+check retained exactly **302,152 packets**, spanning **12:59:00.000103–12:59:43.540715
+Europe/Istanbul**, and ignored 141,516,731 zero-tail bytes / 8,844,795 record slots.
+No invalid-time records remained among those usable packets.
+
+### Same-input serial / parallel benchmark
+
+Both modes rebuilt fresh indexes from the same five synthetic files used for the
+Phase 1.1 benchmark: **5,400,750 frames / 1,414,852,620 bytes**. The largest input is
+**5,000,150 frames / 1,310,010,524 bytes**. This isolates the concurrency change using
+the same current ingest implementation: one worker before, automatic budget after.
+The machine has 10 logical cores; available RAM was 8.57 / 8.27 GB at the respective
+starts. The automatic resource budget selected **4 workers**.
+
+| Mode | Ingest wall time | End-to-end `time -l` wall | Frames/s | `time -l` peak RSS | Sampled process-tree peak RSS |
+|---|---:|---:|---:|---:|---:|
+| Serial (1 worker) | 293.49 s | 293.71 s | 18,402 | 1,277,034,496 B | 1,795,883,008 B |
+| Parallel (4 workers) | 302.45 s | 302.67 s | 17,856 | 1,205,960,704 B | 1,804,189,696 B |
+
+Parallel ingest was **3.1% slower** on this strongly skewed workload, where one
+file contains most frames. No throughput improvement is claimed. Process-tree
+peak RSS rose by 0.46%; individual file counts were exactly equal in both runs.
+`time -l` reports a per-process high-water mark; the separately sampled 100 ms
+process-tree sum measures concurrent processes and can count shared pages twice.
+Neither is an enforced total RSS cap. Runs were sequential, with warm local SSD
+caches and no cache flush. The 1.6 GiB worker budget is a scheduling estimate.
+
+Reproduction: prefix `python tools/parallel_benchmark.py serial|parallel
+SYNTHETIC_INPUT_ROOT FRESH_OUTPUT_ROOT` with `/usr/bin/time -l` (on macOS). The input
+root contains `captures/point-0.pcap` through `point-4.pcap`; use a fresh output
+root per comparison. [Machine-readable measurements](phase2-part1-benchmark.json)
+contain exact counts, RAM and timings. No input capture is tracked.
+
+### Remote acceptance
+
+The [full pull-request run](https://github.com/ozandurmus/packetbreaker/actions/runs/37840337213)
+passed all six jobs on runtime-code revision `ee56786eb7c1aeca1663b0caf8c21549121b69ce`.
+The following close-out amendment changes this validation document only; current
+head checks are visible on [PR #1](https://github.com/ozandurmus/packetbreaker/pull/1/checks).
+Each job passed Ruff, frontend build, all **203 tests** (no skips), isolated sdist/wheel
+build and artifact upload. The matrix results were:
+
+| Runner | Python | Tests | Test time |
+|---|---|---:|---:|
+| macos-14 | 3.11 | 203 passed | 234.67 s |
+| macos-14 | 3.12 | 203 passed | 235.88 s |
+| macos-15-intel | 3.11 | 203 passed | 794.40 s |
+| macos-15-intel | 3.12 | 203 passed | 683.32 s |
+| windows-latest | 3.11 | 203 passed | 753.33 s |
+| windows-latest | 3.12 | 203 passed | 1085.45 s |
+
+Both Windows jobs verified `C:\Program Files\Wireshark\tshark.exe` exists, starts,
+and is returned by Python auto-detection. The single-job push policy also passed.
+The GitHub repository is private; `demo/`, capture files and databases are untracked.
+The initial baseline was pushed to main once as requested; all Part 1 work is on
+`phase2-part1`, with one commit for each numbered item. PR #1 stays open with
+no auto-merge. Other Phase 2 work remains outside scope.
