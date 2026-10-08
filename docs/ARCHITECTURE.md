@@ -134,3 +134,15 @@ fields; older indexes require a one-time reattach. Realistic fixtures include 50
 concurrent clients, 51 TCP sessions, both IP versions, DNS, ICMP, an asymmetric
 return point and ISB counters. One-way points cannot estimate their own offsets;
 known fixture clocks are explicitly supplied as overrides, not inferred values.
+
+## Phase 1.1 / item 5
+
+Headline sentences query the event table and eligible upstream observations from
+the first observed data-loss event through the selected window end. They expose
+the exact numerator/denominator, quick recoveries, measured stalls and other
+outcomes. "No loss observed upstream" is allowed only with complete matchability
+and reliable prior segments in that same interval. Otherwise upstream comparison
+is explicitly inconclusive. The browser supplies its IANA timezone; JSON records
+local and UTC event times plus the clock uncertainty caveat. First event time is
+not a Phase 2 change-point onset. Later unrelated resets do not inflate recovered
+packet stall metrics.

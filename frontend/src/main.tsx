@@ -219,7 +219,12 @@ function App() {
     setSelectedFlow(null);
     setLadder(null);
     setEvents(null);
-    setJob(await api<Job>("/analyze", "POST", topology));
+    setJob(
+      await api<Job>("/analyze", "POST", {
+        ...topology,
+        report_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+    );
   }
   async function waitIngest() {
     for (;;) {
@@ -533,7 +538,7 @@ function App() {
                             {f.type.replaceAll("_", " ")}
                           </Badge>
                           <div>
-                            <strong>{f.summary}</strong>
+                            <strong>{f.headline || f.summary}</strong>
                             <small>
                               {time(f.time_range[0])} · {f.direction} ·{" "}
                               {f.confidence}

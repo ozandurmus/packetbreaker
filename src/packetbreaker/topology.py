@@ -2,6 +2,7 @@ import ipaddress
 import math
 import json
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, model_validator, field_validator
 
@@ -60,6 +61,7 @@ class Override(BaseModel):
 
 
 class Topology(BaseModel):
+    report_timezone: str | None = None
     points: list[Point] = Field(default_factory=list, max_length=64)
     forward: list[str] = Field(default_factory=list)
     reverse: list[str] = Field(default_factory=list)
@@ -75,6 +77,11 @@ class Topology(BaseModel):
 
     @model_validator(mode="after")
     def valid(self):
+        if self.report_timezone:
+            try:
+                ZoneInfo(self.report_timezone)
+            except ZoneInfoNotFoundError as exc:
+                raise ValueError("Unknown IANA time zone") from exc
         ids = [p.id for p in self.points]
         if len(ids) != len(set(ids)):
             raise ValueError("Capture point IDs must be unique")

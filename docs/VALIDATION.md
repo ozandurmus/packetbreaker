@@ -106,3 +106,8 @@ pcapng ISB. Tests assert 51 separate TCP sessions (52 with the blocked connectio
 no cross-tuple occurrence collisions, exact per-hop/direction ground truth and
 zero network-loss findings for pure capture misses, including DNS/ICMP requests
 missing at multiple downstream points.
+
+Item 5: headline checks verify the demo's 9 losses (5 quick recoveries / 4 measured
+stalls), exact data-packet denominators, omission of upstream no-loss claims under
+incomplete matchability, event-date DST handling, and isolation of an unrelated
+later reset from quick-recovery stall metrics. TypeScript/build passed.

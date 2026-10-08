@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from .clock import ClockModel, fit_clock
 from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions
 from .ingest import tuple_id
+from .headlines import add_headlines
 from .store import rows
 from .topology import Topology
 
@@ -459,7 +460,8 @@ def analyze(project, topology: Topology | dict, progress=None):
                         WHEN f.failure_time IS NOT NULL THEN 'Unrecovered disappearance followed by a reset or observed stall; cause unknown'
                         ELSE 'Unrecovered disappearance within covered, matchable traffic; cause unknown' END,
                     m.packet_key,m.flow,coalesce(m.corrected,m.ts),(r.recovery_time-m.corrected)*1000,r.recovery_key,
-                    coalesce(ack.ack_key,f.failure_key),(f.failure_time-m.corrected)*1000,m.length>0
+                    coalesce(ack.ack_key,CASE WHEN r.recovery_time IS NULL THEN f.failure_key END),
+                    CASE WHEN r.recovery_time IS NULL THEN (f.failure_time-m.corrected)*1000 END,m.length>0
                     FROM missing m LEFT JOIN recoveries r USING(packet_key) LEFT JOIN acked ack USING(packet_key)
                     LEFT JOIN failures f USING(packet_key)""",
                     [
@@ -577,6 +579,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             )
         rank = {"high": 0, "low": 1, "quality": 2, "unknown": 3}
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
+        add_headlines(db, findings, segments, topology, end)
         total_findings = len(findings)
         order_scores = rows(
             db,

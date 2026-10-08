@@ -52,3 +52,9 @@ See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and u
   packet occurrences connect stream components; reused tuples stay separate.
 - DNS responses and ICMP echo replies provide positive delivery evidence, but a
   response after an intervening retry cannot retroactively prove original delivery.
+- Headline percentages use data packets, not TCP control packets, and start at
+  the first observed loss. Controls have their own blocked-handshake sentence.
+- Quick recovery, measured stalls and other unrecovered/impactful outcomes are
+  distinct buckets; repeated short retries are not falsely called long stalls.
+- Use event-date IANA timezone rules (tzdata on Windows), retaining UTC alongside
+  local time. All timestamp conclusions retain a clock uncertainty caveat.

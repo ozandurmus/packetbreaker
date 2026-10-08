@@ -29,6 +29,7 @@ export type Mapping = {
   evidence?: Ref[];
 };
 export type Topology = {
+  report_timezone?: string | null;
   points: Point[];
   forward: string[];
   reverse: string[];
@@ -69,6 +70,9 @@ export type Capture = {
   };
 };
 export type Finding = {
+  headline?: string;
+  clock_caveat?: string;
+  time_labels?: { local: string; utc: string };
   id: string;
   type: string;
   severity: string;
