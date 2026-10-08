@@ -4,6 +4,7 @@ from pathlib import Path
 import threading
 
 import duckdb
+from . import __version__
 
 PACKET_COLUMNS = {
     "capture_id": "VARCHAR",
@@ -77,6 +78,9 @@ class Project:
                 )
                 self.set(db, "report", None)
             self.set(db, "schema_version", 3)
+            if self.get(db, "analysis_version") != __version__:
+                self.set(db, "report", None)
+                self.set(db, "analysis_version", __version__)
 
     @contextmanager
     def connect(self, allow_external=False):

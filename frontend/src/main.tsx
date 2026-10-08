@@ -357,7 +357,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 1 · v0.1.0</small>
+          <small>PHASE 1.1 · v0.1.1</small>
         </div>
       </aside>
       <main>

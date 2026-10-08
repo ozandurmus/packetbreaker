@@ -106,13 +106,14 @@ export function TopologyEditor({
               s.point_b === target &&
               s.direction === dir,
           );
-          const color = seg?.classes.impactful_loss
-            ? "#c44842"
-            : seg?.reason
-              ? "#b48526"
-              : dir === "reverse"
-                ? "#8384b6"
-                : "#168a84";
+          const color =
+            seg?.classes.impactful_loss || seg?.classes.handshake_blocked
+              ? "#c44842"
+              : seg?.reason
+                ? "#b48526"
+                : dir === "reverse"
+                  ? "#8384b6"
+                  : "#168a84";
           return {
             id: `${dir}:${source}:${target}`,
             source,

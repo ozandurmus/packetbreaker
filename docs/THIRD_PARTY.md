@@ -7,7 +7,9 @@ PacketBreaker uses dependencies rather than copying code from the reference repo
 - FastAPI — MIT: https://github.com/fastapi/fastapi
 - Uvicorn — BSD-3-Clause: https://github.com/encode/uvicorn
 - DuckDB — MIT: https://github.com/duckdb/duckdb
-- NumPy — BSD-3-Clause: https://github.com/numpy/numpy
+- tzdata — Apache-2.0: https://github.com/python/tzdata
+- Test-only HTTPX2 — BSD-3-Clause: https://github.com/pydantic/httpx2
+- Benchmark-only dpkt — BSD-3-Clause: https://github.com/kbandla/dpkt
 - Wireshark/tshark — GPL-2.0-or-later, installed separately, not bundled: https://www.wireshark.org/
 
 Frontend dependency license notices are retained in the generated JavaScript bundle.

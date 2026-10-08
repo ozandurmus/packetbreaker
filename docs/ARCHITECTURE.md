@@ -1,4 +1,4 @@
-# PacketBreaker — Phase 1 architecture
+# PacketBreaker — Phase 1.1 architecture
 
 ## Boundary and components
 Python 3.11+, FastAPI bound only to 127.0.0.1, a bundled React/TypeScript UI,
@@ -75,17 +75,18 @@ for that segment rather than being clamped. Report uncertainty/confidence and
 calibration frame references. Apply correction before computing overlap.
 
 ## Classification
-Only unambiguous, supported TCP data / UDP / ICMP appearances are eligible.
+Supported TCP data and SYN/SYN-ACK/FIN/RST, UDP and ICMP appearances are eligible.
 An absent intermediate point followed by a downstream appearance is a capture
 miss. A covering ACK without a preceding retransmission also supports a capture
 miss (within the same local TCP stream, bounded modular sequence comparison).
 A delivered retransmission of the same byte range supplies recovery evidence;
 recovery >= configured stall threshold or repeated upstream attempts is impactful, otherwise
 recovered loss. Coverage/clock/translation uncertainty takes priority over network
-attribution. Unrecovered disappearance is unknown/suspected, not proof of device
-policy drop. Confirmed device drops require positive device evidence, absent from
+attribution. Covered unrecovered disappearance is `unrecovered_loss`, or impactful when
+followed by a reset or observed stall; its cause is unknown. A stopped handshake
+is high severity. Insufficient coverage, clocks or translation stay `unknown`. Confirmed device drops require positive device evidence, absent from
 generic Phase 1 PCAP. Missing ACK-only packets do not become network-loss events.
-A retransmission is a different wire packet; its wait is not per-hop transit time.
+A retransmission is a separate occurrence, possibly with identical bytes; its wait is not per-hop transit time.
 
 Results use explicit denominators (eligible data transmission observations, including retries), first
 observed event time (not a Phase 2 change-point onset) and bounded/paginated evidence.
@@ -171,3 +172,10 @@ Per-file flow filters use observed post-NAT tuples in both directions and the
 selected session's raw timestamp range, widened by one microsecond for stored
 floating-point timestamp rounding. Metadata is built once per flow/file/tuple,
 not once per packet. The UI offers all filters and all classified flow outcomes.
+
+## Phase 1.1 / item 8 and release integrity
+
+TestClient uses httpx2 with Starlette >=1.7. Starlette deprecation warnings are test
+errors, not suppressed warnings. Project metadata carries the analysis engine
+version; changing it clears old reports without reparsing current-schema indexes.
+The application and bundled frontend identify themselves as 0.1.1.

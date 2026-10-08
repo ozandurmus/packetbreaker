@@ -1,4 +1,4 @@
-name: Phase 1 acceptance
+name: Phase 1.1 correctness acceptance
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
@@ -32,7 +32,7 @@ jobs:
           npm ci
           npm run build
       - run: python -m pip install -e ".[test]"
-      - run: ruff check src tests
+      - run: ruff check src tests tools
       - run: pytest -q
       - run: python -m build
       - uses: actions/upload-artifact@v4

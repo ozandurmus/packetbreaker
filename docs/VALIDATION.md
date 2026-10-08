@@ -1,6 +1,9 @@
-# Phase 1 validation — 2026-10-08
+# PacketBreaker validation — Phase 1 baseline and Phase 1.1 hardening
 
-## Locally verified
+The Phase 1.1 measurements and regression results below supersede the historical
+Phase 1 checks. Phase 2 remains unstarted.
+
+## Historical Phase 1 baseline (2026-10-08)
 
 Environment: Apple Silicon macOS, Python 3.12.8, tshark 4.6.9, Node 24.21.0.
 The automated suite exercises the real tshark executable, not a mocked dissector.
@@ -67,8 +70,8 @@ MSS/MTU black holes, vendor inspection stages, injected reset, offload byte-rang
 matching) are not implemented. First-event timing is not change-point detection.
 A generic missing egress packet is never labeled a confirmed device drop.
 
-Known non-blocking tool output: Starlette warns about a future TestClient HTTP
-transport change; tests currently pass with httpx. Vite reports a large local
+Historical Phase 1 warning: Starlette requested a newer TestClient transport.
+Phase 1.1 resolves it by using httpx2; it is now a test failure if reintroduced. Vite reports a large local
 ECharts/React Flow bundle (~1.6 MB uncompressed); it is bundled, with no CDN fetch.
 
 ## Work accounting
@@ -157,3 +160,37 @@ renumbered frames. Per-file flow filters select all 80 frames of the NAT fixture
 and use the translated tuple at egress. DNS and ICMP identifier filters are run
 against their source files. Flow rows expose blocked/unrecovered/unknown outcomes,
 not only the original three counters.
+
+## Phase 1.1 final release checks (item 8)
+
+The test extra now uses HTTPX2 >=2.13 with Starlette >=1.7. A subprocess regression
+runs TestClient with Python warnings promoted to errors and asserts HTTPX2 is the
+active transport. The API checks pass without the old deprecation warning. No
+warning suppression was added. Engine upgrades invalidate cached reports while
+preserving current-schema packet indexes; a regression covers that migration.
+Application/CLI and bundled frontend version: **0.1.1**.
+
+The final zero-ID demo contains 4 impactful losses, 5 quick recoveries and 8 capture
+misses, all matching ground truth. Its headline reports the measured 9/74 (12.16%)
+data-packet loss rate from the first loss onward, local and UTC timestamps, 55.6%
+quick recovery / 44.4% measured stalls, maximum 0.301 s, and clock uncertainty.
+These fractions intentionally use that stated time-range denominator, not the
+whole-capture packet count.
+
+Final gates: **183 tests passed in 378.41 seconds, with no warnings**. Ruff passed;
+TypeScript/Vite production build passed. The 0.1.1 wheel was installed into a
+separate directory; its API, HTML and bundled JS/CSS passed with warnings-as-errors.
+The large performance table records the item-6 implementation; subsequent portable
+filter metadata/UI and TestClient changes were verified functionally, not rerun
+as another large performance experiment.
+
+Phase 1.1 work accounting: start 2026-10-08 19:40:22 Europe/Istanbul; final usage
+checkpoint 22:06:25 (about 146 minutes). Account-wide weekly use changed from 15%
+to 28% (13 percentage points); this is not exact per-task token usage or cost.
+The elapsed time exceeded an efficient delivery for this scope; it included
+repeated validation and the bounded large-file measurement/recovery work.
+
+No Phase 2 work, remote push, live-device access or production capture was used.
+Windows/Intel macOS CI execution remains unverified locally; the matrix is in
+`.github/workflows/ci.yml`. The measured workload and unverified larger/real-world
+workloads must not be conflated.

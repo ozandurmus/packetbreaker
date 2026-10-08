@@ -3,7 +3,7 @@
 A local desktop web app for correlating packet captures along a traffic path.
 Attach captures, draw capture points, and inspect **which segment first loses an
 original packet**, how it is recovered, and the frame evidence supporting that
-conclusion. Runs offline after installation. Phase 1 only.
+conclusion. Runs offline after installation. Phase 1.1 correctness hardening. Phase 2 has not started.
 
 ## Install on macOS (Intel or Apple Silicon)
 
@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.1.0-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.1.1-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -106,7 +106,7 @@ loss start time, added delay, NAT hop and capture-miss point. It writes ground
 truth and topology JSON next to the captures. Phase 2/3 fixture types are not yet
 implemented.
 
-## What Phase 1 measures, estimates and leaves unknown
+## What Phase 1.1 measures, estimates and leaves unknown
 
 | Result | Meaning |
 |---|---|
@@ -116,19 +116,20 @@ implemented.
 | Clock offset and drift | Estimates from bidirectional minimum-delay envelopes and a robust linear fit; asymmetry remains uncertainty |
 | Per-hop latency | Clock-corrected matched-packet transit; negative/inconsistent values are suppressed, not clamped |
 | Handshake halves and RTT | Same-capture SYN/SYN-ACK/ACK intervals and tshark TCP ACK RTT, with frame references |
-| Unrecovered disappearance | Unknown; packet absence alone does not prove a device policy drop |
+| Unrecovered disappearance | Covered absence is `unrecovered_loss`; a reset or observed stall makes it impactful. Policy cause stays unknown. |
 | First event time | First observed classified event; **not** a change-point onset estimate |
 
-Repeated identical fingerprints (including SPAN duplicates) are excluded from
-attribution. Truncated captures compare only common payload bytes. Unsupported
+Repeated fingerprints are matched as separate time-ordered occurrences. Only
+byte-identical full frames within the configured microsecond threshold are marked
+as potential SPAN copies; unresolved timing collisions are explicitly excluded. Truncated captures compare only common payload bytes. Unsupported
 identities, fragmentation and possible large offload frames are flagged. Checksums
 are not classified as network errors. Missing pcapng drop counters mean **unknown**,
 not zero. Observed first/last timestamps cannot prove continuous capture coverage.
 
 TCP conversation rows join local streams through shared packet occurrences;
 port-reuse sessions remain separate. UDP/ICMP use endpoint conversations. Retransmission observations are counted per capture point, not globally
-unique retransmissions. Generic UDP absence without positive delivery evidence
-stays unknown. Recovery/ACK searches are bounded to 60 seconds; longer waits remain unknown. Window changes affect hop findings/latency; conversation inventory
+unique retransmissions. Covered UDP disappearance without delivery evidence is unrecovered loss with an
+unknown cause; insufficient coverage/clock/translation evidence remains unknown. Recovery/ACK searches are bounded to 60 seconds; longer waits remain unknown. Window changes affect hop findings/latency; conversation inventory
 and drilldown retain the full selected captures for context.
 
 Declared full proxies and sequence randomizers stop packet-level attribution.
@@ -186,8 +187,9 @@ python tools/benchmark.py /path/to/scratch --hops 10 --rounds 10000
 ```
 
 Ingest uses bounded 50,000-row batches; analysis uses DuckDB SQL with a 512 MB SQL
-memory budget and disk spill. tshark has its own memory usage. Large real-world
-PCAP throughput and several-GB-per-file workloads are **unverified**; see
+memory budget and disk spill. tshark has its own memory usage. A five-file,
+5.4M-frame benchmark with one 1.31 GB file is measured. Large real-world incidents,
+larger files and ten simultaneous multi-GB captures remain **unverified**; see
 [validation notes](docs/VALIDATION.md) for the measured workload and remaining gaps.
 
 Design: [architecture](docs/ARCHITECTURE.md), [decisions](docs/DECISIONS.md).
@@ -201,3 +203,17 @@ retransmissions without relying on changing IP IDs. Additional demo scenarios:
 `realistic_syn_blocked`. Realistic scenarios have 50 concurrent clients, a reused
 TCP tuple, mixed IPv4/IPv6, DNS and ICMP, a separate return capture point and a
 pcapng ISB. One-way points use explicit ground-truth clock overrides in fixtures.
+
+### Phase 1.1 upgrade and evidence
+
+Older packet indexes need one reattach for full-frame hashes and DNS/ICMP metadata.
+A current-schema project keeps its index across an engine upgrade; the old analysis
+report is invalidated and recomputed on Analyze. Loss rates are unknown below the
+configurable 90% matchability threshold. Headline rates expose their exact
+denominators and local/UTC times with clock uncertainty. Evidence dialogs offer
+frame, content and per-file flow filters; content filters can select multiple
+identical retransmissions after merging.
+
+For the large benchmark, install `.[benchmark]` and run the stages of
+`tools/large_benchmark.py` under `/usr/bin/time -l` on macOS. dpkt remains an
+experiment: its complete measured speedup was 1.07x, below the required 2x gate.

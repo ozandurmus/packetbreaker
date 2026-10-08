@@ -6,6 +6,7 @@ import sys
 import threading
 import webbrowser
 
+from . import __version__
 from .analysis import analyze
 from .ingest import ingest
 from .store import Project
@@ -14,6 +15,7 @@ from .synthetic import generate, bind_capture_ids
 
 def main():
     parser = argparse.ArgumentParser(description="PacketBreaker — local multi-hop capture analysis")
+    parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--project", default=str(Path.home() / "PacketBreaker" / "default"))
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")

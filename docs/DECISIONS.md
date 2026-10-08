@@ -1,6 +1,6 @@
 # Decisions
 
-1. Deliver Phase 1 only. Onset detector, vendor adapters, sequence translation,
+1. Deliver Phase 1.1 correctness hardening only. Onset detector, vendor adapters, sequence translation,
    offload byte ranges, full proxy, export UI, security attribution and AI panel
    remain Phase 2/3. JSON analysis is available to the CLI/API and tests.
 2. Use tshark subprocess field export; no Scapy and no custom protocol parser.
@@ -68,3 +68,9 @@ See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and u
 - Flow filters include a timestamp window to keep reused-port sessions separate;
   merged/re-saved files with preserved timestamps retain that scope. Retimed files
   can still use the timestamp-independent content filter.
+
+- Use the supported httpx2 TestClient transport and promote Starlette deprecation
+  warnings to test failures. Keep test transport requirements compatible with
+  the tested FastAPI/Starlette versions; do not silence the warning.
+- Invalidate cached reports when the engine version changes so a pre-hardening
+  false-negative report cannot be presented as a current result.

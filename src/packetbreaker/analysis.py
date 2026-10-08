@@ -2,6 +2,7 @@ import ipaddress
 import json
 from datetime import datetime, timezone
 
+from . import __version__
 from .clock import ClockModel, fit_clock
 from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions
 from .ingest import tuple_id
@@ -640,6 +641,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         )
         report = dict(
             schema_version=1,
+            engine_version=__version__,
             generated_at=datetime.now(timezone.utc).isoformat(),
             verdict="Impactful loss observed"
             if any(f["type"] == "impactful_loss" for f in findings)

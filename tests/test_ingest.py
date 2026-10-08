@@ -161,3 +161,20 @@ def test_superframe_ingests_but_is_excluded(tmp_path, tshark):
     assert length == 64000
     assert "offload super-frame" in reason
     assert len(prefix) == 128
+
+
+def test_engine_upgrade_invalidates_report_but_keeps_current_index(tmp_path, tshark):
+    from packetbreaker import __version__
+
+    truth, _ = generate(tmp_path / "input", scenario="healthy", rounds=1)
+    project = Project(tmp_path / "project")
+    ingest(project, truth["files"][0], tshark=tshark)
+    with project.connect() as db:
+        project.set(db, "analysis_version", "0.1.0")
+        project.set(db, "report", {"verdict": "stale report"})
+    reopened = Project(project.path)
+    with reopened.connect() as db:
+        assert reopened.get(db, "report") is None
+        assert reopened.get(db, "analysis_version") == __version__
+        assert db.execute("SELECT count(*) FROM packets").fetchone()[0] == 8
+    assert reopened.inventory()[0]["state"] == "ready"
