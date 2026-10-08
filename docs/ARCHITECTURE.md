@@ -110,3 +110,14 @@ count against quality rather than silently disappearing. Below `min_eligible_rat
 (default 0.9), aggregate `loss_percent` is null and the segment states the excluded
 fraction/reasons. Concrete eligible-packet findings remain visible. Such a segment
 cannot produce a healthy overall verdict. The threshold is editable in Settings.
+
+## Phase 1.1 / item 3
+
+TCP data and SYN/SYN-ACK/FIN/RST enter missing-appearance classification. SYN/FIN
+ACK coverage consumes the control byte; RST has no ACK-delivery assumption.
+Same-local-stream reset, retransmission or non-advancing ACK after the stall
+threshold supports impactful unrecovered loss. A covered, unrecovered SYN/SYN-ACK
+produces `handshake_blocked` (high severity, unknown cause). Covered disappearances
+without recovery/impact evidence use `unrecovered_loss`; `unknown` is reserved for
+insufficient coverage, clocks or translation. Positive device-drop attribution
+still requires device evidence. Failure/ACK support frames accompany the original.

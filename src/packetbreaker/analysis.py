@@ -258,7 +258,8 @@ def analyze(project, topology: Topology | dict, progress=None):
         end = topology.end if topology.end is not None else common_end
         db.execute("""CREATE OR REPLACE TABLE events (
             id VARCHAR, point_a VARCHAR,point_b VARCHAR,direction VARCHAR,kind VARCHAR,reason VARCHAR,
-            packet_key VARCHAR,flow VARCHAR,ts DOUBLE,recovery_ms DOUBLE,recovery_key VARCHAR)""")
+            packet_key VARCHAR,flow VARCHAR,ts DOUBLE,recovery_ms DOUBLE,recovery_key VARCHAR,
+            support_key VARCHAR,impact_ms DOUBLE,is_data BOOLEAN)""")
         segments, findings = [], []
         progress(state="classifying")
         for direction, path in (
@@ -304,8 +305,8 @@ def analyze(project, topology: Topology | dict, progress=None):
                     if not clocks_ok
                     else "No common capture coverage"
                     if common_start is None
-                    else "No matched packets in selected window"
-                    if not matched["matched"]
+                    else "Selected window is outside common coverage"
+                    if start is None or end is None or end < common_start or start > common_end
                     else None
                 )
                 classification_reason = reason
@@ -368,7 +369,7 @@ def analyze(project, topology: Topology | dict, progress=None):
                     EXISTS(SELECT 1 FROM obs later WHERE later.packet_key=a.packet_key AND later.point IN
                         (SELECT unnest(?::VARCHAR[])) AND later.eligible) AS later_seen
                     FROM obs a WHERE a.point=? AND a.direction=? AND a.eligible
-                    AND (a.length>0 OR a.proto IN ('UDP','ICMP'))
+                    AND (a.length>0 OR (a.proto='TCP' AND (a.flags&7)>0) OR a.proto IN ('UDP','ICMP'))
                     AND NOT EXISTS(SELECT 1 FROM obs b WHERE b.point=? AND b.packet_key=a.packet_key AND b.eligible)
                     AND (? IS NULL OR coalesce(a.corrected,a.ts)>=?) AND (? IS NULL OR coalesce(a.corrected,a.ts)<=?)""",
                     [downstream, a, direction, b, start, start, end, end],
@@ -380,7 +381,7 @@ def analyze(project, topology: Topology | dict, progress=None):
                     SELECT m.packet_key,min(r.corrected) AS recovery_time,arg_min(r.packet_key,r.corrected) AS recovery_key,
                     count(*) AS attempts
                     FROM missing m JOIN obs r ON r.point=? AND r.canon=m.canon AND r.proto='TCP'
-                    AND r.seq=m.seq AND r.length=m.length AND r.corrected>m.corrected
+                    AND r.seq=m.seq AND r.length=m.length AND (r.flags&7)=(m.flags&7) AND r.corrected>m.corrected
                     AND r.corrected<=m.corrected+60 AND r.packet_key<>m.packet_key AND r.eligible
                     AND left(coalesce(r.prefix,''),least(length(coalesce(r.prefix,'')),length(coalesce(m.prefix,''))))=
                         left(coalesce(m.prefix,''),least(length(coalesce(r.prefix,'')),length(coalesce(m.prefix,''))))
@@ -392,23 +393,36 @@ def analyze(project, topology: Topology | dict, progress=None):
                 db.execute("""CREATE OR REPLACE TEMP TABLE retry_counts AS
                     SELECT m.packet_key,count(*) AS attempts FROM missing m JOIN recoveries r USING(packet_key)
                     JOIN obs u ON u.point=m.point AND u.stream=m.stream AND u.canon=m.canon
-                    AND u.seq=m.seq AND u.length=m.length AND u.corrected>m.corrected
+                    AND u.seq=m.seq AND u.length=m.length AND (u.flags&7)=(m.flags&7) AND u.corrected>m.corrected
                     AND u.corrected<=r.recovery_time GROUP BY m.packet_key""")
                 db.execute("""UPDATE recoveries SET attempts=c.attempts FROM retry_counts c
                     WHERE recoveries.packet_key=c.packet_key""")
                 db.create_function("rev_canon", reverse_tuple, ["VARCHAR"], "VARCHAR")
                 db.execute(
                     """CREATE OR REPLACE TEMP TABLE acked AS
-                    SELECT DISTINCT m.packet_key FROM missing m JOIN obs ack ON ack.point=? AND ack.proto='TCP'
+                    SELECT m.packet_key,arg_min(ack.packet_key,ack.corrected) AS ack_key FROM missing m JOIN obs ack ON ack.point=? AND ack.proto='TCP'
                     AND ack.stream=m.stream AND ack.canon=rev_canon(m.canon) AND (ack.flags & 16)>0
                     AND ack.corrected>m.corrected AND ack.corrected<=m.corrected+60
-                    AND ((ack.ack-m.seq-m.length+4294967296)%4294967296)<2147483648
-                    WHERE m.proto='TCP' AND m.length>0 AND NOT EXISTS(
+                    AND ((ack.ack-m.seq-m.length-CASE WHEN (m.flags&3)>0 THEN 1 ELSE 0 END+4294967296)%4294967296)<2147483648
+                    WHERE m.proto='TCP' AND (m.length>0 OR (m.flags&3)>0) AND (m.flags&4)=0 AND NOT EXISTS(
                         SELECT 1 FROM obs r WHERE r.point=m.point AND r.canon=m.canon AND r.seq=m.seq
-                        AND r.stream=m.stream AND r.length=m.length AND r.corrected>m.corrected AND r.corrected<ack.corrected)""",
+                        AND r.stream=m.stream AND r.length=m.length AND r.corrected>m.corrected AND r.corrected<ack.corrected) GROUP BY m.packet_key""",
                     [a],
                 )
                 db.remove_function("rev_canon")
+                db.execute(
+                    """CREATE OR REPLACE TEMP TABLE failures AS
+                    SELECT m.packet_key,min(f.corrected) AS failure_time,arg_min(f.packet_key,f.corrected) AS failure_key
+                    FROM missing m JOIN obs f ON f.point=m.point AND f.stream=m.stream AND f.proto='TCP'
+                    AND f.corrected>m.corrected AND f.corrected<=m.corrected+60 AND f.corrected<=?
+                    WHERE m.proto='TCP' AND ((f.flags&4)>0 OR
+                        (f.corrected-m.corrected>=? AND (
+                            (f.canon=m.canon AND f.seq=m.seq AND f.length=m.length AND (f.flags&7)=(m.flags&7)) OR
+                            (f.canon<>m.canon AND (f.flags&16)>0
+                             AND ((m.seq+m.length-f.ack+4294967296)%4294967296) BETWEEN 1 AND 2147483647))))
+                    GROUP BY m.packet_key""",
+                    [common_end, topology.stall_ms / 1000],
+                )
                 db.execute(
                     """INSERT INTO events
                     SELECT md5(? || m.packet_key),?,?,?,
@@ -416,14 +430,22 @@ def analyze(project, topology: Topology | dict, progress=None):
                         WHEN ? IS NOT NULL OR ? IS NULL OR m.corrected<? OR m.corrected>? THEN 'unknown'
                         WHEN ack.packet_key IS NOT NULL THEN 'capture_miss'
                         WHEN r.recovery_time IS NOT NULL THEN CASE WHEN (r.recovery_time-m.corrected)*1000>=? OR r.attempts>1
-                            THEN 'impactful_loss' ELSE 'recovered_loss' END ELSE 'unknown' END,
+                            THEN 'impactful_loss' ELSE 'recovered_loss' END
+                        WHEN m.corrected+?>? THEN 'unknown'
+                        WHEN (m.flags&2)>0 AND m.proto='TCP' THEN 'handshake_blocked'
+                        WHEN f.failure_time IS NOT NULL THEN 'impactful_loss' ELSE 'unrecovered_loss' END,
                     CASE WHEN later_seen THEN 'Packet appears again farther along the path'
                         WHEN ? IS NOT NULL THEN ? WHEN ? IS NULL OR m.corrected<? OR m.corrected>? THEN 'Outside common coverage; absence is not proof of loss'
                         WHEN ack.packet_key IS NOT NULL THEN 'Receiver acknowledged these bytes without a preceding retransmission'
                         WHEN r.recovery_time IS NOT NULL THEN 'Original missing downstream; repeated byte range was delivered'
-                        ELSE 'Disappearance without delivery or positive device-drop evidence; cause unknown' END,
-                    m.packet_key,m.flow,coalesce(m.corrected,m.ts),(r.recovery_time-m.corrected)*1000,r.recovery_key
-                    FROM missing m LEFT JOIN recoveries r USING(packet_key) LEFT JOIN acked ack USING(packet_key)""",
+                        WHEN m.corrected+?>? THEN 'Insufficient remaining capture coverage to assess completion'
+                        WHEN (m.flags&2)>0 AND m.proto='TCP' THEN 'Handshake control segment stops at this boundary; cause unknown'
+                        WHEN f.failure_time IS NOT NULL THEN 'Unrecovered disappearance followed by a reset or observed stall; cause unknown'
+                        ELSE 'Unrecovered disappearance within covered, matchable traffic; cause unknown' END,
+                    m.packet_key,m.flow,coalesce(m.corrected,m.ts),(r.recovery_time-m.corrected)*1000,r.recovery_key,
+                    coalesce(ack.ack_key,f.failure_key),(f.failure_time-m.corrected)*1000,m.length>0
+                    FROM missing m LEFT JOIN recoveries r USING(packet_key) LEFT JOIN acked ack USING(packet_key)
+                    LEFT JOIN failures f USING(packet_key)""",
                     [
                         segment_id,
                         a,
@@ -434,42 +456,53 @@ def analyze(project, topology: Topology | dict, progress=None):
                         common_start,
                         common_end,
                         topology.stall_ms,
+                        topology.stall_ms / 1000,
+                        common_end,
                         classification_reason,
                         classification_reason,
                         common_start,
                         common_start,
                         common_end,
+                        topology.stall_ms / 1000,
+                        common_end,
                     ],
                 )
                 total = db.execute(
                     """SELECT count(*) FROM obs WHERE point=? AND direction=? AND eligible
-                    AND (length>0 OR proto IN ('UDP','ICMP'))
+                    AND (length>0 OR (proto='TCP' AND (flags&7)>0) OR proto IN ('UDP','ICMP'))
                     AND (? IS NULL OR coalesce(corrected,ts)>=?) AND (? IS NULL OR coalesce(corrected,ts)<=?)""",
                     [a, direction, start, start, end, end],
                 ).fetchone()[0]
                 classes = rows(
                     db,
                     """SELECT kind,count(*) AS count,min(ts) AS first_seen,max(ts) AS last_seen,
-                    max(recovery_ms) AS max_recovery_ms FROM events WHERE point_a=? AND point_b=? AND direction=? GROUP BY kind""",
+                    max(recovery_ms) AS max_recovery_ms,max(greatest(impact_ms,recovery_ms)) AS max_stall_ms,
+                    count(*) FILTER(WHERE is_data) AS data_count,
+                    count(*) FILTER(WHERE recovery_key IS NOT NULL) AS delivered_retries FROM events WHERE point_a=? AND point_b=? AND direction=? GROUP BY kind""",
                     [a, b, direction],
                 )
                 segment.update(eligible_packets=total, classes={x["kind"]: x["count"] for x in classes})
                 loss_count = sum(
-                    x["count"] for x in classes if x["kind"] in ("recovered_loss", "impactful_loss")
+                    x["count"]
+                    for x in classes
+                    if x["kind"]
+                    in ("recovered_loss", "impactful_loss", "unrecovered_loss", "handshake_blocked")
                 )
                 segment["loss_percent"] = 100 * loss_count / total if total and not reason else None
                 for cls in classes:
                     severity = {
+                        "handshake_blocked": "high",
+                        "unrecovered_loss": "low",
                         "impactful_loss": "high",
                         "recovered_loss": "low",
                         "capture_miss": "quality",
                         "unknown": "unknown",
                     }[cls["kind"]]
                     event = db.execute(
-                        """SELECT packet_key,recovery_key FROM events WHERE point_a=? AND point_b=? AND direction=? AND kind=? ORDER BY ts LIMIT 1""",
+                        """SELECT packet_key,recovery_key,support_key FROM events WHERE point_a=? AND point_b=? AND direction=? AND kind=? ORDER BY ts LIMIT 1""",
                         [a, b, direction, cls["kind"]],
                     ).fetchone()
-                    refs = evidence(db, "o.packet_key IN (?,?)", list(event))
+                    refs = evidence(db, "o.packet_key IN (?,?,?)", list(event))
                     findings.append(
                         dict(
                             id=f"{segment_id}:{cls['kind']}",
@@ -480,7 +513,12 @@ def analyze(project, topology: Topology | dict, progress=None):
                             time_range=[cls["first_seen"], cls["last_seen"]],
                             confidence="supported" if severity != "unknown" else "unknown",
                             metrics=cls,
-                            summary=f"{cls['count']} {cls['kind'].replace('_', ' ')} event(s) between {pa.label} and {pb.label}.",
+                            cause="unknown" if cls["kind"] != "capture_miss" else "capture_visibility",
+                            summary=(
+                                f"Handshake blocked between {pa.label} and {pb.label}; cause unknown."
+                                if cls["kind"] == "handshake_blocked"
+                                else f"{cls['count']} {cls['kind'].replace('_', ' ')} event(s) between {pa.label} and {pb.label}."
+                            ),
                             evidence=refs,
                             evidence_note="First event shown; select the hop to browse all events",
                         )
@@ -497,7 +535,7 @@ def analyze(project, topology: Topology | dict, progress=None):
                 (SELECT flow,packet_key,max(length) AS length FROM obs GROUP BY flow,packet_key) GROUP BY flow),
             losses AS (SELECT flow,count(*) FILTER(WHERE kind='impactful_loss') AS impactful_loss,
                 count(*) FILTER(WHERE kind='recovered_loss') AS recovered_loss,
-                count(*) FILTER(WHERE kind='capture_miss') AS capture_miss,max(recovery_ms) AS max_stall_ms
+                count(*) FILTER(WHERE kind='capture_miss') AS capture_miss,max(greatest(impact_ms,recovery_ms)) AS max_stall_ms
                 FROM events GROUP BY flow)
             SELECT base.*,bytes.bytes,coalesce(impactful_loss,0) AS impactful_loss,
                 coalesce(recovered_loss,0) AS recovered_loss,coalesce(capture_miss,0) AS capture_miss,max_stall_ms,
@@ -543,8 +581,10 @@ def analyze(project, topology: Topology | dict, progress=None):
             schema_version=1,
             generated_at=datetime.now(timezone.utc).isoformat(),
             verdict="Impactful loss observed"
-            if any(f["severity"] == "high" for f in findings)
-            else "Recovered loss observed"
+            if any(f["type"] == "impactful_loss" for f in findings)
+            else "Handshake failure observed"
+            if any(f["type"] == "handshake_blocked" for f in findings)
+            else "Loss observed"
             if any(f["severity"] == "low" for f in findings)
             else "Inconclusive"
             if inconclusive_quality
@@ -654,7 +694,7 @@ def event_page(project, a, b, direction, offset=0, limit=50):
         )
         for item in data:
             item["evidence"] = evidence(
-                db, "o.packet_key IN (?,?)", [item["packet_key"], item["recovery_key"]]
+                db, "o.packet_key IN (?,?,?)", [item["packet_key"], item["recovery_key"], item["support_key"]]
             )
         return dict(
             items=data,

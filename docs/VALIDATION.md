@@ -93,3 +93,8 @@ Item 1 after: the same zero-ID input now yields **10 recovered losses**, all at
 
 Item 2 tests cover explicit exclusion reasons, the default 90% guard, threshold
 overrides, and SPAN-copy quality degradation. Frontend TypeScript/build passed.
+
+Item 3: 32 control/failed-delivery × IP mode × IPv4/IPv6 cases passed. Fixtures
+include stopped SYN, unrecovered data followed by RST or a measured stalled
+sequence, and pure capture misses of SYN/SYN-ACK/FIN/RST. A directional hop check
+also verifies reverse SYN/ACK capture-miss location.

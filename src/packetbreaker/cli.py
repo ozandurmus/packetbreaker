@@ -34,6 +34,10 @@ def main():
             "truncation",
             "duplicate",
             "acked_unseen",
+            "syn_blocked",
+            "unrecovered_reset",
+            "unrecovered_stall",
+            "control_capture_miss",
         ],
     )
     demo.add_argument("--rounds", type=int, default=100)

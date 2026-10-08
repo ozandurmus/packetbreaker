@@ -276,4 +276,4 @@ def test_ack_from_reused_tuple_session_does_not_prove_capture_miss(scenarios):
         # Separate local stream identity models a reused 5-tuple with unrelated ACKs.
         db.execute("UPDATE packets SET stream=stream+100 WHERE src='203.0.113.20'")
     report = analyze(project, topology)
-    assert classes(report) == {"unknown"}
+    assert classes(report) == {"unrecovered_loss"}

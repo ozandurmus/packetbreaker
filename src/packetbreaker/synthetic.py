@@ -84,6 +84,10 @@ def generate(
         "truncation",
         "duplicate",
         "acked_unseen",
+        "syn_blocked",
+        "unrecovered_reset",
+        "unrecovered_stall",
+        "control_capture_miss",
     )
     if scenario not in supported:
         raise ValueError("Unknown Phase 1 scenario: " + scenario)
@@ -102,7 +106,7 @@ def generate(
     ipid = 1
     use_nat = scenario in ("demo", "nat")
 
-    def emit(t, forward, seq, ack, flags=16, payload=b"", missing=(), repeat_id=None):
+    def emit(t, forward, seq, ack, flags=16, payload=b"", missing=(), repeat_id=None, port=50000):
         nonlocal ipid
         identity = (
             repeat_id
@@ -114,7 +118,7 @@ def generate(
             if h in missing:
                 continue
             client = "198.51.100.10" if use_nat and h >= nat_hop else "10.0.0.10"
-            sport = 51000 if use_nat and h >= nat_hop else 50000
+            sport = port + 1000 if use_nat and h >= nat_hop else port
             src, dst, sp, dp = (
                 (client, "203.0.113.20", sport, 443) if forward else ("203.0.113.20", client, 443, sport)
             )
@@ -188,6 +192,44 @@ def generate(
         ack += 59
         seq += len(payload)
         emit(response_time + 0.015, True, seq, ack)
+
+    def control_event(kind, t):
+        events.append(dict(type=kind, point_a=f"p{loss_hop}", point_b=f"p{loss_hop + 1}", time=base + t))
+
+    if scenario == "syn_blocked":
+        emit(onset, True, 123000, 0, 2, missing=list(range(loss_hop + 1, hops)), port=60000)
+        control_event("handshake_blocked", onset)
+    if scenario in ("unrecovered_reset", "unrecovered_stall", "control_capture_miss"):
+        gap = [capture_miss_hop] if scenario == "control_capture_miss" else []
+        emit(onset - 1, True, 1000, 0, 2, missing=gap, port=60001)
+        emit(onset - 0.98, False, 9000, 1001, 18, missing=gap, port=60001)
+        emit(onset - 0.96, True, 1001, 9001, 16, port=60001)
+        if scenario == "control_capture_miss":
+            emit(onset, True, 1001, 9001, 17, missing=gap, port=60001)
+            emit(onset + 0.02, False, 9001, 1002, 16, port=60001)
+            emit(onset + 0.1, True, 1002, 9001, 4, missing=gap, port=60001)
+            for t in (onset - 1, onset - 0.98, onset, onset + 0.1):
+                events.append(
+                    dict(
+                        type="capture_miss",
+                        point_a=f"p{capture_miss_hop - 1}",
+                        point_b=f"p{capture_miss_hop}",
+                        time=base + t,
+                        direction="reverse" if t == onset - 0.98 else "forward",
+                    )
+                )
+                if t == onset - 0.98:
+                    events[-1]["point_a"] = f"p{capture_miss_hop + 1}"
+        else:
+            missing = list(range(loss_hop + 1, hops))
+            emit(onset, True, 1001, 9001, 24, b"unrecovered-data" * 8, missing=missing, port=60001)
+            control_event("impactful_loss", onset)
+            if scenario == "unrecovered_reset":
+                emit(onset + 0.1, False, 9001, 0, 4, port=60001)
+            else:
+                emit(onset + 0.3, True, 1001, 9001, 24, b"unrecovered-data" * 8, missing=missing, port=60001)
+                control_event("impactful_loss", onset + 0.3)
+                emit(onset + 0.7, False, 9001, 1001, 16, port=60001)
     emit(rounds * 0.4 + 0.5, True, seq, ack, 17)
     emit(rounds * 0.4 + 0.52, False, ack, seq + 1, 17)
     names = ["Client", "FW ingress", "FW egress", "LB ingress", "Server"] + [

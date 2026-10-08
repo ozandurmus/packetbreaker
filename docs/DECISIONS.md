@@ -42,3 +42,9 @@ See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and u
 - No Phase 2 functionality is introduced.
 - Matchability is an explicit denominator, separate from observed loss. A low
   denominator suppresses aggregate rates, not frame-backed individual events.
+- Control-byte acknowledgements are evidence of delivery, while a reset is
+  evidence of failure, never mislabeled as a successful retransmission. A
+  `handshake_blocked` finding locates the observed boundary, not the policy cause.
+- `unrecovered_loss` describes a covered disappearance with unknown cause. It is
+  not a confirmed device drop. Late observations without enough remaining
+  coverage still remain unknown.
