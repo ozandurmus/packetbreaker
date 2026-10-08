@@ -10,6 +10,7 @@ from .headlines import add_headlines
 from .evidence import evidence, prepare_flow_filters
 from .store import rows
 from .topology import Topology
+from .timeseries import build_timeseries
 
 
 def reverse_tuple(key):
@@ -639,6 +640,9 @@ def analyze(project, topology: Topology | dict, progress=None):
         rank = {"high": 0, "low": 1, "quality": 2, "unknown": 3}
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         add_headlines(db, findings, segments, topology, end)
+        progress(state="building time series")
+        time_window = dict(start=start, end=end, common_start=common_start, common_end=common_end)
+        timeseries = build_timeseries(db, topology, segments, coverage, time_window)
         total_findings = len(findings)
         order_scores = rows(
             db,
@@ -656,7 +660,8 @@ def analyze(project, topology: Topology | dict, progress=None):
             q["unknown_direction"] == q["packets"] or q["excluded"] == q["packets"] for q in quality
         )
         report = dict(
-            schema_version=1,
+            schema_version=2,
+            timeseries=timeseries,
             engine_version=__version__,
             generated_at=datetime.now(timezone.utc).isoformat(),
             verdict="Impactful loss observed"
@@ -670,7 +675,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 1; first event times are not change-point onset estimates",
+            scope="Phase 2 / Part 2; coverage-aware bucketed path metrics",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,

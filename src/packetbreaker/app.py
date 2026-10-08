@@ -15,6 +15,7 @@ from .ingest import find_tshark
 from .batch_ingest import ingest_many, normalize_paths
 from .store import Project
 from .topology import Topology
+from .timeseries import timeseries_page
 
 
 class Attach(BaseModel):
@@ -225,6 +226,10 @@ def create_app(project_path):
     def report():
         with project.connect() as db:
             return project.get(db, "report")
+
+    @app.get("/api/timeseries")
+    def timeseries():
+        return timeseries_page(project)
 
     @app.get("/api/flows")
     def flows(

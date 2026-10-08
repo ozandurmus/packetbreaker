@@ -231,3 +231,19 @@ unique segments and shows their class lines below the shared headline.
 
 Part 1 ships as 0.1.2, invalidating older cached analysis reports so the segment
 headline shape is regenerated; current-schema packet indexes remain reusable.
+
+## Phase 2 / Part 2: bucketed path observations
+
+`segment_buckets` stores a grid for every directed adjacent segment. Epoch-aligned
+buckets default to 1 second (`bucket_seconds`, 0.1–3600 seconds). The grid covers
+the requested interval, or the union of validated capture coverage; missing-loss
+classification remains bounded by the analysis overlap. Outside endpoint coverage
+is `not capturing`, boundary buckets are `partial coverage`, and unavailable
+metrics are SQL NULL. Zero is used only for an observed zero count/rate in a full
+covered bucket. The grid is limited to 200,000 cells; larger windows require a
+coarser bucket or a narrower interval.
+
+Rates use upstream observations, loss classes use eligible upstream candidates,
+and transit quantiles use matched eligible packet occurrences. RTT remains local
+tshark ACK RTT, not isolated hop transit. Each metric carries its unit and exact
+meaning in the API. Coverage bounds cannot establish capture continuity.
