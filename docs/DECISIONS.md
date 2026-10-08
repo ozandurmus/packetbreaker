@@ -98,3 +98,20 @@ workers. Keep the measured serial path as default; opt into parallel via Setting
 processes still feed Python row/CSV work under the GIL and serialized DuckDB writes.
 A process/shard rewrite is not justified by this bounded request; do not claim an
 unmeasured speedup. Exact packet-field equality was verified on all 5,000,750 rows.
+
+## Phase 2 / Part 2 onset semantics
+
+- Healthy means *apparently healthy in these captures*: covered, matchable,
+  without supported loss, capture-miss or unknown events, and a stable initial
+  latency sample. A stable but already-slow capture cannot prove historical health.
+- Detect supported loss and transit-p95 changes; do not attribute ordinary traffic
+  volume, endpoint RTT or local retransmission changes to a hop. Those metrics
+  remain available in the heatmap. Capture-miss evidence cannot seed an onset.
+- The threshold is rolling median + max(minimum delta, 6 × 1.4826 × MAD). The
+  minimum delta is 1 percentage point for loss, and max(1 ms, twice segment clock
+  uncertainty) for transit p95. Two crossing buckets confirm the first bucket.
+  Baselines require five consecutive healthy buckets; insufficient evidence is
+  explicitly unknown. Isolated spikes are not sustained onset.
+- Propagation order is temporal evidence, not proof of device causation. Tied
+  buckets are unresolved; clock uncertainty may further limit ordering. Earliest
+  observed segments are prime suspects, never confirmed root causes.

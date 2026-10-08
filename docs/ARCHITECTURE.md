@@ -247,3 +247,11 @@ Rates use upstream observations, loss classes use eligible upstream candidates,
 and transit quantiles use matched eligible packet occurrences. RTT remains local
 tshark ACK RTT, not isolated hop transit. Each metric carries its unit and exact
 meaning in the API. Coverage bounds cannot establish capture continuity.
+
+Onset detection uses five early consecutive, covered, matchable, loss-free buckets
+and a rolling median/MAD of accepted healthy buckets. Two consecutive crossings
+confirm the first crossing as onset. Thresholds, baseline bucket IDs, MAD, observed
+values, clock uncertainty and original-frame evidence are retained in the report.
+Only supported network loss and matched transit p95 are hop-attributable onset
+signals; RTT, retransmissions and volume remain contextual metrics. Capture-quality
+or coverage gaps break continuity rather than creating a network onset.

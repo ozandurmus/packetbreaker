@@ -11,6 +11,7 @@ from .evidence import evidence, prepare_flow_filters
 from .store import rows
 from .topology import Topology
 from .timeseries import build_timeseries
+from .onset import add_onsets
 
 
 def reverse_tuple(key):
@@ -643,6 +644,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         progress(state="building time series")
         time_window = dict(start=start, end=end, common_start=common_start, common_end=common_end)
         timeseries = build_timeseries(db, topology, segments, coverage, time_window)
+        onsets = add_onsets(db, topology, segments)
         total_findings = len(findings)
         order_scores = rows(
             db,
@@ -662,6 +664,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         report = dict(
             schema_version=2,
             timeseries=timeseries,
+            onsets=onsets,
             engine_version=__version__,
             generated_at=datetime.now(timezone.utc).isoformat(),
             verdict="Impactful loss observed"
@@ -675,7 +678,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 2 / Part 2; coverage-aware bucketed path metrics",
+            scope="Phase 2 / Part 2; supported bucket-level onset estimates with clock uncertainty",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,
