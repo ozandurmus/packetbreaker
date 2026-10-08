@@ -160,3 +160,14 @@ unmapped tuples at those boundaries remain translation-unknown even with clock
 overrides. Equal-size repeated sequences use their monotone ordinal pairing;
 unequal sequences use nearest-time gaps within the window. dpkt remains a
 benchmark-only dependency; its measured complete path did not meet the 2x gate.
+
+## Phase 1.1 / item 7
+
+Every supported IP/L4 evidence reference retains its exact file/frame selector and
+adds a content selector using the observed local tuple, IPv4 ID or IPv6 flow label,
+raw TCP seq/ack/length/flags (or DNS/ICMP identifiers). Content selectors deliberately
+may match identical retransmissions or multiple capture copies after merging.
+Per-file flow filters use observed post-NAT tuples in both directions and the
+selected session's raw timestamp range, widened by one microsecond for stored
+floating-point timestamp rounding. Metadata is built once per flow/file/tuple,
+not once per packet. The UI offers all filters and all classified flow outcomes.

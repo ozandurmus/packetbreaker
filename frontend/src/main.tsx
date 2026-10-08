@@ -78,6 +78,37 @@ function Evidence({ refs, onClose }: { refs: Ref[]; onClose: () => void }) {
                     >
                       Copy
                     </button>
+                    {e.content_filter && (
+                      <details>
+                        <summary>Packet content filter</summary>
+                        <code>{e.content_filter}</code>
+                        <button
+                          className="icon"
+                          title="Copy content filter"
+                          onClick={() =>
+                            navigator.clipboard.writeText(e.content_filter!)
+                          }
+                        >
+                          Copy
+                        </button>
+                        <p className="hint">{e.filter_note}</p>
+                      </details>
+                    )}
+                    {e.flow_filter && (
+                      <details>
+                        <summary>Flow filter for this file</summary>
+                        <code>{e.flow_filter}</code>
+                        <button
+                          className="icon"
+                          title="Copy flow filter"
+                          onClick={() =>
+                            navigator.clipboard.writeText(e.flow_filter!)
+                          }
+                        >
+                          Copy
+                        </button>
+                      </details>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1027,7 +1058,7 @@ function App() {
                           </Tip>
                         </th>
                         <th>
-                          <Tip text="Impactful / recovered / capture miss events. A capture miss is not network loss.">
+                          <Tip text="Impactful / recovered / unrecovered / capture miss / blocked handshake / unknown events. A capture miss is not network loss.">
                             Loss classes
                           </Tip>
                         </th>
@@ -1069,7 +1100,8 @@ function App() {
                           <td>{f.retrans_observations}</td>
                           <td>
                             {f.impactful_loss} / {f.recovered_loss} /{" "}
-                            {f.capture_miss}
+                            {f.unrecovered_loss} / {f.capture_miss} /{" "}
+                            {f.handshake_blocked} / {f.unknown_events}
                           </td>
                           <td>{num(f.max_stall_ms, " ms")}</td>
                         </tr>
@@ -1173,6 +1205,30 @@ function App() {
                         </tbody>
                       </table>
                     </div>
+                  )}
+                  {ladder.flow_filters && (
+                    <details>
+                      <summary>Wireshark flow filters — one per file</summary>
+                      {ladder.flow_filters.map((f) => (
+                        <div className="mapping" key={f.capture_id}>
+                          <strong>{f.file}</strong>
+                          <code>{f.display_filter}</code>
+                          <button
+                            className="icon"
+                            onClick={() =>
+                              navigator.clipboard.writeText(f.display_filter)
+                            }
+                          >
+                            Copy flow filter
+                          </button>
+                        </div>
+                      ))}
+                      <p className="hint">
+                        These use the tuple observed at each file, including
+                        NAT, and the selected session's observed time range.
+                        Merging or re-saving may change frame numbers.
+                      </p>
+                    </details>
                   )}
                   <LadderChart
                     data={ladder}

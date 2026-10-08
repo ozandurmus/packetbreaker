@@ -63,3 +63,8 @@ See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and u
 - Retain tshark-only production ingest. dpkt's raw first pass was 1.66x faster;
   including mandatory tshark TCP analysis enrichment gave only 1.07x. All 40 fields
   matched, but the required 2x speed gate was not met.
+- Portable content filters do not depend on frame numbers or relative TCP
+  sequence numbering. They are not advertised as unique for byte-identical retries.
+- Flow filters include a timestamp window to keep reused-port sessions separate;
+  merged/re-saved files with preserved timestamps retain that scope. Retimed files
+  can still use the timestamp-independent content filter.

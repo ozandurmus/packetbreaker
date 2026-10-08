@@ -4,6 +4,9 @@ export type Ref = {
   capture_id: string;
   frame: number;
   display_filter: string;
+  content_filter?: string | null;
+  flow_filter?: string | null;
+  filter_note?: string;
   observed_time: number;
   corrected_time: number | null;
 };
@@ -173,6 +176,9 @@ export type Flow = {
   points: number;
   impactful_loss: number;
   recovered_loss: number;
+  unrecovered_loss: number;
+  handshake_blocked: number;
+  unknown_events: number;
   capture_miss: number;
   retrans_observations: number;
   max_stall_ms: number | null;
@@ -181,6 +187,7 @@ export type Flow = {
   handshake_incomplete: boolean;
 };
 export type Ladder = {
+  flow_filters?: { capture_id: string; file: string; display_filter: string }[];
   local_metrics?: {
     point: string;
     tuple: string;

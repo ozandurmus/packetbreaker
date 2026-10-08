@@ -6,6 +6,7 @@ from .clock import ClockModel, fit_clock
 from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions
 from .ingest import tuple_id
 from .headlines import add_headlines
+from .evidence import evidence, prepare_flow_filters
 from .store import rows
 from .topology import Topology
 
@@ -13,17 +14,6 @@ from .topology import Topology
 def reverse_tuple(key):
     proto, src, sport, dst, dport = json.loads(key)
     return tuple_id(proto, dst, dport, src, sport)
-
-
-def evidence(db, predicate, params, limit=128):
-    return rows(
-        db,
-        f"""SELECT o.point, c.name AS file, o.capture_id, o.frame,
-        'frame.number == ' || o.frame AS display_filter, o.ts AS observed_time, o.corrected AS corrected_time
-        FROM obs o JOIN captures c ON c.id=o.capture_id WHERE {predicate}
-        ORDER BY o.corrected NULLS LAST,o.point,o.frame LIMIT {int(limit)}""",
-        params,
-    )
 
 
 def prepare(db, topology):
@@ -94,7 +84,7 @@ def prepare(db, topology):
         found = rows(
             db,
             """SELECT a.tuple_key AS tuple_a,b.tuple_key AS tuple_b,count(*) AS samples,
-            min(b.ts-a.ts) AS min_delta,max(b.ts-a.ts) AS max_delta,min(a.frame) AS frame_a,min(b.frame) AS frame_b
+            min(b.ts-a.ts) AS min_delta,max(b.ts-a.ts) AS max_delta,min(a.frame) AS frame_a,arg_min(b.frame,a.frame) AS frame_b
             FROM nat_candidates a JOIN nat_candidates b ON a.nat_key=b.nat_key
             AND left(a.prefix,least(length(a.prefix),length(b.prefix)))=left(b.prefix,least(length(a.prefix),length(b.prefix)))
             WHERE a.point=? AND b.point=? AND a.tuple_key<>b.tuple_key
@@ -271,6 +261,13 @@ def analyze(project, topology: Topology | dict, progress=None):
         models = align(db, topology)
         match_occurrences(db, topology)
         link_tcp_sessions(db, topology)
+        prepare_flow_filters(db)
+        for suggestion in suggestions:
+            suggestion["evidence"] = evidence(
+                db,
+                "(o.point=? AND o.frame=?) OR (o.point=? AND o.frame=?)",
+                [suggestion["point_a"], suggestion["frame_a"], suggestion["point_b"], suggestion["frame_b"]],
+            )
         points = {p.id: p for p in topology.points}
         coverage = rows(
             db,
@@ -592,11 +589,17 @@ def analyze(project, topology: Topology | dict, progress=None):
                 (SELECT flow,packet_key,max(length) AS length FROM obs GROUP BY flow,packet_key) GROUP BY flow),
             losses AS (SELECT flow,count(*) FILTER(WHERE kind='impactful_loss') AS impactful_loss,
                 count(*) FILTER(WHERE kind='recovered_loss') AS recovered_loss,
-                count(*) FILTER(WHERE kind='capture_miss') AS capture_miss,max(greatest(impact_ms,recovery_ms)) AS max_stall_ms
+                count(*) FILTER(WHERE kind='capture_miss') AS capture_miss,
+                count(*) FILTER(WHERE kind='unrecovered_loss') AS unrecovered_loss,
+                count(*) FILTER(WHERE kind='handshake_blocked') AS handshake_blocked,
+                count(*) FILTER(WHERE kind='unknown') AS unknown_events,
+                max(greatest(impact_ms,recovery_ms)) AS max_stall_ms
                 FROM events GROUP BY flow)
             SELECT base.*,bytes.bytes,coalesce(impactful_loss,0) AS impactful_loss,
                 coalesce(recovered_loss,0) AS recovered_loss,coalesce(capture_miss,0) AS capture_miss,max_stall_ms,
-                syns>0 AND synacks=0 AS handshake_incomplete
+                coalesce(unrecovered_loss,0) AS unrecovered_loss,coalesce(handshake_blocked,0) AS handshake_blocked,
+                coalesce(unknown_events,0) AS unknown_events,
+                (syns>0 AND synacks=0) OR coalesce(handshake_blocked,0)>0 AS handshake_incomplete
             FROM base JOIN bytes USING(flow) LEFT JOIN losses USING(flow)""")
         quality = rows(
             db,
@@ -740,7 +743,13 @@ def ladder(project, flow, offset=0, limit=150):
             metric["handshake"] = handshake[0] if handshake else None
 
         total = db.execute("SELECT count(DISTINCT packet_key) FROM obs WHERE flow=?", [flow]).fetchone()[0]
-        return dict(items=keys, total=total, events=events, local_metrics=local_metrics)
+        filters = rows(
+            db,
+            """SELECT f.capture_id,c.name AS file,f.display_filter FROM flow_filters f
+            JOIN captures c ON c.id=f.capture_id WHERE f.flow=? ORDER BY c.name""",
+            [flow],
+        )
+        return dict(items=keys, total=total, events=events, local_metrics=local_metrics, flow_filters=filters)
 
 
 def event_page(project, a, b, direction, offset=0, limit=50):

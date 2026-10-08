@@ -150,3 +150,10 @@ simultaneous process footprints. Ingest parent RSS was 667,746,304 B and tshark
 child RSS 1,605,877,760 B. The SQL memory budget is not a process-RSS cap.
 
 Exact machine-readable results: [phase11-benchmark.json](phase11-benchmark.json).
+
+Item 7: five tests passed using the real tshark/mergecap tools. IPv4 zero-ID and
+IPv6 filters locate the same packet timestamps after merge to pcapng despite
+renumbered frames. Per-file flow filters select all 80 frames of the NAT fixture
+and use the translated tuple at egress. DNS and ICMP identifier filters are run
+against their source files. Flow rows expose blocked/unrecovered/unknown outcomes,
+not only the original three counters.
