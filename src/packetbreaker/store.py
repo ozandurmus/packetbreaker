@@ -40,6 +40,7 @@ PACKET_COLUMNS = {
     "zero_window": "BOOLEAN",
     "rtt": "DOUBLE",
     "unsupported": "VARCHAR",
+    "frame_hash": "VARCHAR",
 }
 
 
@@ -59,9 +60,15 @@ class Project:
                 "UPDATE captures SET state='cancelled', error='Interrupted; resume available' WHERE state='ingesting'"
             )
             version = self.get(db, "schema_version")
-            if version not in (None, 1):
+            if version not in (None, 1, 2):
                 raise ValueError("Unsupported project schema version")
-            self.set(db, "schema_version", 1)
+            if version == 1:
+                db.execute("ALTER TABLE packets ADD COLUMN IF NOT EXISTS frame_hash VARCHAR")
+                db.execute(
+                    "UPDATE captures SET state='stale',error='Phase 1.1 index upgrade: reattach to rebuild frame hashes'"
+                )
+                self.set(db, "report", None)
+            self.set(db, "schema_version", 2)
 
     @contextmanager
     def connect(self, allow_external=False):

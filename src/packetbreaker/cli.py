@@ -37,6 +37,8 @@ def main():
         ],
     )
     demo.add_argument("--rounds", type=int, default=100)
+    demo.add_argument("--ip-id", choices=["increment", "zero", "constant", "random"], default="increment")
+    demo.add_argument("--ipv6", action="store_true")
     demo.add_argument(
         "--confirm-demo-nat",
         action="store_true",
@@ -47,7 +49,9 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == "demo":
-            truth, topology = generate(args.directory, scenario=args.scenario, rounds=args.rounds)
+            truth, topology = generate(
+                args.directory, scenario=args.scenario, rounds=args.rounds, ip_id=args.ip_id, ipv6=args.ipv6
+            )
             project = Project(args.directory / "project")
             for point, path in zip(topology["points"], truth["files"]):
                 point["capture_id"] = ingest(project, path)

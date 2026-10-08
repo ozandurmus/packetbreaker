@@ -1,6 +1,7 @@
 """Small deterministic PCAP writer for test fixtures, never a production dissector."""
 
 import json
+import random
 from pathlib import Path
 import socket
 import struct
@@ -16,13 +17,26 @@ def checksum(data):
 
 
 def tcp_packet(src, dst, sport, dport, seq, ack, flags, payload, ipid, ttl=64):
-    a, b = socket.inet_aton(src), socket.inet_aton(dst)
+    ipv6 = ":" in src
+    a, b = (
+        (socket.inet_pton(socket.AF_INET6, src), socket.inet_pton(socket.AF_INET6, dst))
+        if ipv6
+        else (socket.inet_aton(src), socket.inet_aton(dst))
+    )
     tcp = struct.pack("!HHIIBBHHH", sport, dport, seq, ack, 5 << 4, flags, 65535, 0, 0) + payload
-    pseudo = a + b + struct.pack("!BBH", 0, 6, len(tcp))
+    pseudo = a + b + (struct.pack("!I3xB", len(tcp), 6) if ipv6 else struct.pack("!BBH", 0, 6, len(tcp)))
     tcp = tcp[:16] + struct.pack("!H", checksum(pseudo + tcp)) + tcp[18:]
-    ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + len(tcp), ipid % 65536, 0x4000, ttl, 6, 0, a, b)
-    ip = ip[:10] + struct.pack("!H", checksum(ip)) + ip[12:]
-    return b"\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\x08\x00" + ip + tcp
+    if ipv6:
+        ip = struct.pack("!IHBB16s16s", 0x60012345, len(tcp), 6, ttl, a, b)
+    else:
+        ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + len(tcp), ipid % 65536, 0x4000, ttl, 6, 0, a, b)
+        ip = ip[:10] + struct.pack("!H", checksum(ip)) + ip[12:]
+    return (
+        b"\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb"
+        + (b"\x86\xdd" if ipv6 else b"\x08\x00")
+        + ip
+        + tcp
+    )
 
 
 def write_pcap(path, packets, snaplen=65535):
@@ -50,6 +64,8 @@ def generate(
     nat_hop=2,
     delay_ms=30,
     capture_miss_hop=1,
+    ip_id="increment",
+    ipv6=False,
 ):
     if hops < 3 or hops > 32:
         raise ValueError("Synthetic scenarios require 3–32 capture points")
@@ -77,6 +93,9 @@ def generate(
     drifts = drifts or [0, 20, -12, 8, -4] + [0] * max(0, hops - 5)
     if len(offsets) < hops or len(drifts) < hops:
         raise ValueError("Provide one clock offset/drift per point")
+    if ip_id not in ("increment", "zero", "constant", "random"):
+        raise ValueError("Unknown ip_id mode")
+    rng = random.Random(20261008)
     base = 1700000000.0
     captures = [[] for _ in range(hops)]
     events = []
@@ -85,7 +104,11 @@ def generate(
 
     def emit(t, forward, seq, ack, flags=16, payload=b"", missing=(), repeat_id=None):
         nonlocal ipid
-        identity = repeat_id or ipid
+        identity = (
+            repeat_id
+            if repeat_id is not None
+            else {"increment": ipid, "zero": 0, "constant": 42, "random": rng.randrange(65536)}[ip_id]
+        )
         ipid += 1
         for h in range(hops):
             if h in missing:
@@ -95,6 +118,13 @@ def generate(
             src, dst, sp, dp = (
                 (client, "203.0.113.20", sport, 443) if forward else ("203.0.113.20", client, 443, sport)
             )
+            if ipv6:
+                mapping = {
+                    "10.0.0.10": "fd00::10",
+                    "198.51.100.10": "2001:db8:1::10",
+                    "203.0.113.20": "2001:db8::20",
+                }
+                src, dst = mapping[src], mapping[dst]
             elapsed = t + (h if forward else hops - 1 - h) * 0.001
             if (
                 scenario == "delay"
@@ -133,6 +163,8 @@ def generate(
                 )
             )
         if scenario in ("demo", "capture_miss") and i % 13 == 5:
+            if recovery is not None:
+                events.pop()
             missing = [capture_miss_hop]
             recovery = None
             events.append(
@@ -196,10 +228,12 @@ def generate(
         points=points,
         forward=[p["id"] for p in points],
         reverse=[],
-        client_cidrs=["10.0.0.0/8", "198.51.100.10/32"],
+        client_cidrs=["fc00::/7", "2001:db8:1::10/128"] if ipv6 else ["10.0.0.0/8", "198.51.100.10/32"],
     )
     truth = dict(
         scenario=scenario,
+        ip_id=ip_id,
+        ipv6=ipv6,
         reference_epoch=base,
         offsets=offsets[:hops],
         drifts_ppm=drifts[:hops],

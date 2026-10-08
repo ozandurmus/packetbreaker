@@ -30,3 +30,13 @@
 
 ## Delivery validation
 See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and unverified platforms. Phase 2 remains unstarted.
+
+## Phase 1.1 decisions
+
+- Repeated signatures are packet occurrences, not intrinsically unmatchable data.
+  Match corrected-time occurrences monotonically; do not equate bare ordinal k
+  when an earlier original is absent downstream. A nearest-time gap belongs to
+  the missing original, not to the delivered retransmission.
+- Full captured-frame hashes and a small time threshold isolate potential SPAN
+  copies without suppressing later byte-identical retransmissions.
+- No Phase 2 functionality is introduced.

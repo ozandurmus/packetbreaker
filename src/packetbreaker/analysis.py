@@ -3,6 +3,7 @@ import json
 from datetime import datetime, timezone
 
 from .clock import ClockModel, fit_clock
+from .matching import prepare_occurrences, match_occurrences
 from .ingest import tuple_id
 from .store import rows
 from .topology import Topology
@@ -153,15 +154,7 @@ def prepare(db, topology):
         SELECT packet_key,min(coalesce(length(prefix),0)) AS n FROM obs GROUP BY packet_key""")
     db.execute("""UPDATE obs SET packet_key=md5(obs.packet_key || left(coalesce(prefix,''),p.n))
         FROM prefix_lengths p WHERE obs.packet_key=p.packet_key""")
-    db.execute("""CREATE OR REPLACE TEMP TABLE key_status AS
-        WITH lengths AS (SELECT packet_key,min(coalesce(length(prefix),0)) AS n FROM obs GROUP BY packet_key),
-        counts AS (SELECT packet_key,max(n) AS duplicates FROM
-            (SELECT packet_key,point,count(*) n FROM obs GROUP BY packet_key,point) GROUP BY packet_key)
-        SELECT o.packet_key, duplicates=1 AND count(DISTINCT left(coalesce(prefix,''),l.n))=1
-            AND bool_and(coalesce(unsupported,'')='') AS valid
-        FROM obs o JOIN lengths l USING(packet_key) JOIN counts USING(packet_key)
-        GROUP BY o.packet_key,duplicates""")
-    db.execute("UPDATE obs SET eligible=s.valid FROM key_status s WHERE obs.packet_key=s.packet_key")
+    prepare_occurrences(db, topology.duplicate_us)
     return suggestions
 
 
@@ -194,7 +187,7 @@ def align(db, topology):
                     continue
                 data = db.execute(
                     """SELECT a.ts,b.ts,a.direction='forward',a.frame,b.frame
-                    FROM obs a JOIN obs b USING(packet_key) WHERE a.point=? AND b.point=?
+                    FROM calibration a JOIN calibration b USING(packet_key) WHERE a.point=? AND b.point=?
                     AND a.eligible AND b.eligible AND a.direction<>'unknown'
                     ORDER BY hash(a.packet_key) LIMIT 20000""",
                     [a, b],
@@ -248,12 +241,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         suggestions = prepare(db, topology)
         progress(state="aligning clocks")
         models = align(db, topology)
-        db.execute(
-            """UPDATE obs SET eligible=false WHERE packet_key IN (
-            SELECT packet_key FROM obs GROUP BY packet_key
-            HAVING max(corrected)-min(corrected)>?)""",
-            [topology.match_window_ms / 1000],
-        )
+        match_occurrences(db, topology)
         points = {p.id: p for p in topology.points}
         coverage = rows(
             db,
@@ -541,7 +529,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             limitations=[
                 "Observed coverage does not prove uninterrupted capture.",
                 "Latency is estimated under minimum-path symmetry; offsets include possible path asymmetry.",
-                "Repeated/ambiguous fingerprints, fragments and unsupported transports are excluded.",
+                "SPAN duplicates, unresolved occurrence timing collisions, fragments and unsupported transports are excluded.",
                 "Conversation rows aggregate a canonical 5-tuple; reused TCP sessions may share a row.",
                 "Unrecovered disappearance cannot confirm a device drop without positive device evidence.",
             ],

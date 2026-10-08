@@ -45,8 +45,13 @@ raw seq/ack/flags/segment length or ICMP identity/type, and canonical directiona
 5-tuple. TTL, checksums, MAC/VLAN, DSCP and changed NAT endpoints are excluded.
 Payload prefixes are compared over the common captured length, never by a full
 frame hash. A SQL minimum-prefix pass disambiguates otherwise identical structural
-keys (for example UDP with zero IPv4 ID), preserving different snaplen support. A signature occurring more than once at any point is ambiguous and
-is excluded from loss/latency attribution (SPAN duplicates/repeated datagrams).
+keys (for example UDP with zero IPv4 ID), preserving different snaplen support. Repeated signatures retain separate corrected-time occurrences. A most-observed
+point supplies ordered anchors; predecessor/successor ASOF joins choose the nearest
+monotone, one-to-one occurrence within the match window, after subtracting a
+normal relative-transit estimate for matching only. Lost originals leave a gap,
+not a shifted occurrence index. Genuine timing collisions stay explicitly unknown.
+SPAN duplicates are a separate rule: equal tshark full-frame MD5 at the same
+point, full snaplen and a nonnegative gap <=20 microseconds (configurable).
 Fragments, super-frames and unknown/insufficient transport identities are also
 excluded with visible quality limitations; Phase 2/3 owns their richer handling.
 
@@ -87,3 +92,12 @@ observed event time (not a Phase 2 change-point onset) and bounded/paginated evi
 
 ACK and retry evidence must belong to the original local TCP stream. Recovery and
 ACK searches are bounded to 60 seconds; longer waits remain unknown.
+
+## Phase 1.1 / item 1
+
+Clock calibration uses independently unique signatures (after SPAN deduplication);
+this restriction never discards retransmissions from loss classification. IPv4
+ID modes increment/zero/constant/random and constant-flow-label IPv6 are synthetic
+fixture dimensions. DuckDB project schema 2 adds frame hashes. Opening a schema-1
+project preserves captures/topology but marks indexes stale and clears the old
+report; reattach once to rebuild with tshark's frame hash.

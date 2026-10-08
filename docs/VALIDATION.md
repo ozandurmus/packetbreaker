@@ -77,3 +77,16 @@ Work started at 15:39:58 Europe/Istanbul. Final test/usage checkpoint was at
 16:42:21 (approximately 62 minutes). Account-wide weekly usage read 9% at
 the start and 15% at the final checkpoint. This is a 6 percentage-point account-wide
 change, not exact per-task token usage or cost; other account activity may contribute.
+
+## Phase 1.1 baseline reproduction
+
+Baseline commit: `9ec5879` (`Phase 1 baseline`). The real tshark ingest of the
+`recovered_loss` fixture with every IPv4 ID forced to zero produced 10 ground-truth
+losses but zero findings and 0.0% on all eight directional segments. Excluded
+packet counts were 20/20/20/10/10 by capture point. The baseline incorrectly said
+"No supported network loss in the selected window". Before/after acceptance now
+uses every existing scenario across four IPv4 ID modes and IPv6.
+
+Item 1 after: the same zero-ID input now yields **10 recovered losses**, all at
+`forward:p2:p3`, and **0 exclusions** at every point. The 80-case scenario × ID mode
+× IP-version matrix passed in 151.93 seconds. No Phase 2 implementation was used.
