@@ -6,6 +6,10 @@ from .evidence import evidence
 from .headlines import time_labels
 from .store import rows
 
+WINDOW_SECONDS = 15
+MIN_EVENTS = 3
+MIN_EVENT_BUCKETS = 2
+
 
 def detect_series(values, metric, floor, baseline_count=5, multiplier=6):
     """Only an early consecutive healthy prefix may seed the rolling baseline."""
@@ -44,6 +48,7 @@ def detect_series(values, metric, floor, baseline_count=5, multiplier=6):
         return None, "unknown: early baseline is not stable enough"
     history = prefix[:]
     candidate = None
+    recent = prefix[:]
     previous = prefix[-1]["bucket"]
     gap = False
     for x in complete[baseline_count:]:
@@ -51,6 +56,7 @@ def detect_series(values, metric, floor, baseline_count=5, multiplier=6):
             candidate = None
             # Do not bridge a coverage/quality gap with a stale baseline.
             history = []
+            recent = []
             gap = True
         previous = x["bucket"]
         if not usable(x):
@@ -61,10 +67,46 @@ def detect_series(values, metric, floor, baseline_count=5, multiplier=6):
             else:
                 history = []
             continue
+        recent.append(x)
+        recent = [v for v in recent if v["end"] > x["end"] - WINDOW_SECONDS]
         samples = [v[metric] for v in history[-baseline_count:]]
         baseline = median(samples)
         spread = median(abs(v - baseline) for v in samples)
         threshold = baseline + max(floor, multiplier * 1.4826 * spread)
+        if metric == "loss_percent":
+            count = sum(v["loss_count"] for v in recent)
+            denominator = sum(v["eligible_packets"] for v in recent)
+            value = 100 * count / denominator if denominator else 0
+            changed = [v for v in recent if v["loss_count"] > baseline * v["eligible_packets"] / 100]
+            if value > threshold and count >= MIN_EVENTS and len(changed) >= MIN_EVENT_BUCKETS:
+                first = changed[0]
+                return dict(
+                    metric=metric,
+                    baseline_value=baseline,
+                    mad=spread,
+                    threshold=threshold,
+                    multiplier=multiplier,
+                    minimum_delta=floor,
+                    baseline_buckets=[v["bucket"] for v in history[-baseline_count:]],
+                    bucket=first["bucket"],
+                    first_event_bucket=first["bucket"],
+                    first_crossing_bucket=x["bucket"],
+                    confirmed_bucket=x["bucket"],
+                    time=first["start"],
+                    end=first["end"],
+                    value=value,
+                    first_bucket_value=first[metric],
+                    window_start=recent[0]["start"],
+                    window_end=x["end"],
+                    window_seconds=WINDOW_SECONDS,
+                    window_events=count,
+                    window_denominator=denominator,
+                    event_buckets=len(changed),
+                    min_events=MIN_EVENTS,
+                ), None
+            if healthy(x):
+                history = (history + [x])[-baseline_count:]
+            continue
         if x[metric] > threshold:
             if candidate and x["bucket"] == candidate["bucket"] + 1 and x[metric] > candidate["threshold"]:
                 candidate["confirmed_bucket"] = x["bucket"]
@@ -103,7 +145,7 @@ def add_onsets(db, topology, segments):
         unknown = []
         found = []
         for metric, floor in (
-            ("loss_percent", 1.0),
+            ("loss_percent", 0.0),
             ("latency_p95_ms", max(1.0, 2 * (s["offset_uncertainty_ms"] or 0))),
         ):
             item, reason = detect_series(values, metric, floor)
@@ -140,6 +182,14 @@ def add_onsets(db, topology, segments):
                 f"(median + max({floor:.3f}, 6 × 1.4826 × MAD)); first crossing bucket {item['bucket']} "
                 f"has {item['value']:.3f}, confirmed in bucket {item['confirmed_bucket']}."
             )
+            if "window_events" in item:
+                item["explanation"] = (
+                    f"{metric}: baseline {item['baseline_value']:.3f}%; threshold {item['threshold']:.3f}% "
+                    f"(median + max({floor:.3f}, 6 × 1.4826 × MAD)). Rolling {WINDOW_SECONDS} s window: "
+                    f"{item['window_events']} events / {item['window_denominator']} eligible packets "
+                    f"= {item['value']:.3f}%; minimum {MIN_EVENTS} events in {MIN_EVENT_BUCKETS} buckets. "
+                    f"First loss bucket {item['bucket']}; first crossing bucket {item['first_crossing_bucket']}."
+                )
             found.append(item)
             detections.append(item)
         s["onsets"] = found
@@ -201,4 +251,6 @@ def add_onsets(db, topology, segments):
         summary=summary,
         baseline_buckets=5,
         confirmation_buckets=2,
+        count_window_seconds=WINDOW_SECONDS,
+        minimum_events=MIN_EVENTS,
     )

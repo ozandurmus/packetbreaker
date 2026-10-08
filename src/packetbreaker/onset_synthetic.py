@@ -8,7 +8,17 @@ from .synthetic import tcp_packet, write_pcap
 
 
 def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=1, onset=12.0):
-    if scenario not in ("onset_loss", "onset_delay", "onset_propagation", "onset_capture_miss"):
+    if scenario not in (
+        "onset_loss",
+        "onset_delay",
+        "onset_propagation",
+        "onset_capture_miss",
+        "onset_intermittent_2",
+        "onset_intermittent_3",
+        "onset_intermittent_4",
+        "onset_intermittent_5",
+        "onset_random_loss",
+    ):
         raise ValueError("Unknown onset scenario")
     if ip_id not in ("increment", "zero", "constant", "random") or not 0 <= loss_hop < 3:
         raise ValueError("Invalid synthetic identity mode or onset hop")
@@ -56,12 +66,21 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
     emit(0.02, False, 9000, 1001, 18)
     emit(0.04, True, 1001, 9001)
     seq, ack = 1001, 9001
-    for i in range(400):
+    loss_rng = random.Random(9)
+    interval = int(scenario.rsplit("_", 1)[1]) if scenario.startswith("onset_intermittent_") else None
+    for i in range(600 if interval or scenario == "onset_random_loss" else 400):
         t = 0.1 + i * 0.1
         missing = []
         retry = None
-        if t >= onset and i % 3 == 0:
-            if scenario in ("onset_loss", "onset_propagation"):
+        lose = (
+            i % (interval * 10) == 0
+            if interval
+            else loss_rng.random() < 0.02
+            if scenario == "onset_random_loss"
+            else i % 3 == 0
+        )
+        if t >= onset and lose:
+            if scenario in ("onset_loss", "onset_propagation", "onset_random_loss") or interval:
                 missing = list(range(loss_hop + 1, 5))
                 retry = 0.04
                 events.append(
@@ -87,8 +106,9 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
         seq += 100
         ack += 60
         emit(t + (retry or 0) + 0.03, True, seq, ack)
-    emit(40.5, True, seq, ack, 17)
-    emit(40.52, False, ack, seq + 1, 17)
+    duration = 60 if interval or scenario == "onset_random_loss" else 40
+    emit(duration + 0.5, True, seq, ack, 17)
+    emit(duration + 0.52, False, ack, seq + 1, 17)
     files = []
     points = []
     for h, packets in enumerate(captures):
@@ -104,7 +124,7 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
             dict(
                 direction="forward",
                 segment=f"forward:p{loss_hop}:p{loss_hop + 1}",
-                time=base + onset,
+                time=events[0]["time"] if events else base + onset,
                 metric="latency_p95_ms" if scenario == "onset_delay" else "loss_percent",
             )
         )
@@ -131,6 +151,8 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
         events=events,
         onsets=expected,
         reference_epoch=base,
+        loss_probability=0.02 if scenario == "onset_random_loss" else None,
+        loss_seed=9 if scenario == "onset_random_loss" else None,
     )
     (root / "ground-truth.json").write_text(json.dumps(truth, indent=2))
     (root / "topology.json").write_text(json.dumps(topology, indent=2))

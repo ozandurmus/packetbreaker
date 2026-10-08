@@ -26,6 +26,11 @@ def main():
         "--scenario",
         default="demo",
         choices=[
+            "onset_intermittent_2",
+            "onset_intermittent_3",
+            "onset_intermittent_4",
+            "onset_intermittent_5",
+            "onset_random_loss",
             "onset_loss",
             "onset_delay",
             "onset_propagation",

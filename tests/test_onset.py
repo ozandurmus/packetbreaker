@@ -49,6 +49,7 @@ def series(values):
             capture_misses=0,
             unknown_events=0,
             loss_percent=v,
+            loss_count=round(v * 20 / 100),
         )
         for i, v in enumerate(values)
     ]
@@ -85,3 +86,54 @@ def test_adjustable_bucket_onset_and_propagation(scenarios, width):
         )
         assert abs(actual["time"] - expected["time"]) <= width
     assert report["onsets"]["directions"]["forward"]["prime_suspects"] == ["forward:p1:p2"]
+
+
+@pytest.mark.parametrize("interval", [2, 3, 4, 5])
+def test_rolling_loss_keeps_first_intermitttent_bucket(interval):
+    values = series([0] * 45)
+    for row in values[8::interval]:
+        row.update(loss_count=1, loss_percent=5)
+    onset, _ = detect_series(values, "loss_percent", 0)
+    assert onset["bucket"] == 8
+    assert onset["confirmed_bucket"] == 8 + interval * 2
+    assert onset["window_events"] == 3
+
+
+@pytest.mark.parametrize("scenario", ["demo", "recovered_loss", "impactful_loss"])
+def test_readme_and_existing_loss_onsets(scenarios, scenario):
+    from packetbreaker.analysis import analyze
+
+    project, truth, topology, report = scenarios(scenario)
+    if scenario == "demo":
+        topology = {
+            **topology,
+            "nat_mappings": [
+                {k: s[k] for k in ("point_a", "point_b", "tuple_a", "tuple_b")}
+                for s in report["nat_suggestions"]
+            ],
+        }
+        report = analyze(project, topology)
+    first = min(e["time"] for e in truth["events"] if e["type"] in ("recovered_loss", "impactful_loss"))
+    onset = next(
+        o
+        for o in report["onsets"]["items"]
+        if o["segment"] == "forward:p2:p3" and o["metric"] == "loss_percent"
+    )
+    assert abs(onset["time"] - first) <= 1
+    assert onset["evidence"] and onset["window_events"] >= 3
+
+
+@pytest.mark.parametrize(
+    "scenario", [f"onset_intermittent_{n}" for n in (2, 3, 4, 5)] + ["onset_random_loss"]
+)
+@pytest.mark.parametrize("ipv6", [False, True])
+def test_sparse_capture_fixtures(scenarios, scenario, ipv6):
+    _, truth, _, report = scenarios(scenario, ipv6=ipv6, ip_id="zero", loss_hop=1)
+    expected = truth["onsets"][0]
+    onset = next(
+        o
+        for o in report["onsets"]["items"]
+        if o["segment"] == expected["segment"] and o["metric"] == "loss_percent"
+    )
+    assert abs(onset["time"] - expected["time"]) <= 1
+    assert onset["evidence"]
