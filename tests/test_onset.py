@@ -10,7 +10,7 @@ from packetbreaker.timeseries import timeseries_page
 def test_ground_truth_onsets(scenarios, scenario, ip_id, ipv6):
     project, truth, topology, report = scenarios(scenario, ip_id=ip_id, ipv6=ipv6, loss_hop=1)
     detected = report["onsets"]["items"]
-    forward = [x for x in detected if x["direction"] == "forward"]
+    forward = [x for x in detected if x["direction"] == "forward" and x["scope"] == "network_segment"]
     assert {(x["segment"], x["metric"]) for x in forward} == {
         (x["segment"], x["metric"]) for x in truth["onsets"]
     }
@@ -158,3 +158,51 @@ def test_unknown_segments_do_not_overrule_valid_results():
     assert status == "partial" and counts == {"none": 1, "unknown": 1}
     assert not summary.startswith("Onset unknown") and "1 segment(s) have unknown" in summary
     assert status_summary([{"onset_status": "unknown"}])[0] == "unknown"
+
+
+@pytest.mark.parametrize(
+    "metric,count_key,denominator",
+    [
+        ("retrans_percent", "retransmissions", "tcp_packets"),
+        ("failed_handshakes", "failed_handshake_count", None),
+        ("resets", "resets", None),
+        ("zero_windows", "zero_windows", None),
+    ],
+)
+def test_count_signals_require_multiple_excess_events(metric, count_key, denominator):
+    values = series([0] * 40)
+    for row in values:
+        row[count_key] = 0
+        if denominator:
+            row[denominator] = 100
+    values[8][count_key] = 1
+    assert detect_series(values, metric, 0)[0] is None
+    values[8][count_key] = 10  # A single bucket spike is not sustained.
+    assert detect_series(values, metric, 0)[0] is None
+    values[8][count_key] = 1
+    values[12][count_key] = 1
+    values[16][count_key] = 1
+    onset, _ = detect_series(values, metric, 0)
+    assert onset["bucket"] == 8 and onset["window_events"] == 3
+    assert onset["count_threshold"] == 3 and onset["event_buckets"] == 3
+
+
+def test_counter_reference_is_not_backdated_into_baseline():
+    values = series([0] * 20)
+    for row, count in zip(values, [1, 0, 1, 0, 1, 3, 3] + [0] * 13):
+        row["resets"] = count
+    onset, _ = detect_series(values, "resets", 0)
+    assert onset["bucket"] == 5 and onset["baseline_value"] == pytest.approx(0.6)
+
+
+def test_tcp_signal_counts_and_frame_evidence(scenarios):
+    _, truth, _, report = scenarios("onset_signals", ip_id="zero", ipv6=True, loss_hop=1)
+    expected = {"retrans_percent", "failed_handshakes", "resets", "zero_windows"}
+    for metric in expected:
+        onset = next(o for o in report["onsets"]["items"] if o["metric"] == metric)
+        assert abs(onset["time"] - (truth["reference_epoch"] + 12.1)) <= 1
+        assert onset["window_events"] >= 3 and onset["evidence"]
+        if metric != "failed_handshakes":
+            assert onset["scope"] == "capture_signal"
+            assert "not evidence that this hop" in onset["explanation"]
+    assert report["onsets"]["directions"]["forward"]["prime_suspects"] == ["forward:p1:p2"]

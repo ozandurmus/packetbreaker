@@ -18,6 +18,7 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
         "onset_intermittent_4",
         "onset_intermittent_5",
         "onset_random_loss",
+        "onset_signals",
     ):
         raise ValueError("Unknown onset scenario")
     if ip_id not in ("increment", "zero", "constant", "random") or not 0 <= loss_hop < 3:
@@ -32,7 +33,7 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
     client, server = ("fd00::10", "2001:db8::20") if ipv6 else ("10.0.0.10", "203.0.113.20")
     offsets = [0, 0.12, -0.08, 0.25, -0.04]
 
-    def emit(t, forward, seq, ack, flags=16, payload=b"", missing=()):
+    def emit(t, forward, seq, ack, flags=16, payload=b"", missing=(), port=50000, window=65535):
         nonlocal identifier
         identifier += 1
         identity = {"increment": identifier, "zero": 0, "constant": 42, "random": rng.randrange(65536)}[ip_id]
@@ -52,12 +53,22 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
                 and ((forward and h > loss_hop + 1) or (not forward and h <= loss_hop + 1))
             ):
                 delay += 0.025
-            a, b, sp, dp = (client, server, 50000, 443) if forward else (server, client, 443, 50000)
+            a, b, sp, dp = (client, server, port, 443) if forward else (server, client, 443, port)
             captures[h].append(
                 (
                     base + t + delay + offsets[h],
                     tcp_packet(
-                        a, b, sp, dp, seq, ack, flags, payload, identity, 64 - h if forward else 60 + h
+                        a,
+                        b,
+                        sp,
+                        dp,
+                        seq,
+                        ack,
+                        flags,
+                        payload,
+                        identity,
+                        64 - h if forward else 60 + h,
+                        window,
                     ),
                 )
             )
@@ -65,6 +76,12 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
     emit(0, True, 1000, 0, 2)
     emit(0.02, False, 9000, 1001, 18)
     emit(0.04, True, 1001, 9001)
+    if scenario == "onset_signals":
+        for n in range(3):
+            port = 61000 + n
+            emit(2 + n * 0.1, True, 7000, 0, 2, port=port)
+            emit(2.02 + n * 0.1, False, 8000, 7001, 18, port=port)
+            emit(2.04 + n * 0.1, True, 7001, 8001, 16, port=port)
     seq, ack = 1001, 9001
     loss_rng = random.Random(9)
     interval = int(scenario.rsplit("_", 1)[1]) if scenario.startswith("onset_intermittent_") else None
@@ -102,6 +119,20 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
         emit(t, True, seq, ack, 24, body, missing)
         if retry:
             emit(t + retry, True, seq, ack, 24, body)
+        if scenario == "onset_signals" and i in (120, 150, 180):
+            n = (i - 120) // 30
+            emit(t + 0.04, True, seq, ack, 24, body)
+            emit(t + 0.05, False, ack + 60, seq + 100, 16, window=0)
+            emit(t + 0.06, True, 7001, 8001, 4, port=61000 + n)
+            emit(t + 0.07, True, 123000 + n, 0, 2, port=62000 + n, missing=list(range(loss_hop + 1, 5)))
+            events.append(
+                dict(
+                    type="handshake_blocked",
+                    point_a=f"p{loss_hop}",
+                    point_b=f"p{loss_hop + 1}",
+                    time=base + t + 0.07,
+                )
+            )
         emit(t + (retry or 0) + 0.015, False, ack, seq + 100, 24, b"r" * 60)
         seq += 100
         ack += 60
