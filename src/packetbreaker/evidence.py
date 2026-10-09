@@ -82,7 +82,7 @@ def evidence(db, predicate, params, limit=128, _expand_ranges=True):
         db,
         f"""SELECT o.point,c.name AS file,o.capture_id,o.frame,
         'frame.number == ' || o.frame AS display_filter,o.ts AS observed_time,o.corrected AS corrected_time,
-        o.packet_key,o.flow,o.proto,o.src,o.dst,o.sport,o.dport,o.ipid,o.raw_seq AS seq,o.raw_ack AS ack,o.seq AS canonical_seq,o.ack AS canonical_ack,o.translation_reason,o.flags,o.length,
+        o.vendor,o.packet_key,o.flow,o.proto,o.src,o.dst,o.sport,o.dport,o.ipid,o.raw_seq AS seq,o.raw_ack AS ack,o.seq AS canonical_seq,o.ack AS canonical_ack,o.translation_reason,o.flags,o.length,
         o.dns_id,o.icmp_id,o.icmp_seq,o.icmp_type
         FROM obs o JOIN captures c ON c.id=o.capture_id WHERE {predicate}
         ORDER BY o.corrected NULLS LAST,o.point,o.frame LIMIT {int(limit)}""",
@@ -161,6 +161,8 @@ def evidence(db, predicate, params, limit=128, _expand_ranges=True):
                 ack_offset=(e["ack"] - e["canonical_ack"]) % 4294967296,
                 reason=e["translation_reason"],
             )
+        if e.get("vendor"):
+            item["vendor"] = json.loads(e["vendor"])
         item["content_filter"] = content_filter(e)
         item["flow_filter"] = filters.get((e["flow"], e["capture_id"])) or tuple_filter(
             e["proto"], e["src"], e["dst"], e["sport"], e["dport"], True

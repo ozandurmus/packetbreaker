@@ -10,6 +10,7 @@ from .headlines import add_headlines
 from .evidence import evidence, prepare_flow_filters
 from .store import rows
 from .topology import Topology
+from .vendors import point_selector, checkpoint_audit
 from .timeseries import build_timeseries
 from .onset import add_onsets
 from .translation import normalize_sequences, sequence_report
@@ -44,6 +45,9 @@ def prepare(db, topology):
         if point.capture_id not in ready:
             raise ValueError(f"{point.label}: capture is not ready")
         clause, params = "capture_id=?", [point.capture_id]
+        extra, values = point_selector(point)
+        clause += extra
+        params += values
         if point.interface is not None:
             inv = json.loads(
                 db.execute("SELECT inventory FROM captures WHERE id=?", [point.capture_id]).fetchone()[0]
@@ -728,6 +732,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         )
         report = dict(
             schema_version=2,
+            vendor_device_events=checkpoint_audit(db, topology),
             sequence_translations=sequence_report(db),
             offload_points=range_notes(db) if byte_active else [],
             timeseries=timeseries,

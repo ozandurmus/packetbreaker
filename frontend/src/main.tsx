@@ -69,6 +69,12 @@ function Evidence({ refs, onClose }: { refs: Ref[]; onClose: () => void }) {
                   </td>
                   <td>
                     {e.frame}
+                    {e.vendor && (
+                      <details>
+                        <summary>Vendor evidence</summary>
+                        <pre>{JSON.stringify(e.vendor, null, 2)}</pre>
+                      </details>
+                    )}
                     {e.sequence_translation && (
                       <small>
                         {e.sequence_translation.reason
@@ -196,6 +202,7 @@ function App() {
     offset: number;
   } | null>(null);
   const [parallelIngest, setParallelIngest] = useState(false);
+  const [checkpointUuid, setCheckpointUuid] = useState(false);
   const [tsharkPath, setTsharkPath] = useState(""),
     [prefix, setPrefix] = useState(64);
   useEffect(() => {
@@ -234,6 +241,7 @@ function App() {
     setTsharkPath(s.settings.tshark || "");
     setPrefix(s.settings.prefix_bytes || 64);
     setParallelIngest(s.settings.parallel ?? false);
+    setCheckpointUuid(s.settings.checkpoint_uuid ?? false);
   }
   const fail = (e: unknown) =>
     setError(e instanceof Error ? e.message : String(e));
@@ -1036,7 +1044,7 @@ function App() {
                     <input
                       type="file"
                       multiple
-                      accept=".pcap,.pcapng"
+                      accept=".pcap,.pcapng,.cap,.snoop"
                       hidden
                       disabled={busy}
                       onChange={(e) => action(() => upload(e.target.files))}
@@ -1676,6 +1684,14 @@ function App() {
                   Detected: {state.tshark.path || "unknown"}
                 </p>
                 <label>
+                  <input
+                    type="checkbox"
+                    checked={checkpointUuid}
+                    onChange={(e) => setCheckpointUuid(e.target.checked)}
+                  />
+                  fw monitor file includes UUID (-u); reattach after changing
+                </label>
+                <label>
                   tshark override (blank = auto-detect)
                   <input
                     value={tsharkPath}
@@ -1699,9 +1715,11 @@ function App() {
                   onClick={() =>
                     action(async () => {
                       await api("/settings", "POST", {
+                        ...state.settings,
                         tshark: tsharkPath || null,
                         prefix_bytes: prefix,
                         parallel: parallelIngest,
+                        checkpoint_uuid: checkpointUuid,
                       });
                       setNotice(
                         "Settings saved. Reattach files to apply a changed payload prefix.",

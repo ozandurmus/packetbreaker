@@ -62,6 +62,44 @@ def metadata(path, cancel=None):
                 result["damaged_tail"] = True
             return True
 
+        if magic == b"snoo":
+            if f.read(4) != b"p\0\0\0":
+                raise ValueError("Invalid snoop header")
+            header = f.read(8)
+            if len(header) != 8:
+                raise ValueError("Truncated snoop header")
+            version, network = struct.unpack(">II", header)
+            if version != 2:
+                raise ValueError("Unsupported snoop version")
+            result.update(
+                format="snoop",
+                adapter="checkpoint",
+                ifdrop=0,
+                interfaces=[
+                    dict(id=0, section=0, snaplen=None, link_type=network, name="snoop network type")
+                ],
+            )
+            while f.tell() < size:
+                if cancel and cancel.is_set():
+                    raise InterruptedError("Ingest cancelled")
+                start = f.tell()
+                if zero_tail(start, 24):
+                    break
+                record = f.read(24)
+                if len(record) < 24:
+                    result["damaged_tail"] = True
+                    break
+                original, included, length, drops, sec, usec = struct.unpack(">6I", record)
+                if length < 24 or length % 4 or included > length - 24 or included > original:
+                    result["damaged_tail"] = True
+                    break
+                if start + length > size:
+                    result["damaged_tail"] = True
+                    break
+                result["complete_records"] += 1
+                result["ifdrop"] = max(result["ifdrop"], drops)
+                f.seek(start + length)
+            return result
         if magic in formats:
             endian = formats[magic]
             rest = f.read(20)
@@ -90,7 +128,7 @@ def metadata(path, cancel=None):
                 result["complete_records"] += 1
             return result
         if magic != b"\x0a\x0d\x0d\x0a":
-            raise ValueError("Only pcap and pcapng containers are supported")
+            raise ValueError("Only pcap, pcapng and snoop containers are supported")
         result["format"] = "pcapng"
         f.seek(0)
         endian = "<"

@@ -370,3 +370,20 @@ Waterfall frame refs are resolved in one batch after constructing the stages,
 then reused across bars. The flow inspector does not issue a separate metadata
 lookup for each bar. The 0.1.6 analysis version refreshes reports while retaining
 compatible packet indexes.
+
+## Part 5 vendor metadata: Check Point
+
+Snoop RFC 1761 container framing is read for inventory only. tshark performs all
+protocol decoding with `eth.interpret_as_fw1_monitor:TRUE` and chain display on.
+The UUID file variant is an explicit ingest setting (`fw1.with_uuid`); it changes
+the header's interface-name width and is never guessed. The four exported fw1
+fields remain in per-frame vendor metadata and original evidence refs.
+
+Each stage maps to a distinct point of one node using one file; overlap is rejected.
+The inspection audit reuses matched occurrence identities. An unmatched i event
+is confirmed only with explicitly attested continuous stage coverage, mapped I/o
+points, no container/timestamp/drop-counter problems and enough trailing coverage.
+Later appearances, including O/accelerated points, contradict the disappearance.
+Unattested or incomplete capture evidence stays unknown. The separate audit feeds
+the final confirmed-device-drop integration. Ordinary tshark TCP flags can include
+repeated inspection appearances; they are not independent device-drop evidence.

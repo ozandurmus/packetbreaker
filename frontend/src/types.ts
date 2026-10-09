@@ -1,4 +1,5 @@
 export type Ref = {
+  vendor?: Record<string, string>;
   byte_ranges?: { start_seq: number; end_seq: number; bytes: number }[];
   range_note?: string;
   sequence_translation?: {
@@ -29,6 +30,9 @@ export type Point = {
   side: string;
   capture_id: string;
   interface: number | null;
+  vendor?: string;
+  vendor_stage?: string | null;
+  inspection_complete?: boolean;
   source_cidr: string | null;
   translation: string;
   x: number;
@@ -243,7 +247,12 @@ export type State = {
   captures: Capture[];
   topology: Topology;
   report: Report | null;
-  settings: { tshark?: string; prefix_bytes?: number; parallel?: boolean };
+  settings: {
+    checkpoint_uuid?: boolean;
+    tshark?: string;
+    prefix_bytes?: number;
+    parallel?: boolean;
+  };
   tshark: { path: string | null; error: string | null };
   job: Job;
 };

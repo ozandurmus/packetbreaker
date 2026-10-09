@@ -25,6 +25,7 @@ class Attach(BaseModel):
 
 
 class Settings(BaseModel):
+    checkpoint_uuid: bool = False
     parallel: bool = False
     tshark: str | None = None
     prefix_bytes: int = Field(default=64, ge=8, le=4096)
@@ -175,8 +176,8 @@ def create_app(project_path):
     async def upload(request: Request, name: str = Query(min_length=1, max_length=255), defer: bool = False):
         idle()
         name = name.replace("\\", "/").split("/")[-1]
-        if Path(name).suffix.lower() not in (".pcap", ".pcapng"):
-            raise ValueError("Choose a .pcap or .pcapng file")
+        if Path(name).suffix.lower() not in (".pcap", ".pcapng", ".cap", ".snoop"):
+            raise ValueError("Choose a pcap, pcapng or snoop capture")
         uploads = project.path / "captures"
         uploads.mkdir(exist_ok=True)
         destination = uploads / (uuid.uuid4().hex[:8] + "-" + name)

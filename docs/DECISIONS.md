@@ -219,3 +219,12 @@ bounded two-worker ingest path only for preparing independent small synthetic
 fixtures, overlapping tshark startup without removing tests. Keep the product's
 serial ingest default and its dedicated serial/parallel/cancel-resume tests.
 The last measured fast selection is 108.24 seconds; hosted-runner times vary.
+
+## Part 5 adapter boundary
+
+Keep tshark as the only protocol dissector. Adapters select options, retain decoded
+vendor fields and select capture points. Synthetic fixture construction belongs in
+tests; expected field values come from a separate tshark decode. Check Point's
+UUID flag is user supplied because treating a non-UUID header as UUID changes the
+interface-name interpretation. Continuous inspection coverage is explicit; missing
+stages alone cannot prove a device drop in a filtered or incomplete monitor capture.

@@ -16,6 +16,7 @@ import uuid
 from .metadata import metadata
 from .timestamps import timestamp_reason
 from .store import PACKET_COLUMNS
+from .vendors import VENDOR_FIELDS, decoded_vendor
 
 FIELDS = """frame.number frame.time_epoch frame.interface_id ip.src ipv6.src ip.dst ipv6.dst
 ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstport
@@ -25,8 +26,9 @@ ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstpor
  tcp.analysis.retransmission tcp.analysis.fast_retransmission tcp.analysis.spurious_retransmission
  tcp.analysis.out_of_order tcp.analysis.ack_lost_segment tcp.analysis.zero_window tcp.analysis.ack_rtt
  ip.flags.mf ip.frag_offset ipv6.fraghdr.offset ipv6.fraghdr.more frame.protocols frame.md5_hash dns.id dns.flags.response""".split()
+FIELDS += VENDOR_FIELDS
 CAPLEN_INDEX = list(PACKET_COLUMNS).index("caplen")
-PARSER_VERSION = 7
+PARSER_VERSION = 8
 csv.field_size_limit(16 * 1024 * 1024)
 
 
@@ -154,12 +156,21 @@ def parse_packet(values, capture_id, prefix_bytes):
         icmp_type=number(g("icmp.type"), None),
         dns_id=number(g("dns.id"), None),
         dns_response=bool(number(g("dns.flags.response"))),
+        vendor=decoded_vendor(d),
     )
     return [p[k] for k in PACKET_COLUMNS]
 
 
 def ingest(
-    project, path, tshark=None, prefix_bytes=64, cancel=None, progress=None, batch_size=50000, profile=None
+    project,
+    path,
+    tshark=None,
+    prefix_bytes=64,
+    cancel=None,
+    progress=None,
+    batch_size=50000,
+    profile=None,
+    checkpoint_uuid=False,
 ):
     cancel = cancel or threading.Event()
     progress = progress or (lambda **kw: None)
@@ -169,7 +180,9 @@ def ingest(
     if not 8 <= prefix_bytes <= 4096:
         raise ValueError("Payload prefix must be between 8 and 4096 bytes")
     stat = path.stat()
-    identity = json.dumps([str(path), stat.st_size, stat.st_mtime_ns, PARSER_VERSION, prefix_bytes])
+    identity = json.dumps(
+        [str(path), stat.st_size, stat.st_mtime_ns, PARSER_VERSION, prefix_bytes, checkpoint_uuid]
+    )
     with project.connect() as db:
         existing = db.execute(
             "SELECT id,identity,state,checkpoint FROM captures WHERE path=?", [str(path)]
@@ -219,6 +232,16 @@ def ingest(
         "-E",
         "occurrence=f",
     ]
+    if info["format"] == "snoop":
+        cmd += [
+            "-o",
+            "eth.interpret_as_fw1_monitor:TRUE",
+            "-o",
+            "fw1.iflist_with_chain:TRUE",
+            "-o",
+            f"fw1.with_uuid:{str(checkpoint_uuid).upper()}",
+        ]
+        info["checkpoint_uuid"] = checkpoint_uuid
     if info.get("frame_limit") is not None:
         cmd += ["-c", str(info["frame_limit"])]
     for field in FIELDS:
@@ -365,6 +388,13 @@ def ingest(
                             f"Excluded {sum(reasons.values())} packets with invalid capture timestamps: "
                             + ", ".join(f"{k}: {v}" for k, v in sorted(reasons.items()))
                         )
+                    info["vendor_stages"] = [
+                        dict(stage=stage, count=count)
+                        for stage, count in db.execute(
+                            "SELECT json_extract_string(vendor,'$.stage'),count(*) FROM packets WHERE capture_id=? AND vendor IS NOT NULL GROUP BY 1",
+                            [cid],
+                        ).fetchall()
+                    ]
                     info["timestamps_validated"] = True
                     info["records_read"] = last
                     info.update(

@@ -371,6 +371,48 @@ export function TopologyEditor({
                 </select>
               </label>
               <label>
+                Vendor input
+                <select
+                  value={selected.vendor || "none"}
+                  onChange={(e) =>
+                    update({
+                      vendor: e.target.value,
+                      vendor_stage:
+                        e.target.value === "checkpoint" ? "i" : null,
+                    })
+                  }
+                >
+                  <option value="none">Generic capture</option>
+                  <option value="checkpoint">Check Point fw monitor</option>
+                </select>
+              </label>
+              {selected.vendor === "checkpoint" && (
+                <>
+                  <label>
+                    Inspection stage
+                    <select
+                      value={selected.vendor_stage || "i"}
+                      onChange={(e) => update({ vendor_stage: e.target.value })}
+                    >
+                      {["i", "I", "o", "O", "e", "E", "oe", "OE"].map((s) => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={selected.inspection_complete || false}
+                      onChange={(e) =>
+                        update({ inspection_complete: e.target.checked })
+                      }
+                    />
+                    Required inspection stages captured continuously (map I and
+                    o too)
+                  </label>
+                </>
+              )}
+              <label>
                 Interface ID (blank = all)
                 <input
                   type="number"
