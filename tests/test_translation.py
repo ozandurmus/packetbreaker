@@ -1,3 +1,6 @@
+import pytest
+
+
 def test_sequence_offsets_wrap_and_post_device_loss(scenarios):
     project, truth, topology, report = scenarios("sequence_randomization", ip_id="zero", ipv6=True)
     learned = report["sequence_translations"]
@@ -8,6 +11,17 @@ def test_sequence_offsets_wrap_and_post_device_loss(scenarios):
         truth["events"]
     )
     assert {f["hop"] for f in report["findings"]} == {"forward:p2:p3"}
+    assert [s["id"] for s in report["segments"] if s["loss_suspect"]] == ["forward:p2:p3"]
+    upstream = [
+        o
+        for o in report["onsets"]["items"]
+        if o["metric"] == "retrans_percent" and o["segment"] in ("forward:p0:p1", "forward:p1:p2")
+    ]
+    assert upstream and all(
+        o["display_label"] == "symptom observed here (sender retransmits)" and not o["suspect"]
+        for o in upstream
+    )
+    assert all(o["related_loss_segments"] == ["forward:p2:p3"] for o in upstream)
     refs = [e for f in report["findings"] for e in f["evidence"] if e.get("sequence_translation")]
     assert refs and all(
         f"tcp.seq_raw == {e['sequence_translation']['observed_seq']}" in e["content_filter"] for e in refs
@@ -19,8 +33,9 @@ def test_sequence_offsets_wrap_and_post_device_loss(scenarios):
         ).fetchone()[0]
 
 
-def test_inconsistent_offset_marks_only_affected_connection_unknown(scenarios):
-    project, truth, topology, report = scenarios("sequence_inconsistent", ip_id="constant")
+@pytest.mark.parametrize("scenario", ["sequence_inconsistent", "sequence_reverse_inconsistent"])
+def test_inconsistent_offset_marks_only_affected_connection_unknown(scenarios, scenario):
+    project, truth, topology, report = scenarios(scenario, ip_id="constant")
     models = report["sequence_translations"]
     assert {m["status"] for m in models} == {"learned", "unknown"}
     assert "Inconsistent" in next(m["reason"] for m in models if m["status"] == "unknown")

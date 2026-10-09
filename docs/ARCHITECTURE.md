@@ -320,3 +320,9 @@ Range expansion is limited to one million observations and 65,535 boundaries in
 one frame; larger inputs must be split. Payload equality is checked only where both
 captured prefixes exist. Conflicting/reused range content becomes unknown, and
 offload capture timestamps are not individual wire-segment timestamps.
+
+Retransmission onset records carry a display label, a false local suspect flag
+and related downstream loss segments. `symptoms.py` joins the onset's observed
+retransmitting sessions to independently classified loss events within its time
+window. Segment loss-suspect badges derive from loss classes, preserving the
+distinction between sender symptoms and a supported disappearance boundary.

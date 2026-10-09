@@ -162,3 +162,12 @@ reason. Original capture filters never use normalized SEQ/ACK values.
 - Retain original frame/header evidence and bound derived range expansion. Cached
   old superframe exclusion markers lack sufficient fragment metadata, so rebuild
   those indexes once rather than silently trusting an obsolete classification.
+
+## Part 3 retransmission attribution
+
+Retransmission onsets describe a sender symptom, never independent proof of a
+fault at the observing segment. The UI labels them "symptom observed here
+(sender retransmits)". Related downstream loss boundaries require supported
+loss events for the same contributing flows and overlapping event time. Only
+segments with those loss events receive the loss-suspect badge; capture misses,
+unknown events and retransmissions alone cannot create it.
