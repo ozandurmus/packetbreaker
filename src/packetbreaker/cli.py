@@ -35,6 +35,8 @@ def main():
             "onset_delay",
             "onset_propagation",
             "onset_capture_miss",
+            "sequence_randomization",
+            "sequence_inconsistent",
             "healthy",
             "demo",
             "capture_miss",

@@ -1,4 +1,13 @@
 export type Ref = {
+  sequence_translation?: {
+    observed_seq: number;
+    observed_ack: number;
+    canonical_seq: number;
+    canonical_ack: number;
+    seq_offset: number;
+    ack_offset: number;
+    reason: string | null;
+  };
   point: string;
   file: string;
   capture_id: string;
@@ -125,6 +134,17 @@ export type Segment = {
   offset_uncertainty_ms: number | null;
 };
 export type Report = {
+  sequence_translations?: {
+    ingress: string;
+    egress: string;
+    flow: string | null;
+    status: string;
+    reason: string | null;
+    boundary_forward_offset: number | null;
+    boundary_reverse_offset: number | null;
+    samples: number;
+    evidence: Ref[];
+  }[];
   onsets?: {
     directions: Record<
       string,
@@ -217,6 +237,7 @@ export type State = {
   job: Job;
 };
 export type Flow = {
+  matching_unknown_reason?: string | null;
   flow: string;
   tuple: string;
   start: number | null;

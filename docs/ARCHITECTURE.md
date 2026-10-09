@@ -285,3 +285,13 @@ invalidated, while current packet indexes remain reusable.
 Review 0.1.4 invalidates old reports while retaining packet indexes.
 Default pytest excludes registered `slow` real-tshark matrices and large repeated-analysis fixtures;
 explicit slow selection runs every matrix case. No tests were deleted.
+
+## Phase 2 / Part 3: declared sequence randomization
+
+Adjacent ingress/egress points of the same declared device learn per-connection
+modulo-2³² SEQ/ACK translations. Independent payload/ID anchors link local streams;
+three packet correspondences and two observations for each directional offset are
+required. Any contradictory offset marks the affected connection unknown rather
+than selecting a majority. Raw packet SEQ/ACK stay in the index and in content
+filters; only analysis coordinates are normalized. Frame evidence exposes both
+coordinate systems. Other connections remain independently matchable.

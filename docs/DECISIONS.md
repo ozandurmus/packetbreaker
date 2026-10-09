@@ -137,3 +137,12 @@ only. Both suites must pass locally for this review. The user requested no CI fo
 these pushes, so commit-local `[skip ci]` is used; the workflow remains active.
 The user explicitly requested public visibility; capture/secret file history checks
 preceded that change. No real captures or new Part 3 features were added.
+
+## Part 3 sequence-translation boundary
+
+Only explicitly declared same-device ingress/egress boundaries are learned.
+Canonical tuples still require confirmed NAT mappings when addresses change.
+Offsets are per TCP session, direction-aware and modulo 2³², including SYN/ACK
+semantics and wrap. Constant offsets do not license matching across a full proxy.
+Insufficient/ambiguous anchors and inconsistent offsets produce a per-flow unknown
+reason. Original capture filters never use normalized SEQ/ACK values.

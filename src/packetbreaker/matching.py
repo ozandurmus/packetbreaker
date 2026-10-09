@@ -123,6 +123,14 @@ def link_tcp_sessions(db, topology):
             left, right = root(edge[:3]), root(edge[3:])
             if left != right:
                 parent[max(left, right)] = min(left, right)
+    if db.execute(
+        "SELECT count(*) FROM information_schema.tables WHERE table_name='translation_links'"
+    ).fetchone()[0]:
+        for a, sa, b, sb, flow in db.execute("SELECT DISTINCT * FROM translation_links").fetchall():
+            if (a, sa, flow) in parent and (b, sb, flow) in parent:
+                left, right = root((a, sa, flow)), root((b, sb, flow))
+                if left != right:
+                    parent[max(left, right)] = min(left, right)
     db.execute(
         "CREATE OR REPLACE TEMP TABLE session_map(point VARCHAR,stream BIGINT,old_flow VARCHAR,new_flow VARCHAR)"
     )

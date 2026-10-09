@@ -67,6 +67,10 @@ def generate(
     ip_id="increment",
     ipv6=False,
 ):
+    if scenario in ("sequence_randomization", "sequence_inconsistent"):
+        from .translation_synthetic import generate_translation
+
+        return generate_translation(directory, scenario == "sequence_inconsistent", ip_id, ipv6)
     if scenario.startswith("onset_"):
         from .onset_synthetic import generate_onset
 

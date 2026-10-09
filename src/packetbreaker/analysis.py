@@ -12,6 +12,8 @@ from .store import rows
 from .topology import Topology
 from .timeseries import build_timeseries
 from .onset import add_onsets
+from .translation import normalize_sequences, sequence_report
+
 
 
 def reverse_tuple(key):
@@ -22,7 +24,7 @@ def reverse_tuple(key):
 def prepare(db, topology):
     db.execute("DROP TABLE IF EXISTS obs")
     db.execute(
-        "CREATE TABLE obs AS SELECT *, NULL::VARCHAR AS point, NULL::VARCHAR AS canon FROM packets WHERE false"
+        "CREATE TABLE obs AS SELECT *, seq AS raw_seq, ack AS raw_ack, NULL::VARCHAR AS translation_reason, NULL::VARCHAR AS range_reason, NULL::VARCHAR AS point, NULL::VARCHAR AS canon FROM packets WHERE false"
     )
     ready = {r[0] for r in db.execute("SELECT id FROM captures WHERE state='ready'").fetchall()}
     used = set(topology.forward + (topology.reverse or list(reversed(topology.forward))))
@@ -50,7 +52,10 @@ def prepare(db, topology):
             if accepted:
                 db.executemany("INSERT INTO point_sources VALUES (?)", accepted)
             clause += " AND src IN (SELECT src FROM point_sources)"
-        db.execute(f"INSERT INTO obs SELECT *,?,tuple_key FROM packets WHERE {clause}", [point.id, *params])
+        db.execute(
+            f"INSERT INTO obs SELECT *,seq,ack,NULL,NULL,?,tuple_key FROM packets WHERE {clause}",
+            [point.id, *params],
+        )
     db.execute("ALTER TABLE obs ADD COLUMN corrected DOUBLE")
     db.execute("ALTER TABLE obs ADD COLUMN direction VARCHAR")
     db.execute("ALTER TABLE obs ADD COLUMN canon_reverse VARCHAR")
@@ -159,6 +164,7 @@ def prepare(db, topology):
         t.canon AS canon,t.canon_reverse AS canon_reverse,t.direction AS direction,
         md5(t.canon || o.signature) AS packet_key,md5(least(t.canon,t.canon_reverse)) AS flow)
         FROM obs o JOIN tuple_lookup t ON o.tuple_key=t.tuple_key""")
+    normalize_sequences(db, topology)
     # Compare the shared captured prefix, not the digest of different-length payloads.
     db.execute("""CREATE OR REPLACE TEMP TABLE prefix_lengths AS
         SELECT packet_key,min(coalesce(length(prefix),0)) AS n FROM obs GROUP BY packet_key""")
@@ -301,7 +307,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             for idx, (a, b) in enumerate(zip(path, path[1:])):
                 pa, pb = points[a], points[b]
                 segment_id = f"{direction}:{a}:{b}"
-                unsupported = any(p.translation in ("full_proxy", "seq_randomization") for p in (pa, pb))
+                unsupported = any(p.translation == "full_proxy" for p in (pa, pb))
                 pending_nat = any(
                     x["point_a"] in (a, b)
                     and x["point_b"] in (a, b)
@@ -599,7 +605,7 @@ def analyze(project, topology: Topology | dict, progress=None):
                 segments.append(segment)
         progress(state="summarizing")
         db.execute("""CREATE OR REPLACE TABLE flow_summary AS
-            WITH base AS (SELECT flow,min(corrected) AS start,max(corrected) AS "end",count(DISTINCT point) AS points,
+            WITH base AS (SELECT flow,max(coalesce(translation_reason,range_reason)) AS matching_unknown_reason,min(corrected) AS start,max(corrected) AS "end",count(DISTINCT point) AS points,
                 count(DISTINCT packet_key) AS unique_observations,count(*) FILTER(WHERE retrans) AS retrans_observations,
                 bool_or((flags&4)>0) AS has_reset, max(rtt)*1000 AS max_rtt_ms,
                 min(canon) AS tuple, count(*) FILTER(WHERE (flags&2)>0 AND (flags&16)=0) AS syns,
@@ -663,6 +669,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         )
         report = dict(
             schema_version=2,
+            sequence_translations=sequence_report(db),
             timeseries=timeseries,
             onsets=onsets,
             engine_version=__version__,

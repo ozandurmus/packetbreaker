@@ -66,7 +66,16 @@ function Evidence({ refs, onClose }: { refs: Ref[]; onClose: () => void }) {
                     <strong>{e.point}</strong>
                     <small>{e.file}</small>
                   </td>
-                  <td>{e.frame}</td>
+                  <td>
+                    {e.frame}
+                    {e.sequence_translation && (
+                      <small>
+                        {e.sequence_translation.reason
+                          ? `Unknown translation: ${e.sequence_translation.reason}`
+                          : `SEQ ${e.sequence_translation.observed_seq} → ${e.sequence_translation.canonical_seq}; ACK ${e.sequence_translation.observed_ack} → ${e.sequence_translation.canonical_ack}; offsets ${e.sequence_translation.seq_offset} / ${e.sequence_translation.ack_offset} (mod 2³²)`}
+                      </small>
+                    )}
+                  </td>
                   <td>{time(e.observed_time)}</td>
                   <td>{time(e.corrected_time)}</td>
                   <td>
@@ -396,7 +405,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 2 / PART 2 · v0.1.4</small>
+          <small>PHASE 2 / PART 3 · v0.1.5</small>
         </div>
       </aside>
       <main>
@@ -545,6 +554,24 @@ function App() {
           )}
           {tab === "Overview" && (
             <>
+              {!!report?.sequence_translations?.length && (
+                <section>
+                  <h2>Sequence translations</h2>
+                  {report.sequence_translations.map((m, i) => (
+                    <button
+                      key={i}
+                      className="finding"
+                      onClick={() => setEvidence(m.evidence)}
+                    >
+                      {m.ingress} → {m.egress} · flow{" "}
+                      {m.flow?.slice(0, 8) || "unknown"}:{" "}
+                      {m.status === "learned"
+                        ? `forward SEQ offset ${m.boundary_forward_offset}, ACK offset ${m.boundary_reverse_offset} (mod 2³²); ${m.samples} anchors`
+                        : `unknown — ${m.reason}`}
+                    </button>
+                  ))}
+                </section>
+              )}
               {report?.onsets && (
                 <section>
                   <h2>Degradation onset</h2>
@@ -1301,6 +1328,11 @@ function App() {
                         >
                           <td>
                             <code>{f.tuple}</code>
+                            {f.matching_unknown_reason && (
+                              <small className="red">
+                                Unknown matching: {f.matching_unknown_reason}
+                              </small>
+                            )}
                             <small>
                               {f.has_reset ? "RST observed · " : ""}
                               {f.handshake_incomplete
