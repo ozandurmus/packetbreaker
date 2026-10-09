@@ -40,7 +40,10 @@ class Finding(BaseModel):
         "capture_miss",
         "unknown",
         "confirmed_device_drop",
+        "reset_origin",
+        "icmp_origin",
     ]
+    tooltip: str | None = None
     device: str | None = None
     evidence_stage: str | None = None
     hop: str
@@ -63,7 +66,7 @@ class Finding(BaseModel):
 class FindingsExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_name: Literal["packetbreaker.findings"] = "packetbreaker.findings"
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     engine_version: str
     exported_at: str
     findings: list[Finding]
@@ -106,6 +109,7 @@ def export_data(project):
                         )
                     },
                     evidence_refs=f["evidence"],
+                    tooltip=f.get("tooltip"),
                     device=f.get("device"),
                     evidence_stage=f.get("evidence_stage"),
                 )
@@ -146,7 +150,7 @@ def html_report(data):
         )
 
     findings = "".join(
-        f'<article id="finding-{i}"><h3>{h(f["type"])} · {h(f["hop"])}</h3><p>{h(f["summary"])}</p><p>{h(f.get("device") or "")} {h(f.get("evidence_stage") or "")}</p><p>Confidence: {h(f["confidence"])}; severity: {h(f["severity"])}</p>{details(f["metrics"], "Metrics")}<ul>{refs(f["evidence_refs"])}</ul></article>'
+        f'<article id="finding-{i}"><h3>{h(f["type"])} · {h(f["hop"])}</h3><p title="{h(f.get("tooltip"))}">{h(f["summary"])}</p><p>{h(f.get("device") or "")} {h(f.get("evidence_stage") or "")}</p><p>Confidence: {h(f["confidence"])}; severity: {h(f["severity"])}</p>{details(f["metrics"], "Metrics")}<ul>{refs(f["evidence_refs"])}</ul></article>'
         for i, f in enumerate(data["findings"])
     )
     segments = "".join(

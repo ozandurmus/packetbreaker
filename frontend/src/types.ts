@@ -109,6 +109,7 @@ export type Finding = {
   summary: string;
   evidence: Ref[];
   evidence_note: string;
+  tooltip?: string;
   metrics: Record<string, number>;
 };
 export type Segment = {

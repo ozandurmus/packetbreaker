@@ -267,3 +267,12 @@ Normal packet dissection bypasses vendor-dictionary work when no vendor markers
 exist. F5/HTTP fields are requested only in the explicit F5 ingest mode; generic
 pcaps keep the lightweight field projection. Three-worker fixture preparation did
 not help locally, so the existing two-worker resource-bounded setting is retained; production serial defaults and the CI matrix policy are unchanged.
+
+## Phase 3 origin attribution
+
+First appearance is ordered by the configured path, not raw timestamps. Device-origin findings
+require an ingress/egress pair of the same node and bracketed coverage, reliable clocks and
+endpoint references. TTL and IP ID are corroborating observations, never authentication.
+Constant/zero IDs and IPv6 have no usable IP-ID fingerprint. Missing references remain unknown;
+policy/IPS intent is unknown unless vendor evidence explains the reset. Findings schema v3 adds
+path-integrity classes and tooltips without putting them in loss-rate numerators.

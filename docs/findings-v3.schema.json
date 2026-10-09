@@ -1,0 +1,236 @@
+{
+  "$defs": {
+    "Finding": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "confirmed_device_drop"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "device": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "evidence_stage": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "device",
+              "evidence_stage"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "recovered_loss",
+            "impactful_loss",
+            "unrecovered_loss",
+            "handshake_blocked",
+            "capture_miss",
+            "unknown",
+            "confirmed_device_drop",
+            "reset_origin",
+            "icmp_origin"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "tooltip": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tooltip"
+        },
+        "device": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device"
+        },
+        "evidence_stage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Stage"
+        },
+        "hop": {
+          "title": "Hop",
+          "type": "string"
+        },
+        "direction": {
+          "title": "Direction",
+          "type": "string"
+        },
+        "time_range": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          ],
+          "title": "Time Range",
+          "type": "array"
+        },
+        "metrics": {
+          "additionalProperties": true,
+          "title": "Metrics",
+          "type": "object"
+        },
+        "evidence_refs": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "confidence": {
+          "enum": [
+            "supported",
+            "unknown"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "cause": {
+          "title": "Cause",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "hop",
+        "direction",
+        "time_range",
+        "metrics",
+        "evidence_refs",
+        "confidence",
+        "severity",
+        "summary",
+        "cause"
+      ],
+      "title": "Finding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_name": {
+      "const": "packetbreaker.findings",
+      "default": "packetbreaker.findings",
+      "title": "Schema Name",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": 3,
+      "default": 3,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "engine_version": {
+      "title": "Engine Version",
+      "type": "string"
+    },
+    "exported_at": {
+      "title": "Exported At",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "report": {
+      "additionalProperties": true,
+      "title": "Report",
+      "type": "object"
+    },
+    "timeseries": {
+      "additionalProperties": true,
+      "title": "Timeseries",
+      "type": "object"
+    },
+    "flow_filters": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Flow Filters",
+      "type": "array"
+    }
+  },
+  "required": [
+    "engine_version",
+    "exported_at",
+    "findings",
+    "report",
+    "timeseries",
+    "flow_filters"
+  ],
+  "title": "FindingsExport",
+  "type": "object"
+}

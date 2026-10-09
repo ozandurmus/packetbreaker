@@ -83,6 +83,13 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         if g("udp.srcport")
         else ("ICMP" if g("icmp.type") else "ICMPv6" if g("icmpv6.type") else "OTHER")
     )
+    outer_proto = g("ip.proto") or g("ipv6.nxt")
+    if outer_proto in ("1", "58"):
+        proto = "ICMP" if outer_proto == "1" else "ICMPv6"
+        # tshark also decodes the quoted transport inside ICMP errors. Keep it out of outer identity.
+        for field in list(d):
+            if field.startswith(("tcp.", "udp.")):
+                d[field] = ""
     sport, dport = number(g("tcp.srcport") or g("udp.srcport")), number(g("tcp.dstport") or g("udp.dstport"))
     seq, ack, flags = number(g("tcp.seq_raw")), number(g("tcp.ack_raw")), number(g("tcp.flags"))
     length = (
@@ -108,7 +115,7 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
     ]
     wirelen, caplen = number(g("frame.len")), number(g("frame.cap_len"))
     unsupported = ""
-    if proto not in ("TCP", "UDP", "ICMP"):
+    if proto not in ("TCP", "UDP", "ICMP", "ICMPv6"):
         unsupported = "Transport identity unsupported in Phase 1"
     if any(
         number(g(x)) for x in ("ip.flags.mf", "ip.frag_offset", "ipv6.fraghdr.offset", "ipv6.fraghdr.more")
