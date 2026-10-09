@@ -1,6 +1,7 @@
 """Persist bounded, coverage-aware segment buckets from matched observations."""
 
 import math
+import json
 
 from .store import rows
 
@@ -243,8 +244,14 @@ def build_timeseries(db, topology, segments, coverage, window):
                 ]
             )
         if records:
-            db.executemany(
-                "INSERT INTO segment_buckets VALUES (" + ",".join("?" for _ in records[0]) + ")", records
+            # Bulk typed JSON avoids per-cell Python conversion (and repeated optional pandas probes).
+            columns = db.execute("DESCRIBE segment_buckets").fetchall()
+            names = [column[0] for column in columns]
+            schema = json.dumps([{column[0]: column[1] for column in columns}])
+            payload = json.dumps([dict(zip(names, record)) for record in records], allow_nan=False)
+            db.execute(
+                "INSERT INTO segment_buckets SELECT record.* FROM (SELECT unnest(from_json(?,?)) AS record)",
+                [payload, schema],
             )
     return meta
 

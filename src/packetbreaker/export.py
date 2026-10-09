@@ -172,6 +172,15 @@ def html_report(data):
         f"<article class='{'symptom' if o.get('scope') == 'capture_signal' else 'primary'}'><h3>{h(o['segment'])} · {h(o['metric'])}</h3><p>{h(o['explanation'])}</p>{details(o.get('time_labels'), 'Onset time')}<ul>{refs(o.get('evidence', []))}</ul></article>"
         for o in ordered_onsets(onset.get("items", []), onset.get("directions", {}))
     )
+    differences = "".join(
+        f"<article><h3>{h(item['location'])}</h3><p>{h(item['tooltip'])}</p><table><thead><tr><th>Field</th><th>Before</th><th>After</th><th>Status</th></tr></thead><tbody>"
+        + "".join(
+            f"<tr><th>{h(name)}</th><td>{h(field['before'])}</td><td>{h(field['after'])}</td><td>{h(field['status'])}</td></tr>"
+            for name, field in item["fields"].items()
+        )
+        + f"</tbody></table><ul>{refs(item['evidence'])}</ul></article>"
+        for item in report.get("field_diffs", {}).get("items", [])
+    )
     # JSON is data, not executable markup. Escape '<' even inside arbitrary capture labels.
     encoded = (
         json.dumps(data, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
@@ -193,7 +202,7 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <section id="heatmap"><h2>Path × time</h2><label>Metric <select id="metric"></select></label><p id="metric-note"></p><p>Grey = not capturing; amber = unknown/partial. Black markers = detected onsets. Hover for time, value and coverage.</p><div class="scroll"><canvas id="map" aria-label="Path by time heatmap"></canvas></div><p id="tip" role="status"></p><noscript>Enable JavaScript for the offline heatmap; summary, findings and evidence remain readable.</noscript></section>
 <section id="findings"><h2>Findings ({len(data["findings"])})</h2>{findings or "<p>No findings.</p>"}</section>
 <section id="segments"><h2>Segments</h2>{segments}</section>
-<section id="field-diffs"><h2>Matched packet field differences</h2>{details(report.get("field_diffs", {}), "Observed values, unknowns and frame filters")}</section>
+<section id="field-diffs"><h2>Matched packet field differences</h2>{h(report.get("field_diffs", {}).get("note"))}{differences}</section>
 <section id="filters"><h2>Per-file flow filters</h2>{details(data["flow_filters"], "Copy filters for original or re-saved files")}</section>
 <script id="report-data" type="application/json">{encoded}</script><script>{HEATMAP_SCRIPT}</script></body></html>"""
 

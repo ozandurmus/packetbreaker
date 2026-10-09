@@ -48,8 +48,11 @@ def field_diffs(db, topology, packet_key=None, limit=200):
     paths = [("forward", topology.forward), ("reverse", topology.reverse or topology.forward[::-1])]
     points = {p.id: p for p in topology.points}
     result = []
+    per_segment = max(1, limit // max(1, sum(max(0, len(path) - 1) for _, path in paths)))
     for direction, path in paths:
         for a, b in zip(path, path[1:]):
+            if "full_proxy" in (points[a].translation, points[b].translation):
+                continue
             matched = rows(
                 db,
                 """SELECT a AS before_packet,b AS after_packet
@@ -57,7 +60,7 @@ def field_diffs(db, topology, packet_key=None, limit=200):
                 WHERE a.point=? AND b.point=? AND a.direction=? AND a.eligible AND b.eligible
                 AND (? IS NULL OR a.packet_key=?)
                 ORDER BY a.corrected,a.frame LIMIT ?""",
-                [a, b, direction, packet_key, packet_key, limit + 1],
+                [a, b, direction, packet_key, packet_key, per_segment],
             )
             keys = list(
                 {r[side]["packet_key"] for r in matched for side in ("before_packet", "after_packet")}
@@ -115,7 +118,7 @@ def field_diffs(db, topology, packet_key=None, limit=200):
     return dict(
         items=result,
         limit=limit,
-        note="Unmatched, unsupported proxy boundaries and differently segmented offload frames have no packet-level comparison: unknown.",
+        note="Bounded sample distributed across segments. Unmatched, unsupported proxy boundaries and differently segmented offload frames have no packet-level comparison: unknown.",
     )
 
 

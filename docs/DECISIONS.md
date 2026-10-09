@@ -289,3 +289,21 @@ timestamp removal and unexpected TTL steps. A falling-TTL repeat is a loop/dupli
 not proof. Microsecond-identical SPAN copies remain capture-quality findings; later exact repeats
 remain cause-unknown. Asymmetric routing requires an explicitly different return path and
 same-flow return evidence there; it does not blame a device for traffic it was never meant to see.
+
+The integrity extension initially pushed the fast suite beyond two minutes. Candidate and field
+change queries are now grouped across path edges, and checks with no relevant observed fields
+are skipped using a single aggregate. Existing tests remain in their fast/slow suites; no new
+integrity test is marked slow. Synthetic fixtures share one multi-flow capture set for the
+independent mutation cases. Payload re-linking is explicitly tested not to create false loss.
+
+Profiling identified a pre-existing bucket-write cost: DuckDB repeatedly probes the absent
+optional pandas module during Python cell binding (23,338 probes in one healthy analysis).
+Typed JSON bulk insertion replaces `executemany` for bucket records without adding pandas or
+changing metric/null types. The same saved synthetic healthy analysis fell from 2.925 s to
+0.731 s in the local probe. Coverage, bucket metrics and onset tests remain the acceptance gate.
+
+
+Duplicate/loop candidates use window `lag` over each identity and compare adjacent observations;
+they never form all pairs of a long constant-ID stream. Asymmetry selects the first observed
+forward/return frame per flow before pairing, avoiding a many-to-many evidence join. These bounds
+are independent of the number of identical retransmissions and do not turn repeats into losses.

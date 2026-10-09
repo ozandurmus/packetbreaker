@@ -3,6 +3,7 @@ import type { TimeSeries, Finding } from "./types";
 import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, num, time, reverseTuple } from "./api";
+import { FieldDiff, type FieldDiffData } from "./FieldDiff";
 import { Waterfall } from "./Waterfall";
 import { Coverage, LadderChart } from "./Charts";
 import { TopologyEditor } from "./TopologyEditor";
@@ -187,7 +188,7 @@ function App() {
     [selectedFlow, setSelectedFlow] = useState<Flow | null>(null),
     [ladder, setLadder] = useState<Ladder | null>(null),
     [ladderOffset, setLadderOffset] = useState(0);
-  const [fieldDiff, setFieldDiff] = useState<unknown>(null);
+  const [fieldDiff, setFieldDiff] = useState<FieldDiffData | null>(null);
   const [events, setEvents] = useState<{
     label: string;
     items: {
@@ -312,6 +313,7 @@ function App() {
       active = false;
     };
   }, [selectedFlow, ladderOffset, rangeQuery]);
+  useEffect(() => setFieldDiff(null), [selectedFlow, rangeQuery]);
   async function action(fn: () => Promise<unknown>) {
     setError("");
     setNotice("");
@@ -448,7 +450,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 2 / PART 5 · v0.1.7</small>
+          <small>PHASE 3 / PART 1 · v0.1.8</small>
         </div>
       </aside>
       <main>
@@ -1752,18 +1754,8 @@ function App() {
                       </p>
                     </details>
                   )}
-                  {fieldDiff != null && (
-                    <section className="card">
-                      <h3>Matched packet field differences</h3>
-                      <p>
-                        Raw before/after values; unknown means insufficient
-                        captured fields. Evidence includes portable display
-                        filters.
-                      </p>
-                      <pre style={{ overflow: "auto", maxHeight: 480 }}>
-                        {JSON.stringify(fieldDiff, null, 2)}
-                      </pre>
-                    </section>
+                  {fieldDiff && (
+                    <FieldDiff data={fieldDiff} onEvidence={setEvidence} />
                   )}
                   <LadderChart
                     data={ladder}
@@ -1814,7 +1806,10 @@ function App() {
                                       ),
                                     );
                                   } catch (error) {
-                                    setFieldDiff(String(error));
+                                    setFieldDiff({
+                                      items: [],
+                                      note: String(error),
+                                    });
                                   }
                                 }}
                               >

@@ -35,6 +35,9 @@ def test_every_scenario_every_ip_id_mode(scenarios, scenario, mode, ipv6):
     expected = Counter(e["type"] for e in truth["events"])
     actual = Counter()
     for f in report["findings"]:
+        if f["id"].startswith("integrity:"):
+            assert scenario == "duplicate" and f["type"] == "capture_duplicate"
+            continue
         actual[f["type"]] += f["metrics"]["count"]
     assert actual == expected
     if scenario != "duplicate":

@@ -516,7 +516,10 @@ export function TopologyEditor({
                 <select
                   value={selected.payload_transform || "none"}
                   onChange={(e) =>
-                    update({ payload_transform: e.target.value as Point["payload_transform"] })
+                    update({
+                      payload_transform: e.target
+                        .value as Point["payload_transform"],
+                    })
                   }
                 >
                   <option value="none">None</option>

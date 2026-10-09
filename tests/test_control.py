@@ -13,6 +13,9 @@ def test_control_and_unrecovered_outcomes(scenarios, scenario, ipv6, mode):
     expected = Counter(e["type"] for e in truth["events"])
     actual = Counter()
     for f in report["findings"]:
+        if f["id"].startswith("integrity:"):
+            assert f["type"] == "reset_origin"
+            continue
         actual[f["type"]] += f["metrics"]["count"]
         if f["type"] == "handshake_blocked":
             assert f["summary"] == "Handshake blocked between FW egress and LB ingress; cause unknown."
@@ -30,6 +33,9 @@ def test_control_capture_miss_direction_and_hop(scenarios):
     )
     actual = Counter()
     for f in report["findings"]:
+        if f["id"].startswith("integrity:"):
+            assert f["type"] == "reset_origin"
+            continue
         direction, a, b = f["hop"].split(":")
         actual[(f["type"], direction, a, b)] += f["metrics"]["count"]
     assert actual == expected

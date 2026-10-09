@@ -475,3 +475,18 @@ Feedback association requires the quoted tuple and raw sequence to match an obse
 Protocol references: [RFC 1191](https://www.rfc-editor.org/info/rfc1191/),
 [RFC 8201](https://www.rfc-editor.org/info/rfc8201/), and
 [Wireshark ICMP fields](https://www.wireshark.org/docs/dfref/i/icmp.html).
+
+Path-integrity checks run after normal loss/onset analysis and contribute separate finding
+classes, not network-loss numerators. Before loss classification, complete payload changes can
+join a unique canonical tuple/SEQ/ACK/flags/length pair within a calibrated match window; the
+joined occurrence is propagated downstream. This avoids calling a modified-but-observed packet
+lost. Ambiguous retries, segmentation differences and unsupported proxy identity remain unknown.
+Checks batch adjacent-edge queries in DuckDB and bound representative findings with visible notes.
+Origin evidence includes endpoint TTL/IP-ID samples, vendor metadata and capture-quality gates.
+
+Schema-v3 integrity types are `reset_origin`, `icmp_origin`, `payload_modified`,
+`downstream_packet`, `mtu_black_hole`, `mss_clamping`, `ttl_path`, `dscp_remark`,
+`option_stripping`, `asymmetric_routing`, `capture_duplicate`, and `duplication`.
+Normal endpoint-origin reset observations are quality annotations; only a bracketed device-origin
+hypothesis gets high severity. Findings include their rule tooltip and portable frame references.
+Window filtering includes integrity findings. Generic full-proxy correlation remains unsupported.

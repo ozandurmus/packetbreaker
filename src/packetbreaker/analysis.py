@@ -8,7 +8,7 @@ from .device_drops import prepare_proofs, upgrade_events, finding_context, add_u
 from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions, propagate_translation_unknown
 from .ingest import tuple_id
 from .headlines import add_headlines
-from .integrity import analyze_integrity
+from .integrity import analyze_integrity, link_modified_payloads
 from .evidence import evidence, prepare_flow_filters
 from .store import rows
 from .topology import Topology
@@ -336,6 +336,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         progress(state="aligning clocks")
         models = align(db, topology)
         match_occurrences(db, topology)
+        link_modified_payloads(db, topology, models)
         link_tcp_sessions(db, topology)
         propagate_translation_unknown(db)
         byte_active = prepare_byte_ranges(db, topology)
@@ -843,7 +844,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             engine_version=__version__,
             generated_at=datetime.now(timezone.utc).isoformat(),
             verdict="Path integrity findings observed"
-            if any(f["confidence"] == "supported" for f in integrity_findings)
+            if any(f["confidence"] == "supported" and f["severity"] != "quality" for f in integrity_findings)
             else "Confirmed device drops observed"
             if any(f["type"] == "confirmed_device_drop" for f in findings)
             else "Impactful loss observed"
