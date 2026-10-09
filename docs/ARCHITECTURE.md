@@ -457,3 +457,12 @@ old consumers. F5 forwarding/reset metadata is also inspectable in offline HTML.
 Wire-layout references inform only synthetic test construction. Production vendor
 fields and expected test values come from tshark; no third-party captures are
 embedded in tests or tracked.
+
+## Phase 3 / Part 1 — path integrity
+
+Matched-packet field differences use raw headers beside the normalized occurrence identity.
+The index adds tshark-decoded TCP options, IPv6 DSCP, DF/ICMP metadata and a complete-captured-payload
+SHA-256 (separate from the existing matching prefix). Schema 6 / parser 9 require reattaching older
+captures. `/api/packets/{packet_key}/field-diff` supplies stream drill-down comparisons and evidence.
+Offline HTML and JSON include a labelled, bounded 200-comparison sample. Truncated payloads,
+missing fields, unsupported boundaries and offload segmentation are unknown, not modifications.

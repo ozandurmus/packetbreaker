@@ -633,3 +633,8 @@ explicitly gitignored. No live capture or real-device commands were executed.
 retain the authoritative cross-platform results; the exact final full-matrix run
 is recorded in the PR close-out. The push/PR/manual matrix policy is unchanged,
 and auto-merge remains disabled.
+
+## Phase 3 / Part 1 (in progress)
+
+Item 1: field-diff and export focused tests: 4 passed (6.63 s). UI TypeScript/Vite build passes.
+The hash test changes bytes beyond the retained matching prefix and checks truncation uncertainty.

@@ -187,6 +187,7 @@ function App() {
     [selectedFlow, setSelectedFlow] = useState<Flow | null>(null),
     [ladder, setLadder] = useState<Ladder | null>(null),
     [ladderOffset, setLadderOffset] = useState(0);
+  const [fieldDiff, setFieldDiff] = useState<unknown>(null);
   const [events, setEvents] = useState<{
     label: string;
     items: {
@@ -1745,6 +1746,19 @@ function App() {
                       </p>
                     </details>
                   )}
+                  {fieldDiff != null && (
+                    <section className="card">
+                      <h3>Matched packet field differences</h3>
+                      <p>
+                        Raw before/after values; unknown means insufficient
+                        captured fields. Evidence includes portable display
+                        filters.
+                      </p>
+                      <pre style={{ overflow: "auto", maxHeight: 480 }}>
+                        {JSON.stringify(fieldDiff, null, 2)}
+                      </pre>
+                    </section>
+                  )}
                   <LadderChart
                     data={ladder}
                     points={topology.forward.map((id) =>
@@ -1760,7 +1774,7 @@ function App() {
                           <th>Direction</th>
                           <th>Sequence / ACK</th>
                           <th>Length</th>
-                          <th>Appearances</th>
+                          <th>Appearances / field differences</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1783,6 +1797,23 @@ function App() {
                               {p.evidence
                                 .map((e) => `${e.point} #${e.frame}`)
                                 .join(" · ")}
+                              <button
+                                title="Compare raw fields across matched capture points, with evidence and unknowns"
+                                onClick={async (event) => {
+                                  event.stopPropagation();
+                                  try {
+                                    setFieldDiff(
+                                      await api(
+                                        `/packets/${p.packet_key}/field-diff`,
+                                      ),
+                                    );
+                                  } catch (error) {
+                                    setFieldDiff(String(error));
+                                  }
+                                }}
+                              >
+                                Field diff
+                              </button>
                             </td>
                           </tr>
                         ))}

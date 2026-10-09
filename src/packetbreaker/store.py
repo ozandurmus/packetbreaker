@@ -48,6 +48,7 @@ PACKET_COLUMNS = {
     "dns_id": "INTEGER",
     "dns_response": "BOOLEAN",
     "vendor": "VARCHAR",
+    "path_fields": "VARCHAR",
 }
 
 
@@ -67,7 +68,7 @@ class Project:
                 "UPDATE captures SET state='cancelled', error='Interrupted; resume available' WHERE state='ingesting'"
             )
             version = self.get(db, "schema_version")
-            if version not in (None, 1, 2, 3, 4, 5):
+            if version not in (None, 1, 2, 3, 4, 5, 6):
                 raise ValueError("Unsupported project schema version")
             if version in (1, 2):
                 for column in ("frame_hash", "icmp_id", "icmp_seq", "icmp_type", "dns_id", "dns_response"):
@@ -93,7 +94,13 @@ class Project:
             if legacy_offload:
                 self.set(db, "report", None)
             db.execute("ALTER TABLE packets ADD COLUMN IF NOT EXISTS vendor VARCHAR")
-            self.set(db, "schema_version", 5)
+            db.execute("ALTER TABLE packets ADD COLUMN IF NOT EXISTS path_fields VARCHAR")
+            if version is not None and version < 6:
+                db.execute(
+                    "UPDATE captures SET state='stale',checkpoint=0,error='Reattach to index path integrity fields'"
+                )
+                self.set(db, "report", None)
+            self.set(db, "schema_version", 6)
             if self.get(db, "analysis_version") != __version__:
                 self.set(db, "report", None)
                 self.set(db, "analysis_version", __version__)

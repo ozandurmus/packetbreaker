@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .field_diff import packet_diff
 from .waterfall import waterfall
 from .export import export_report
 from .analysis import analyze, event_page, flow_page, ladder, findings_page
@@ -287,6 +288,10 @@ def create_app(project_path):
         end: float | None = Query(None, allow_inf_nan=False),
     ):
         return flow_page(project, offset, limit, search, filter_by, sort, start, end)
+
+    @app.get("/api/packets/{packet_key}/field-diff")
+    def matched_field_diff(packet_key: str):
+        return packet_diff(project, packet_key)
 
     @app.get("/api/flows/{flow}/ladder")
     def flow_ladder(

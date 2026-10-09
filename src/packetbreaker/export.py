@@ -8,6 +8,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from .store import rows
+from .field_diff import field_diffs
+from .topology import Topology
 from .onset import ordered_onsets
 
 
@@ -82,6 +84,7 @@ def export_data(project):
             findings = report["findings"]
         snapshot = dict(report)
         snapshot.pop("findings", None)
+        snapshot["field_diffs"] = field_diffs(db, Topology.model_validate(project.get(db, "topology")))
         return FindingsExport(
             engine_version=report["engine_version"],
             exported_at=datetime.now(timezone.utc).isoformat(),
@@ -176,6 +179,7 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <section id="heatmap"><h2>Path × time</h2><label>Metric <select id="metric"></select></label><p id="metric-note"></p><p>Grey = not capturing; amber = unknown/partial. Black markers = detected onsets. Hover for time, value and coverage.</p><div class="scroll"><canvas id="map" aria-label="Path by time heatmap"></canvas></div><p id="tip" role="status"></p><noscript>Enable JavaScript for the offline heatmap; summary, findings and evidence remain readable.</noscript></section>
 <section id="findings"><h2>Findings ({len(data["findings"])})</h2>{findings or "<p>No findings.</p>"}</section>
 <section id="segments"><h2>Segments</h2>{segments}</section>
+<section id="field-diffs"><h2>Matched packet field differences</h2>{details(report.get("field_diffs", {}), "Observed values, unknowns and frame filters")}</section>
 <section id="filters"><h2>Per-file flow filters</h2>{details(data["flow_filters"], "Copy filters for original or re-saved files")}</section>
 <script id="report-data" type="application/json">{encoded}</script><script>{HEATMAP_SCRIPT}</script></body></html>"""
 
