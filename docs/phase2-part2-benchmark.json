@@ -1,0 +1,294 @@
+{
+  "before_serial": {
+    "mode": "serial",
+    "files": 5,
+    "frames": 5000750,
+    "input_bytes": 1310052620,
+    "seconds": 267.9111455839593,
+    "frames_per_second": 18665.703470827946,
+    "workers": 1,
+    "cpu_cores": 10,
+    "available_ram_bytes_at_start": 8296562688,
+    "process_tree_peak_rss_bytes": 1248722944,
+    "capture_counts": [
+      1000150,
+      1000150,
+      1000150,
+      1000150,
+      1000150
+    ],
+    "time_l_peak_rss_bytes": 655163392,
+    "time_l_wall_seconds": 268.16
+  },
+  "before_parallel": {
+    "mode": "parallel",
+    "profile": {
+      "d8c1790a01d34714b6a83bdbde31772e": {
+        "csv_write_cpu_s": 7.806056334999991,
+        "duckdb_cpu_s": 6.274831373000009,
+        "duckdb_wait_s": 5.365621500299312,
+        "duckdb_hold_s": 22.375019456725568,
+        "row_processing_cpu_s": 23.131800000000005
+      },
+      "61e8ef4452b74c11a64706028d5b8577": {
+        "csv_write_cpu_s": 7.820443790000008,
+        "duckdb_cpu_s": 6.079281792999996,
+        "duckdb_wait_s": 7.431701376801357,
+        "duckdb_hold_s": 23.717264708015136,
+        "row_processing_cpu_s": 23.122150082999998
+      },
+      "fa3d41f2ee6548fc92244a52ea9b07f7": {
+        "csv_write_cpu_s": 7.672407458000019,
+        "duckdb_cpu_s": 6.307587957000017,
+        "duckdb_wait_s": 12.959352460224181,
+        "duckdb_hold_s": 28.15764687419869,
+        "row_processing_cpu_s": 22.92797650199996
+      },
+      "6858a50df98d476aa7c79b10842e612b": {
+        "csv_write_cpu_s": 7.723931375999998,
+        "duckdb_cpu_s": 6.4097115,
+        "duckdb_wait_s": 8.895952417864464,
+        "duckdb_hold_s": 27.293182375025935,
+        "row_processing_cpu_s": 23.290006416000004
+      },
+      "53934ee3f8244f72ac34b6513bb20380": {
+        "csv_write_cpu_s": 7.009445958999983,
+        "duckdb_cpu_s": 9.879275957000004,
+        "duckdb_wait_s": 0.1689140407834202,
+        "duckdb_hold_s": 9.948243085877039,
+        "row_processing_cpu_s": 24.807853584000007
+      }
+    },
+    "tshark_cpu_seconds_sampled": 171.52358848,
+    "files": 5,
+    "frames": 5000750,
+    "input_bytes": 1310052620,
+    "seconds": 199.36198312498163,
+    "frames_per_second": 25083.76934064199,
+    "workers": 4,
+    "cpu_cores": 10,
+    "available_ram_bytes_at_start": 8285683712,
+    "process_tree_peak_rss_bytes": 2604679168,
+    "capture_counts": [
+      1000150,
+      1000150,
+      1000150,
+      1000150,
+      1000150
+    ],
+    "time_l_peak_rss_bytes": 861634560,
+    "time_l_wall_seconds": 199.59,
+    "profile_totals": {
+      "csv_write_cpu_s": 38.032284918,
+      "duckdb_cpu_s": 34.950688580000026,
+      "duckdb_wait_s": 34.821541795972735,
+      "duckdb_hold_s": 111.49135649984237,
+      "row_processing_cpu_s": 117.27978658499998
+    }
+  },
+  "after_serial": {
+    "mode": "serial",
+    "profile": {
+      "f5ce1770e9674555a8415bbb29913a4a": {
+        "csv_write_cpu_s": 7.077059749000004,
+        "duckdb_cpu_s": 9.280035206999994,
+        "duckdb_wait_s": 0.16691850102506578,
+        "duckdb_hold_s": 9.323335124063306,
+        "row_processing_cpu_s": 23.15328421
+      },
+      "80a2df585be24a0c83c1c78154523b4a": {
+        "csv_write_cpu_s": 7.042754707000043,
+        "duckdb_cpu_s": 9.53388470800001,
+        "duckdb_wait_s": 0.15722616598941386,
+        "duckdb_hold_s": 9.590061084134504,
+        "row_processing_cpu_s": 23.027376168999943
+      },
+      "dddc15c06dee4d478c658537ca7b186b": {
+        "csv_write_cpu_s": 7.06489045699999,
+        "duckdb_cpu_s": 9.703458126999976,
+        "duckdb_wait_s": 0.16091887431684881,
+        "duckdb_hold_s": 9.766028584796004,
+        "row_processing_cpu_s": 23.106074000000035
+      },
+      "419838b3292a4bacb2abcb9d84776cdd": {
+        "csv_write_cpu_s": 7.071614043000054,
+        "duckdb_cpu_s": 9.651775498999996,
+        "duckdb_wait_s": 0.1685559181496501,
+        "duckdb_hold_s": 9.716134957852773,
+        "row_processing_cpu_s": 23.25467829199995
+      },
+      "65ec7ac361dd4e2785a42fd5fc62975b": {
+        "csv_write_cpu_s": 7.041831500000143,
+        "duckdb_cpu_s": 9.801343624999987,
+        "duckdb_wait_s": 0.1600473348516971,
+        "duckdb_hold_s": 9.890615040785633,
+        "row_processing_cpu_s": 22.998938415999874
+      }
+    },
+    "tshark_cpu_seconds_sampled": 170.241789952,
+    "files": 5,
+    "frames": 5000750,
+    "input_bytes": 1310052620,
+    "seconds": 271.29432604194153,
+    "frames_per_second": 18432.93250160674,
+    "workers": 1,
+    "cpu_cores": 10,
+    "available_ram_bytes_at_start": 8294711296,
+    "process_tree_peak_rss_bytes": 1359822848,
+    "capture_counts": [
+      1000150,
+      1000150,
+      1000150,
+      1000150,
+      1000150
+    ],
+    "time_l_peak_rss_bytes": 744095744,
+    "time_l_wall_seconds": 271.52,
+    "profile_totals": {
+      "csv_write_cpu_s": 35.29815045600023,
+      "duckdb_cpu_s": 47.97049716599996,
+      "duckdb_wait_s": 0.8136667943326756,
+      "duckdb_hold_s": 48.28617479163222,
+      "row_processing_cpu_s": 115.5403510869998
+    }
+  },
+  "after_parallel": {
+    "mode": "parallel",
+    "profile": {
+      "3214891d40ac434cb0781d9a239bf819": {
+        "csv_write_cpu_s": 7.865326707999985,
+        "duckdb_cpu_s": 6.217949457999998,
+        "duckdb_wait_s": 25.46152566326782,
+        "duckdb_hold_s": 25.98391250288114,
+        "row_processing_cpu_s": 19.55086920900002
+      },
+      "17f89c6ecd2b47abb4896d9d434dcf9d": {
+        "csv_write_cpu_s": 7.882517210000005,
+        "duckdb_cpu_s": 6.462357708999985,
+        "duckdb_wait_s": 25.490846209810115,
+        "duckdb_hold_s": 28.64332766609732,
+        "row_processing_cpu_s": 21.126938164000013
+      },
+      "c990970239ac49f39a71e72258af8c85": {
+        "csv_write_cpu_s": 7.825484080999981,
+        "duckdb_cpu_s": 6.465372874000016,
+        "duckdb_wait_s": 28.198412499856204,
+        "duckdb_hold_s": 28.211351167294197,
+        "row_processing_cpu_s": 20.600767420000004
+      },
+      "0c32d9dc20a84fb4ae3c7a1e5214f214": {
+        "csv_write_cpu_s": 7.834193041999997,
+        "duckdb_cpu_s": 6.469737501999981,
+        "duckdb_wait_s": 28.465506207663566,
+        "duckdb_hold_s": 26.620468292967416,
+        "row_processing_cpu_s": 21.897512665000022
+      },
+      "8d557a48a479437abbe938213db484de": {
+        "csv_write_cpu_s": 7.777391042999996,
+        "duckdb_cpu_s": 6.324622872999999,
+        "duckdb_wait_s": 28.57280608592555,
+        "duckdb_hold_s": 27.84528262214735,
+        "row_processing_cpu_s": 20.933099834000007
+      }
+    },
+    "tshark_cpu_seconds_sampled": 171.98731136,
+    "files": 5,
+    "frames": 5000750,
+    "input_bytes": 1310052620,
+    "seconds": 183.53682774992194,
+    "frames_per_second": 27246.575313014404,
+    "workers": 5,
+    "cpu_cores": 10,
+    "available_ram_bytes_at_start": 8662040576,
+    "process_tree_peak_rss_bytes": 2849832960,
+    "capture_counts": [
+      1000150,
+      1000150,
+      1000150,
+      1000150,
+      1000150
+    ],
+    "time_l_peak_rss_bytes": 932954112,
+    "time_l_wall_seconds": 183.8,
+    "profile_totals": {
+      "csv_write_cpu_s": 39.18491208399996,
+      "duckdb_cpu_s": 31.94004041599998,
+      "duckdb_wait_s": 136.18909666652326,
+      "duckdb_hold_s": 137.30434225138742,
+      "row_processing_cpu_s": 104.10918729200006
+    }
+  },
+  "equality": {
+    "capture_ids_normalized_by_filename": true,
+    "compared_fields": [
+      "frame",
+      "ts",
+      "iface",
+      "src",
+      "dst",
+      "sport",
+      "dport",
+      "proto",
+      "ipid",
+      "seq",
+      "ack",
+      "flags",
+      "length",
+      "wirelen",
+      "caplen",
+      "prefix",
+      "payload_hash",
+      "signature",
+      "tuple_key",
+      "reverse_tuple",
+      "stream",
+      "ttl",
+      "dscp",
+      "mss",
+      "window",
+      "retrans",
+      "fast_retrans",
+      "spurious",
+      "out_of_order",
+      "acked_unseen",
+      "zero_window",
+      "rtt",
+      "unsupported",
+      "frame_hash",
+      "icmp_id",
+      "icmp_seq",
+      "icmp_type",
+      "dns_id",
+      "dns_response"
+    ],
+    "captures": [
+      {
+        "file": "point-0.pcap",
+        "rows": 1000150,
+        "mismatched_rows": 0
+      },
+      {
+        "file": "point-1.pcap",
+        "rows": 1000150,
+        "mismatched_rows": 0
+      },
+      {
+        "file": "point-2.pcap",
+        "rows": 1000150,
+        "mismatched_rows": 0
+      },
+      {
+        "file": "point-3.pcap",
+        "rows": 1000150,
+        "mismatched_rows": 0
+      },
+      {
+        "file": "point-4.pcap",
+        "rows": 1000150,
+        "mismatched_rows": 0
+      }
+    ],
+    "rows": 5000750,
+    "mismatched_rows": 0
+  }
+}

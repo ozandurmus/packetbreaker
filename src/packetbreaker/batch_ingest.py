@@ -34,11 +34,15 @@ class Cancellation:
         return self.global_event.is_set() or self.file_event.is_set()
 
 
-def ingest_many(project, paths, *, cancel=None, file_cancels=None, progress=None, workers=None, **settings):
+def ingest_many(
+    project, paths, *, cancel=None, file_cancels=None, progress=None, workers=None, parallel=False, **settings
+):
     paths = normalize_paths(paths)
     if not paths:
         return []
     count = worker_budget(len(paths))
+    if not parallel and workers is None:
+        count = min(count, 1)
     if workers is not None:
         if workers < 1:
             raise ValueError("Worker override must be positive")

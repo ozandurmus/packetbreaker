@@ -231,3 +231,57 @@ unique segments and shows their class lines below the shared headline.
 
 Part 1 ships as 0.1.2, invalidating older cached analysis reports so the segment
 headline shape is regenerated; current-schema packet indexes remain reusable.
+
+## Phase 2 / Part 2: bucketed path observations
+
+`segment_buckets` stores a grid for every directed adjacent segment. Epoch-aligned
+buckets default to 1 second (`bucket_seconds`, 0.1–3600 seconds). The grid covers
+the requested interval, or the union of validated capture coverage; missing-loss
+classification remains bounded by the analysis overlap. Outside endpoint coverage
+is `not capturing`, missing clock coverage is `unknown coverage`, boundary buckets
+are `partial coverage`, and unavailable
+metrics are SQL NULL. Zero is used only for an observed zero count/rate in a full
+covered bucket. The grid is limited to 200,000 cells; larger windows require a
+coarser bucket or a narrower interval.
+
+Rates use upstream observations, loss classes use eligible upstream candidates,
+and transit quantiles use matched eligible packet occurrences. RTT remains local
+tshark ACK RTT, not isolated hop transit. Each metric carries its unit and exact
+meaning in the API. Coverage bounds cannot establish capture continuity.
+
+Onset baselines use five early covered, matchable samples. Loss needs an initially
+loss-free reference; capture misses and unknown events only add quality notes.
+Count signals use a fixed reference event count/exposure and per-bucket MAD, then
+a rolling 15-second evidence window rounded up to whole buckets (minimum two).
+The window must exceed the robust baseline threshold and contain at least three
+excess events across two buckets. The reported onset is the first excess-event
+bucket; the later threshold crossing and confirmation are stored separately.
+Latency retains rolling median/MAD and two consecutive crossings.
+
+Raw loss, TCP, retransmission and failed-handshake counts persist beside displayed
+rates. Counter onsets do not reconstruct integer counts from rounded percentages.
+Rates use summed denominators over the window; count-only metrics use event counts
+per bucket. Failed handshakes count each session at its first blocked attempt; SYN
+retries remain packet-loss events but do not create additional failed connections. Covered/matchable samples with quality notes remain available. Missing
+metric values are reported per metric, not used to invalidate every other signal.
+Summary status aggregates segment results as detected/none/partial/unknown.
+
+Retransmission, reset and zero-window onsets are local capture signals with original
+frame evidence. They are excluded from network-hop prime-suspect ordering; supported
+loss, matched transit p95 and blocked handshakes retain segment attribution.
+
+The heatmap is an ECharts grid with metric selection, missing-data states and onset
+diamonds. A horizontal brush selects a half-open corrected-time interval. Flow rows
+are filtered by observations in the interval (their totals still describe the full
+analysis); findings are regrouped from interval events with fresh frame evidence;
+ladder packet identities and event/point metrics are filtered by time. Analysis and
+its baseline remain unchanged when brushing. Onset summaries remain full-window.
+
+The per-bucket matchable fraction is checked independently at both endpoints. A
+brief unmatchable interval cannot inherit a healthy whole-window ratio and turn
+into a false zero-loss cell or onset. Part 2 ships as 0.1.3; old reports are
+invalidated, while current packet indexes remain reusable.
+
+Review 0.1.4 invalidates old reports while retaining packet indexes.
+Default pytest excludes registered `slow` real-tshark matrices and large repeated-analysis fixtures;
+explicit slow selection runs every matrix case. No tests were deleted.

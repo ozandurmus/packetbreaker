@@ -1,4 +1,4 @@
-# PacketBreaker validation — through Phase 2 / Part 1
+# PacketBreaker validation — through Phase 2 / Part 2 review
 
 The Phase 1.1 measurements and regression results below supersede the historical
 Phase 1 checks. The later Phase 2 / Part 1 section records the currently authorized infrastructure changes. Other Phase 2 work remains unstarted.
@@ -264,7 +264,154 @@ build and artifact upload. The matrix results were:
 
 Both Windows jobs verified `C:\Program Files\Wireshark\tshark.exe` exists, starts,
 and is returned by Python auto-detection. The single-job push policy also passed.
-The GitHub repository is private; `demo/`, capture files and databases are untracked.
+The GitHub repository was initially private (made public during PR #2 review); `demo/`, capture files and databases are untracked.
 The initial baseline was pushed to main once as requested; all Part 1 work is on
 `phase2-part1`, with one commit for each numbered item. PR #1 stays open with
 no auto-merge. Other Phase 2 work remains outside scope.
+
+## Phase 2 / Part 2 — equal-file ingest re-check (item 0)
+
+Five equal synthetic inputs, each **1,000,150 frames / 262,010,524 bytes**:
+**5,000,750 frames / 1,310,052,620 bytes** total. Fresh indexes for every run,
+warm local SSD caches, timed stages sequential without concurrent tests/builds.
+The machine has 10 logical cores. No real capture was read for this benchmark.
+
+| Implementation | Mode / workers | Ingest seconds | Frames/s | `time -l` peak RSS (B) | Sampled process-tree peak RSS (B) |
+|---|---|---:|---:|---:|---:|
+| before | serial / 1 | 267.91 | 18666 | 655,163,392 | 1,248,722,944 |
+| before | parallel / 4 | 199.36 | 25084 | 861,634,560 | 2,604,679,168 |
+| after | serial / 1 | 271.29 | 18433 | 744,095,744 | 1,359,822,848 |
+| after | parallel / 5 | 183.54 | 27247 | 932,954,112 | 2,849,832,960 |
+
+Initial speedup: **1.34×**. Repeated tuple serialization and packet-signature hashing
+were reduced with bounded 65,536-entry caches, preserving the exact stored values.
+Afterward: **1.48×**, still below 1.5×. Available RAM selected four workers before
+and five afterward (8.29 / 8.66 decimal GB available); this is not a controlled
+claim that caching alone produced the wall-time improvement. Even the more
+favorable five-worker run did not meet the threshold. **Serial is the default**;
+parallel remains an explicit API/CLI/UI option with the same resource budget.
+
+The parallel profile measured 171.52 / 171.99 sampled tshark CPU seconds before /
+after. Python row-processing CPU was 117.28 / 104.11 seconds and CSV-write CPU
+38.03 / 39.18 seconds. Aggregate DuckDB connection-wait/open wall time was 34.82 /
+136.19 seconds; held-connection wall time was 111.49 / 137.30 seconds. More
+simultaneous files increase contention at the single writer. Python row processing
+and CSV serialization retain the GIL; tshark parallelism does not make the entire
+pipeline parallel. These summed per-file durations overlap and must not be added
+to predict wall time. Counters are sampled per process or collected per batch;
+connection-wait includes connection opening, not just lock acquisition.
+
+Exact before/after comparison: **5,000,750 rows, zero mismatches across all 39 packet
+fields**, with the random capture ID normalized by filename (the 40th column).
+The parser/cache/cancel regressions passed. `time -l` RSS is a per-process high-water
+mark; the separately sampled 100 ms process-tree sum can count shared pages twice.
+The resource ratio remains a scheduling estimate, not an enforced RSS limit.
+
+Reproduce with `tools/large_benchmark.py generate INPUT --frames 1000000
+--small-frames 1000000`, then `/usr/bin/time -l python tools/parallel_benchmark.py
+serial|parallel INPUT FRESH_OUTPUT --profile`. The script explicitly opts into
+parallel mode. Use `tools/compare_indexes.py BEFORE_PROJECT AFTER_PROJECT OUTPUT.json`
+for exact equality. [Raw measurements](phase2-part2-benchmark.json) retain the
+profile totals, exact frame counts and both memory measurements.
+
+## Phase 2 / Part 2 — onset and heatmap acceptance
+
+Part 2 started only after PR #1 was explicitly authorized and merged into main
+(`eccf81e19ef3a9a267a6453a760972acdaa916fb`). Work is on `phase2-part2`; no direct
+main push or auto-merge. The package and bundled UI identify as **0.1.3**.
+
+The suite now contains **228 tests** (203 in Part 1). Focused local gates passed:
+
+- Four 40-second synthetic scenarios: loss onset, delay onset, upstream loss then
+  a later downstream delay, and capture-miss only. Every scenario is tested with
+  zero/constant IPv4 IDs and both corresponding IPv6 variants: 16 combinations.
+- All expected onsets were detected at the correct forward segment within one
+  bucket. No unexpected forward onset appeared. Capture-miss-only generated no
+  onset in either direction. Propagation ordering and the prime-suspect segment
+  matched ground truth. Original-frame evidence and threshold explanations exist.
+- 0.5 s and 2 s buckets retained the correct onset/order on the IPv6 propagation
+  fixture. Insufficient or already-lossy baselines report unknown; isolated spikes
+  do not confirm onset. These are deterministic synthetic acceptance checks, not
+  a general statistical false-positive/false-negative guarantee.
+- Stored throughput/pps and loss-class denominators were checked against SQL
+  counts. Coverage outside the captures remains NULL / not capturing. Unknown
+  clock coverage remains unknown, not not-capturing. Transient bucket-level
+  unmatchability suppresses loss/latency even if whole-window matchability is high.
+- API checks verify half-open time filtering for flow membership, findings and
+  ladder packets, and reject non-finite times. Existing API/headline regressions
+  passed. Ruff and the TypeScript/Vite production build passed.
+
+Interactive local QA used only generated IPv6/zero-ID propagation captures in a
+scratch project. A healthy brush interval removed the later loss findings and
+restricted ladder packet times to that selection. Transit-p95 selection displayed
+the later downstream change and onset diamonds. Widening the synthetic analysis
+window showed grey `NC` cells on both ends, with partial/unknown cells distinct
+from zero. Metric tooltips, default-serial preference and the 0.1.3 footer were
+visually checked. No production capture was used in Part 2.
+
+CI policy is unchanged: pushes run macos-14/Python 3.12; PR/manual runs execute all
+six OS/Python combinations, including Windows tshark installation/auto-detection.
+[Part 2 CI runs](https://github.com/ozandurmus/packetbreaker/actions?query=branch%3Aphase2-part2)
+retain the authoritative final results; the final run URL is also recorded in the
+PR close-out. Documentation-only amendments are avoided after that final run.
+
+Limits: the baseline is observational, not proof that the network was historically
+healthy. Onsets use supported network loss and matched transit-p95; traffic volume,
+RTT, retransmission, reset and window counters are contextual heatmap metrics.
+Time order is uncertain within overlapping buckets/clock bounds and does not prove
+causation. The 200,000-cell limit requires coarser buckets for very long windows.
+
+## PR #2 review acceptance — 0.1.4
+
+This section supersedes the earlier onset-baseline and CI scheduling rules above.
+The branch remains `phase2-part2`; no Part 3 work or merge is included. The user
+explicitly requested public repository visibility and no CI for these pushes.
+Capture/secret file-history checks passed before publication. Every review commit
+uses `[skip ci]`; the workflow remains active. GitHub run listings showed no runs
+for these review commits. Cross-platform execution was intentionally not requested.
+
+### README demo regression
+
+Reproduced the prior failure on the NAT-confirmed README demo: **9 losses** on
+**FW egress → LB ingress** (5 recovered, 4 impactful), no sustained onset and an
+unknown overall onset summary. With the reviewed detector:
+
+- First loss: **14.102000 s** relative to the synthetic reference epoch.
+- Reported onset: **14.000 s**, the first loss bucket, at the correct segment.
+- Confirmation/threshold crossing: bucket **19**, after three loss events.
+- Reference loss rate: **0%**; rolling minimum event count: **3**.
+- Eight original/recovery frame references; overall status **detected**.
+- Sole forward prime-suspect segment: `forward:p2:p3`.
+
+`recovered_loss` and `impactful_loss` also detect the first loss within one bucket.
+New fixtures cover one loss every 2, 3, 4 or 5 seconds and seeded Bernoulli p=0.02
+loss, including zero-ID IPv4 and IPv6. Random realized counts, not an assertion of
+exactly 2% in a finite sample, remain ground truth. Quality-only samples do not
+invent loss or invalidate usable baselines; mixed valid/unknown segments retain
+per-segment status. Counter tests cover single events, isolated buckets, sustained
+excess counts, nonzero reference counts and actual SYN/retransmission/RST/zero-window
+frame evidence. SYN retries do not create additional failed connections.
+
+### Full local suite, disjoint selections
+
+| Invocation | Passed | Deselected | pytest duration | End-to-end wall time |
+|---|---:|---:|---:|---:|
+| Default `pytest -q` | 90 | 164 | **103.38 s** | 103.91 s |
+| `pytest -m slow -q` | 164 | 90 | **627.54 s** | 628.07 s |
+
+**All 254 tests passed locally, with no warnings.** Suites ran sequentially. No
+cases were deleted; the extra real-tshark identity/scenario matrices, 50-client
+fixtures and repeated-analysis headline/bucket checks are explicitly marked slow.
+The fast selection retains the README regression, API/ingest/cancel-resume tests,
+IPv4/IPv6 evidence filters, baseline/quality logic and TCP event-floor checks.
+The full validation remains substantial; it is not presented as a two-minute run.
+
+The first fast selection took 138 s; an explicit bucket-insert transaction trial
+did not improve it and was reverted. Moving the large repeated-analysis fixtures
+to the registered slow group provided headroom below the local two-minute target.
+Ruff, TypeScript/Vite and the 0.1.4 sdist/wheel build passed.
+
+PR/manual CI runs fast checks on all six OS/Python combinations. Slow checks run
+only once, on macos-14/Python 3.12, and are not repeated for push events. Push CI
+remains fast macos-14/Python 3.12 only. This policy is configured but was deliberately
+not executed for this review, per the user's instruction.

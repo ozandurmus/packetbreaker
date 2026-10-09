@@ -44,6 +44,7 @@ def test_files_run_concurrently_with_individual_cancel(tmp_path):
                 None,
                 [tmp_path / "a", tmp_path / "b"],
                 file_cancels=local,
+                parallel=True,
                 progress=lambda **s: states.append(s),
             )
     assert sorted(seen) == ["a", "b"]
@@ -78,3 +79,23 @@ def test_parallel_real_tshark_cancel_and_resume(tmp_path, tshark):
     assert all(c["state"] == "ready" and c["inventory"]["packet_count"] == 155 for c in project.inventory())
     with project.connect() as db:
         assert db.execute("SELECT count(*) FROM packets").fetchone()[0] == 775
+
+
+def test_serial_default_and_parallel_opt_in(tmp_path):
+    states = []
+
+    def fake(project, path, progress, **kwargs):
+        progress(state="ready", frames=1)
+        return str(path)
+
+    with (
+        patch("packetbreaker.batch_ingest.worker_budget", return_value=2),
+        patch("packetbreaker.batch_ingest.ingest", fake),
+    ):
+        ingest_many(None, [tmp_path / "a", tmp_path / "b"], progress=lambda **s: states.append(s))
+        assert {s["workers"] for s in states} == {1}
+        states.clear()
+        ingest_many(
+            None, [tmp_path / "a", tmp_path / "b"], parallel=True, progress=lambda **s: states.append(s)
+        )
+        assert {s["workers"] for s in states} == {2}

@@ -32,6 +32,7 @@ export type Mapping = {
   evidence?: Ref[];
 };
 export type Topology = {
+  bucket_seconds?: number;
   report_timezone?: string | null;
   points: Point[];
   forward: string[];
@@ -95,6 +96,13 @@ export type Finding = {
   metrics: Record<string, number>;
 };
 export type Segment = {
+  onset_status?: string;
+  onset_quality_notes?: {
+    capture_misses: number;
+    unknown_events: number;
+    reasons: string[];
+  };
+  onset_reasons?: { metric: string; reason: string }[];
   headline?: string;
   finding_ids?: string[];
   severity?: string;
@@ -117,6 +125,26 @@ export type Segment = {
   offset_uncertainty_ms: number | null;
 };
 export type Report = {
+  onsets?: {
+    directions: Record<
+      string,
+      {
+        prime_suspects: string[];
+        propagation_order: { time: number; segments: string[] }[];
+        caveat: string;
+      }
+    >;
+    status: string;
+    summary: string;
+    items: {
+      segment: string;
+      metric: string;
+      bucket: number;
+      time: number;
+      explanation: string;
+      evidence: Ref[];
+    }[];
+  };
   auto_order_suggestion?: { points: string[]; reason: string };
   verdict: string;
   scope: string;
@@ -184,7 +212,7 @@ export type State = {
   captures: Capture[];
   topology: Topology;
   report: Report | null;
-  settings: { tshark?: string; prefix_bytes?: number };
+  settings: { tshark?: string; prefix_bytes?: number; parallel?: boolean };
   tshark: { path: string | null; error: string | null };
   job: Job;
 };
@@ -236,4 +264,21 @@ export type Ladder = {
     evidence: Ref[];
   }[];
   events: { point_b: string; kind: string; ts: number; packet_key: string }[];
+};
+
+export type TimeSeries = {
+  start: number;
+  end: number;
+  bucket_seconds: number;
+  bucket_count: number;
+  metrics: Record<string, { label: string; unit: string; tooltip: string }>;
+  items: ({
+    segment: string;
+    direction: string;
+    bucket: number;
+    start: number;
+    end: number;
+    coverage: string;
+    reason: string | null;
+  } & Record<string, number | string | null>)[];
 };

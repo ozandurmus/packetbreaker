@@ -88,3 +88,52 @@ The measured five-file workload is highly skewed and showed no concurrency speed
 (293.49 s serial versus 302.45 s with four workers). Keep parallelism for independent
 files and per-file controls without claiming a measured throughput gain. The RAM
 ratio is a worker scheduling estimate, not a hard aggregate memory cap.
+
+## Phase 2 / Part 2 — ingest default
+
+The equal-file benchmark reached 1.34× initially and 1.48× after bounded tuple and
+signature memoization. It did not reach 1.5× even with five instead of four allowed
+workers. Keep the measured serial path as default; opt into parallel via Settings,
+`parallel: true` in preferences, or `demo --parallel-ingest`. Independent tshark
+processes still feed Python row/CSV work under the GIL and serialized DuckDB writes.
+A process/shard rewrite is not justified by this bounded request; do not claim an
+unmeasured speedup. Exact packet-field equality was verified on all 5,000,750 rows.
+
+## Phase 2 / Part 2 onset semantics
+
+- Baseline usability depends on observed coverage, matchable observations and the
+  requested metric's availability. Capture-miss and unknown-event counts remain
+  quality notes and do not poison other measured signals or the overall summary.
+  Per-segment/per-metric unknown status remains explicit. A stable but already-slow
+  capture cannot prove historical health; an initially lossy loss reference is unknown.
+- Replace adjacent loss crossings with rolling event evidence: a 15-second window,
+  rounded up to whole buckets and at least two buckets, needs three excess events
+  in two event buckets. Backdate to the first event of the sustained run and expose
+  the later confirmation. A single spike/event is not a sustained onset.
+- Counter references use event count/exposure from five initial usable samples.
+  The robust rate threshold is baseline + 6 × 1.4826 × per-bucket MAD; count thresholds
+  additionally require at least three events above baseline expectation. References
+  remain fixed for counters so sparse changes are not absorbed into the baseline.
+  Latency keeps median + max(1 ms, twice clock uncertainty, 6 × 1.4826 × MAD) and two
+  consecutive crossings. Quality annotations do not reset an otherwise usable window.
+- Detect retransmission, failed-handshake, reset and zero-window changes as well.
+  Count a failed session only at its first blocked attempt, not once per SYN retry.
+  Retransmission/reset/window events are local TCP symptoms; they cannot nominate
+  a network-loss hop without segment-backed evidence. Frame refs use the first event
+  bucket's actual SYN, retransmission, RST or zero-window announcement.
+- Propagation order is temporal evidence, not proof of device causation. Tied
+  buckets are unresolved; clock uncertainty may further limit ordering. Earliest
+  observed segments are prime suspects, never confirmed root causes.
+- Brushing filters evidence views without refitting the baseline. Packet evidence
+  may include the same packet at another point just outside the brush, preserving
+  its cross-hop context. All fixtures and performance inputs are synthetic.
+
+## Review validation cost and publication
+
+Keep default pytest below two minutes with explicit `slow` markers on exhaustive
+real-tshark identity/scenario matrices. Fast checks run on every PR/manual OS/Python
+combination; the slow matrix runs once on macos-14/Python 3.12. Push checks are fast
+only. Both suites must pass locally for this review. The user requested no CI for
+these pushes, so commit-local `[skip ci]` is used; the workflow remains active.
+The user explicitly requested public visibility; capture/secret file history checks
+preceded that change. No real captures or new Part 3 features were added.

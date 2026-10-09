@@ -3,6 +3,7 @@ from packetbreaker.analysis import analyze
 from packetbreaker.headlines import time_labels
 
 
+@pytest.mark.slow
 def test_headline_counts_denominators_and_both_timezones(scenarios):
     project, truth, topology, _ = scenarios("demo", ip_id="zero")
     with project.connect() as db:
@@ -30,6 +31,7 @@ def test_headline_counts_denominators_and_both_timezones(scenarios):
     )
 
 
+@pytest.mark.slow
 def test_does_not_claim_no_upstream_loss_without_complete_evidence(scenarios):
     project, _, topology, _ = scenarios("recovered_loss", rounds=45)
     with project.connect() as db:
@@ -50,6 +52,7 @@ def test_dst_time_conversion_uses_event_date():
     assert "-05:00" in winter["local"] and "-04:00" in summer["local"]
 
 
+@pytest.mark.slow
 def test_later_reset_does_not_turn_quick_recovery_into_a_stall(scenarios):
     from packetbreaker.store import PACKET_COLUMNS, rows
 
@@ -80,6 +83,7 @@ def test_later_reset_does_not_turn_quick_recovery_into_a_stall(scenarios):
     assert segment["headline_metrics"]["max_stall_ms"] is None
 
 
+@pytest.mark.slow
 def test_multiple_classes_share_one_segment_headline(scenarios):
     project, _, topology, report = scenarios("demo", ip_id="constant")
     topology = {

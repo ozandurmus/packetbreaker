@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "packetbreaker"
-version = "0.1.2"
+version = "0.1.4"
 description = "Local, evidence-first multi-hop packet capture correlation"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,6 +25,8 @@ packetbreaker = ["static/**/*", "static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not slow'"
+markers = ["slow: exhaustive real-tshark matrices and large repeated-analysis fixtures; run explicitly with -m slow"]
 filterwarnings = ["error::starlette.exceptions.StarletteDeprecationWarning"]
 
 [tool.ruff]

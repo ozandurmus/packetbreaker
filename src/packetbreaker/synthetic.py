@@ -16,14 +16,14 @@ def checksum(data):
     return (~value) & 0xFFFF
 
 
-def tcp_packet(src, dst, sport, dport, seq, ack, flags, payload, ipid, ttl=64):
+def tcp_packet(src, dst, sport, dport, seq, ack, flags, payload, ipid, ttl=64, window=65535):
     ipv6 = ":" in src
     a, b = (
         (socket.inet_pton(socket.AF_INET6, src), socket.inet_pton(socket.AF_INET6, dst))
         if ipv6
         else (socket.inet_aton(src), socket.inet_aton(dst))
     )
-    tcp = struct.pack("!HHIIBBHHH", sport, dport, seq, ack, 5 << 4, flags, 65535, 0, 0) + payload
+    tcp = struct.pack("!HHIIBBHHH", sport, dport, seq, ack, 5 << 4, flags, window, 0, 0) + payload
     pseudo = a + b + (struct.pack("!I3xB", len(tcp), 6) if ipv6 else struct.pack("!BBH", 0, 6, len(tcp)))
     tcp = tcp[:16] + struct.pack("!H", checksum(pseudo + tcp)) + tcp[18:]
     if ipv6:
@@ -67,6 +67,10 @@ def generate(
     ip_id="increment",
     ipv6=False,
 ):
+    if scenario.startswith("onset_"):
+        from .onset_synthetic import generate_onset
+
+        return generate_onset(directory, scenario, ip_id, ipv6, loss_hop, onset)
     if scenario.startswith("realistic_"):
         from .realistic import generate_realistic
 

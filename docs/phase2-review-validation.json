@@ -1,0 +1,33 @@
+{
+  "segment": "FW egress \u2192 LB ingress",
+  "classes": {
+    "recovered_loss": 5,
+    "impactful_loss": 4
+  },
+  "onset_relative_seconds": 14.0,
+  "first_loss_relative_seconds": 14.10200047492981,
+  "first_event_bucket": 14,
+  "confirmation_bucket": 19,
+  "window_events": 3,
+  "count_threshold": 3,
+  "baseline_value": 0.0,
+  "overall_status": "detected",
+  "prime_suspects": [
+    "forward:p2:p3"
+  ],
+  "evidence_frames": 8,
+  "validation": {
+    "fast": {
+      "passed": 90,
+      "seconds": 103.38,
+      "wall_seconds": 103.91
+    },
+    "slow": {
+      "passed": 164,
+      "seconds": 627.54,
+      "wall_seconds": 628.07
+    },
+    "ci": "intentionally not triggered",
+    "repository_visibility": "public"
+  }
+}

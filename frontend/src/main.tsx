@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from "react";
+import { Heatmap } from "./Heatmap";
+import type { TimeSeries, Finding } from "./types";
+import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, num, time, reverseTuple } from "./api";
 import { Coverage, LadderChart } from "./Charts";
@@ -123,6 +125,17 @@ function Evidence({ refs, onClose }: { refs: Ref[]; onClose: () => void }) {
   );
 }
 function App() {
+  const [series, setSeries] = useState<TimeSeries | null>(null);
+  const [range, setRange] = useState<[number, number] | null>(null);
+  const [rangeFindings, setRangeFindings] = useState<Finding[] | null>(null);
+  const rangeQuery = range ? `&start=${range[0]}&end=${range[1]}` : "";
+  const selectRange = useCallback((r: [number, number] | null) => {
+    setRange(r);
+    setFlowOffset(0);
+    setLadderOffset(0);
+    setEvents(null);
+  }, []);
+
   const [state, setState] = useState<State | null>(null),
     [tab, setTab] = useState("Overview"),
     [error, setError] = useState(""),
@@ -158,8 +171,36 @@ function App() {
     segment: Segment;
     offset: number;
   } | null>(null);
+  const [parallelIngest, setParallelIngest] = useState(false);
   const [tsharkPath, setTsharkPath] = useState(""),
     [prefix, setPrefix] = useState(64);
+  useEffect(() => {
+    setRange(null);
+    setSeries(null);
+    if (!state?.report) return;
+    let active = true;
+    api<TimeSeries>("/timeseries")
+      .then((s) => {
+        if (active && s.bucket_count) setSeries(s);
+      })
+      .catch(fail);
+    return () => {
+      active = false;
+    };
+  }, [state?.report]);
+  useEffect(() => {
+    setRangeFindings(null);
+    if (!range || !state?.report) return;
+    let active = true;
+    api<{ items: Finding[] }>(`/findings?start=${range[0]}&end=${range[1]}`)
+      .then((r) => {
+        if (active) setRangeFindings(r.items);
+      })
+      .catch(fail);
+    return () => {
+      active = false;
+    };
+  }, [range, state?.report]);
   async function refresh() {
     const s = await api<State>("/state");
     setState(s);
@@ -168,6 +209,7 @@ function App() {
     setProjectPath(s.project);
     setTsharkPath(s.settings.tshark || "");
     setPrefix(s.settings.prefix_bytes || 64);
+    setParallelIngest(s.settings.parallel ?? false);
   }
   const fail = (e: unknown) =>
     setError(e instanceof Error ? e.message : String(e));
@@ -205,7 +247,7 @@ function App() {
     const timer = setTimeout(
       () =>
         api<{ total: number; items: Flow[] }>(
-          `/flows?offset=${flowOffset}&search=${encodeURIComponent(search)}&filter_by=${filter}&sort=${sort}`,
+          `/flows?offset=${flowOffset}&search=${encodeURIComponent(search)}&filter_by=${filter}&sort=${sort}${rangeQuery}`,
         )
           .then((r) => {
             if (active) setFlows(r);
@@ -217,11 +259,13 @@ function App() {
       active = false;
       clearTimeout(timer);
     };
-  }, [state?.report, flowOffset, search, filter, sort, job.busy]);
+  }, [state?.report, flowOffset, search, filter, sort, job.busy, rangeQuery]);
   useEffect(() => {
     if (!selectedFlow) return;
     let active = true;
-    api<Ladder>(`/flows/${selectedFlow.flow}/ladder?offset=${ladderOffset}`)
+    api<Ladder>(
+      `/flows/${selectedFlow.flow}/ladder?offset=${ladderOffset}${rangeQuery}`,
+    )
       .then((r) => {
         if (active) setLadder(r);
       })
@@ -229,7 +273,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [selectedFlow, ladderOffset]);
+  }, [selectedFlow, ladderOffset, rangeQuery]);
   async function action(fn: () => Promise<unknown>) {
     setError("");
     setNotice("");
@@ -298,7 +342,7 @@ function App() {
       items: NonNullable<typeof events>["items"];
       total: number;
     }>(
-      `/events?a=${s.point_a}&b=${s.point_b}&direction=${s.direction}&offset=${offset}`,
+      `/events?a=${s.point_a}&b=${s.point_b}&direction=${s.direction}&offset=${offset}${rangeQuery}`,
     );
     setEvents({ label: s.label, ...page, segment: s, offset });
   }
@@ -311,6 +355,7 @@ function App() {
       </div>
     );
   const report = state.report;
+  const visibleFindings = range ? rangeFindings || [] : report?.findings || [];
   const ready = state.captures.filter((c) => c.state === "ready").length;
   const kinds =
     report?.findings.reduce(
@@ -351,7 +396,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 2 / PART 1 · v0.1.2</small>
+          <small>PHASE 2 / PART 2 · v0.1.4</small>
         </div>
       </aside>
       <main>
@@ -484,8 +529,87 @@ function App() {
           </section>
         )}
         <div className="content">
+          {range && (
+            <section>
+              <strong>
+                Selected interval: {new Date(range[0] * 1000).toISOString()} –{" "}
+                {new Date(range[1] * 1000).toISOString()}
+              </strong>
+              <p className="hint">
+                Flows, findings and ladder are filtered to this half-open
+                interval. Flow totals describe the complete analysis; onset
+                estimates use the full baseline.
+              </p>
+              <button onClick={() => selectRange(null)}>Clear selection</button>
+            </section>
+          )}
           {tab === "Overview" && (
             <>
+              {report?.onsets && (
+                <section>
+                  <h2>Degradation onset</h2>
+                  <p>{report.onsets.summary}</p>
+                  {Object.entries(report.onsets.directions).map(
+                    ([direction, d]) =>
+                      d.propagation_order.length > 0 && (
+                        <p key={direction} className="hint" title={d.caveat}>
+                          Propagation · {direction}:{" "}
+                          {d.propagation_order
+                            .map(
+                              (g) =>
+                                `${g.segments.map((id) => report.segments.find((s) => s.id === id)?.label || id).join(" / ")}${g.segments.length > 1 ? " (order unresolved)" : ""} at ${time(g.time)}`,
+                            )
+                            .join(" → ")}
+                        </p>
+                      ),
+                  )}
+                  <details>
+                    <summary>Onset status and quality notes by segment</summary>
+                    {report.segments.map((s) => (
+                      <div key={s.id}>
+                        <p>
+                          <strong>
+                            {s.label} · {s.direction}: {s.onset_status}
+                          </strong>
+                        </p>
+                        <p className="hint">
+                          Quality notes:{" "}
+                          {s.onset_quality_notes?.capture_misses || 0} capture
+                          misses; {s.onset_quality_notes?.unknown_events || 0}{" "}
+                          unknown events. These are not counted as network loss.
+                        </p>
+                        {s.onset_reasons?.map((r) => (
+                          <p className="hint" key={r.metric}>
+                            {r.metric}: {r.reason}
+                          </p>
+                        ))}
+                        {s.onset_quality_notes?.reasons.map((reason) => (
+                          <p className="hint" key={reason}>
+                            {reason}
+                          </p>
+                        ))}
+                      </div>
+                    ))}
+                  </details>
+                  {report.onsets.items.map((o, i) => (
+                    <button
+                      key={i}
+                      className="finding"
+                      onClick={() => setEvidence(o.evidence)}
+                    >
+                      {o.segment} · {o.explanation}
+                    </button>
+                  ))}
+                </section>
+              )}
+              {report && series && (
+                <Heatmap
+                  data={series}
+                  report={report}
+                  onSelect={selectRange}
+                  selectedRange={range}
+                />
+              )}
               <div className="stats">
                 <div>
                   <Tip text="Completed captures available for correlation. Incomplete files are excluded.">
@@ -607,8 +731,8 @@ function App() {
                         First observed event · click for frame evidence
                       </small>
                     </div>
-                    {report.findings.length ? (
-                      [...new Set(report.findings.map((f) => f.hop))]
+                    {visibleFindings.length ? (
+                      [...new Set(visibleFindings.map((f) => f.hop))]
                         .slice(0, 5)
                         .map((hop) => {
                           const segment = report.segments.find(
@@ -619,8 +743,8 @@ function App() {
                               <h3>
                                 {segment.label} · {segment.direction}
                               </h3>
-                              <p>{segment.headline}</p>
-                              {report.findings
+                              {!range && <p>{segment.headline}</p>}
+                              {visibleFindings
                                 .filter((f) => f.hop === hop)
                                 .map((f) => (
                                   <button
@@ -645,7 +769,11 @@ function App() {
                         })
                     ) : (
                       <div className="empty">
-                        No supported missing-packet events in this analysis.
+                        {range && rangeFindings === null
+                          ? "Loading selected findings…"
+                          : range
+                            ? "No supported missing-packet events in the selected interval."
+                            : "No supported missing-packet events in this analysis."}
                       </div>
                     )}
                   </section>
@@ -1419,6 +1547,18 @@ function App() {
               </section>
               <section>
                 <h2>Packet dissection</h2>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={parallelIngest}
+                    onChange={(e) => setParallelIngest(e.target.checked)}
+                  />{" "}
+                  Parallel ingest (optional)
+                </label>
+                <p className="hint">
+                  Serial is the measured default. Parallel uses spare CPU/RAM,
+                  but did not reach 1.5× speedup in the equal-file benchmark.
+                </p>
                 <p className="hint">
                   Detected: {state.tshark.path || "unknown"}
                 </p>
@@ -1448,6 +1588,7 @@ function App() {
                       await api("/settings", "POST", {
                         tshark: tsharkPath || null,
                         prefix_bytes: prefix,
+                        parallel: parallelIngest,
                       });
                       setNotice(
                         "Settings saved. Reattach files to apply a changed payload prefix.",
@@ -1461,6 +1602,22 @@ function App() {
               </section>
               <section>
                 <h2>Analysis window and thresholds</h2>
+                <label title="Bucket width for stored time series and onset resolution. Re-run analysis after changing it.">
+                  Time bucket (seconds)
+                  <input
+                    type="number"
+                    min="0.1"
+                    max="3600"
+                    step="0.1"
+                    value={topology.bucket_seconds ?? 1}
+                    onChange={(e) =>
+                      setTopology({
+                        ...topology,
+                        bucket_seconds: Number(e.target.value),
+                      })
+                    }
+                  />
+                </label>
                 <div className="two-col">
                   <label>
                     <Tip text="Suppress loss rates when either endpoint's matchable fraction falls below this value. Default 90%.">

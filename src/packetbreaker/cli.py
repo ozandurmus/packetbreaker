@@ -26,6 +26,15 @@ def main():
         "--scenario",
         default="demo",
         choices=[
+            "onset_intermittent_2",
+            "onset_intermittent_3",
+            "onset_intermittent_4",
+            "onset_intermittent_5",
+            "onset_random_loss",
+            "onset_loss",
+            "onset_delay",
+            "onset_propagation",
+            "onset_capture_miss",
             "healthy",
             "demo",
             "capture_miss",
@@ -46,6 +55,9 @@ def main():
             "realistic_syn_blocked",
         ],
     )
+    demo.add_argument(
+        "--parallel-ingest", action="store_true", help="Opt in to resource-bounded parallel ingestion"
+    )
     demo.add_argument("--rounds", type=int, default=100)
     demo.add_argument("--ip-id", choices=["increment", "zero", "constant", "random"], default="increment")
     demo.add_argument("--ipv6", action="store_true")
@@ -63,7 +75,7 @@ def main():
                 args.directory, scenario=args.scenario, rounds=args.rounds, ip_id=args.ip_id, ipv6=args.ipv6
             )
             project = Project(args.directory / "project")
-            ids = ingest_many(project, truth["files"])
+            ids = ingest_many(project, truth["files"], parallel=args.parallel_ingest)
             bind_capture_ids(topology, {Path(path).name: cid for path, cid in zip(truth["files"], ids)})
             report = analyze(project, topology)
             if args.confirm_demo_nat:

@@ -238,6 +238,7 @@ def test_configurable_nat_hop_suggestions(scenarios):
     assert all((m["point_a"], m["point_b"]) == ("p2", "p3") for m in report["nat_suggestions"])
 
 
+@pytest.mark.slow
 def test_short_repeated_loss_is_impactful(scenarios):
     import hashlib
     from packetbreaker.store import PACKET_COLUMNS, rows

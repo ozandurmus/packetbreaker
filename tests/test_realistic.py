@@ -6,6 +6,7 @@ SCENARIOS = ["realistic_healthy", "realistic_capture_miss", "realistic_loss", "r
 
 @pytest.mark.parametrize("scenario", SCENARIOS)
 @pytest.mark.parametrize("mode", ["increment", "zero", "constant", "random"])
+@pytest.mark.slow
 def test_concurrent_protocols_and_asymmetric_path(scenarios, scenario, mode):
     project, truth, topology, report = scenarios(scenario, ip_id=mode, rounds=20)
     expected = Counter((e["type"], e["direction"], e["point_a"], e["point_b"]) for e in truth["events"])
@@ -51,6 +52,7 @@ def test_concurrent_protocols_and_asymmetric_path(scenarios, scenario, mode):
         assert all(s["loss_percent"] == 0 for s in report["segments"])
 
 
+@pytest.mark.slow
 def test_all_clients_ipv6_variant(scenarios):
     project, truth, _, report = scenarios("realistic_capture_miss", ip_id="zero", ipv6=True, rounds=20)
     assert sum(f["metrics"]["count"] for f in report["findings"]) == len(truth["events"])
