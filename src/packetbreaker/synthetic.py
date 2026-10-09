@@ -75,7 +75,12 @@ def generate(
     capture_miss_hop=1,
     ip_id="increment",
     ipv6=False,
+    fault_location="FW",
 ):
+    if scenario in ("integrity_multi", "integrity_multi_asym"):
+        from .attribution_synthetic import generate_attribution
+
+        return generate_attribution(directory, scenario.endswith("_asym"), fault_location, ip_id, ipv6)
     if scenario.startswith("integrity_"):
         from .integrity_synthetic import generate_integrity
 

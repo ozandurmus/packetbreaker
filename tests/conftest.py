@@ -1,3 +1,4 @@
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -34,3 +35,44 @@ def scenarios(tmp_path_factory, tshark):
         return cache[key]
 
     return run
+
+
+@pytest.fixture(scope="session")
+def multi(scenarios, clone_project):
+    cache = {}
+
+    def run(location, mode, asymmetric=False, no_endpoint=False):
+        key = (location, mode, asymmetric, no_endpoint)
+        if key not in cache:
+            project, truth, topology, report = scenarios(
+                "integrity_multi_asym" if asymmetric else "integrity_multi",
+                fault_location=location if asymmetric else "all",
+                ip_id=mode[0],
+                ipv6=mode[1],
+            )
+            if no_endpoint:
+                modified = deepcopy(topology)
+                modified["points"] = [p for p in modified["points"] if p["id"] != "server"]
+                for direction in ("forward", "reverse"):
+                    modified[direction] = [p for p in modified[direction] if p != "server"]
+                project = clone_project(project)
+                report = analyze(project, modified)
+                topology = modified
+            truth = {**truth, "findings": [f for f in truth["findings"] if f["fault_location"] == location]}
+            cache[key] = (project, truth, topology, report)
+        return cache[key]
+
+    return run
+
+
+@pytest.fixture(scope="session")
+def clone_project(tmp_path_factory):
+    def clone(project):
+        from shutil import copyfile
+
+        destination = tmp_path_factory.mktemp("integrity_view")
+        # The fixture database is closed/checkpointed; source captures remain shared read-only.
+        copyfile(project.path / "project.duckdb", destination / "project.duckdb")
+        return Project(destination)
+
+    return clone

@@ -490,3 +490,22 @@ Schema-v3 integrity types are `reset_origin`, `icmp_origin`, `payload_modified`,
 Normal endpoint-origin reset observations are quality annotations; only a bracketed device-origin
 hypothesis gets high severity. Findings include their rule tooltip and portable frame references.
 Window filtering includes integrity findings. Generic full-proxy correlation remains unsupported.
+
+### PR #6 review — multi-device attribution (0.1.9)
+
+Origin checks require an explicitly declared Client/Server capture at the source end of the
+selected direction. A first middlebox capture cannot substitute for it. Matched endpoint
+reference packets project the observed TTL distribution to the candidate's first capture point;
+raw TTL equality at different path positions is not the comparison. An endpoint-compatible
+pattern leaves capture miss unresolved, including with zero/constant IDs. Device first-appearance
+and coverage/clock gates still apply. IP ID observations do not authenticate a source.
+
+Unique header-matched payload changes are indexed once in `modified_payload_pairs` and used
+both to join the physical occurrence and to produce findings. This works across inter-device
+links as well as inside a device. Expected ALG transformations exempt the device boundary,
+not an adjoining link. Link findings retain `device=null` and an explicit link label.
+
+Asymmetry groups a completely bypassed device into one observation, and separately recognizes
+a return-path detour between two otherwise-present points. Both bounding return points and an
+alternate-path observation of the same flow are required. A detoured link is never assigned to
+either adjacent device. Existing report-version invalidation clears pre-fix reports on upgrade.

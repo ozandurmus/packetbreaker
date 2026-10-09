@@ -307,3 +307,24 @@ Duplicate/loop candidates use window `lag` over each identity and compare adjace
 they never form all pairs of a long constant-ID stream. Asymmetry selects the first observed
 forward/return frame per flow before pairing, avoiding a many-to-many evidence join. These bounds
 are independent of the number of identical retransmissions and do not turn repeats into losses.
+
+### PR #6 review: adversarial attribution fixtures
+
+A one-middlebox fixture cannot reject a detector that always names that middlebox. The new
+fixtures contain Client -> FW ingress/egress -> LB ingress/egress -> Server, with a distinct
+pcapng interface for each point and a separate alternate return interface where needed.
+Each case/location uses a distinct TCP tuple. Assertions identify the case by its evidence
+filters, require the exact hop/device (or explicit link with no device), and reject supported
+attribution to any other device for that same case. Sharing indexed fixtures avoids redundant
+tshark launches; it does not share expected answers with the detector. The common synthetic
+clock is exact; independent-clock behavior remains covered by the existing tests.
+
+All seven requested cases run at FW, LB and their connecting link, under IPv4/IPv6 with
+zero/constant IDs. Negative controls include a server capture miss, an additional server+LB-side
+capture gap that fooled the old detector, no endpoint-side capture, equal raw TTL with and without
+sufficient first-appearance evidence, and a pure MTU-sized capture miss. Four weaker standalone
+acceptance cases were replaced by this matrix; no new test was marked slow.
+
+Reset attribution remains conservative: consistent endpoint TTL at the candidate's observation
+point is compatible with a missed endpoint packet. Unknown endpoint identity/coverage cannot
+become a device claim merely because a RST first appears on a device-adjacent capture.

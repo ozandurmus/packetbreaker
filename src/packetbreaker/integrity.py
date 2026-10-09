@@ -9,7 +9,7 @@ LIMIT = 200
 ORIGIN_TIP = (
     "Origin is the first observed point along the configured direction, not the lowest raw timestamp. "
     "Device injection requires a paired ingress/egress, usable clock and coverage, no upstream occurrence, "
-    "and endpoint reference packets. TTL/IP ID are supporting patterns, never authentication. "
+    "and endpoint reference packets. Endpoint-consistent TTL at the same capture point leaves capture miss unresolved. TTL/IP ID are supporting patterns, never authentication. "
     "Unreported capture loss or an unmodelled alternate path can mimic injection; policy/IPS cause is unknown without device evidence."
 )
 
@@ -43,36 +43,48 @@ def endpoint_pattern(samples, packet):
 
 
 def link_modified_payloads(db, topology, models):
-    """A unique same-range header pair with changed bytes is not a disappeared packet."""
+    """Index unique header-matched payload changes once for matching and findings."""
     points = {p.id: p for p in topology.points}
-    for direction, path in (
-        ("forward", topology.forward),
-        ("reverse", topology.reverse or topology.forward[::-1]),
-    ):
-        for a, b in zip(path, path[1:]):
-            if points[a].device != points[b].device or "full_proxy" in (
-                points[a].translation,
-                points[b].translation,
-            ):
-                continue
-            if any(models[points[p].capture_id].uncertainty is None for p in (a, b)):
-                continue
-            db.execute(
-                """UPDATE obs SET packet_key=paired.before_key FROM (
-                SELECT * FROM (SELECT a.packet_key AS before_key,b.packet_key AS after_key,
-                    a.path_fields AS before_fields,b.path_fields AS after_fields
-                    FROM obs a JOIN obs b ON a.canon=b.canon AND a.seq=b.seq AND a.ack=b.ack
-                    AND a.flags=b.flags AND a.length=b.length AND a.direction=b.direction
-                    WHERE a.point=? AND b.point=? AND a.direction=? AND a.proto='TCP' AND a.length>0
-                    AND a.eligible AND b.eligible AND a.translation_reason IS NULL AND b.translation_reason IS NULL
-                    AND abs(a.corrected-b.corrected)<=?
-                    QUALIFY count(*) OVER(PARTITION BY a.frame)=1 AND count(*) OVER(PARTITION BY b.frame)=1)
-                WHERE json_extract_string(before_fields,'$.payload_complete')='true'
-                AND json_extract_string(after_fields,'$.payload_complete')='true'
-                AND json_extract_string(before_fields,'$.payload_sha256')<>json_extract_string(after_fields,'$.payload_sha256')
-                ) paired WHERE obs.packet_key=paired.after_key""",
-                [a, b, direction, topology.match_window_ms / 1000],
-            )
+    edges = [
+        (a, b, direction)
+        for direction, path in (
+            ("forward", topology.forward),
+            ("reverse", topology.reverse or topology.forward[::-1]),
+        )
+        for a, b in zip(path, path[1:])
+        if "full_proxy" not in (points[a].translation, points[b].translation)
+    ]
+    db.execute(
+        """CREATE OR REPLACE TEMP TABLE modified_payload_pairs AS
+        WITH edges AS (SELECT unnest(?::VARCHAR[]) AS point_a,unnest(?::VARCHAR[]) AS point_b,unnest(?::VARCHAR[]) AS direction),
+        pairs AS (SELECT e.point_a,e.point_b,e.direction,a.frame AS frame_a,b.frame AS frame_b,
+            a.path_fields AS before_fields,b.path_fields AS after_fields
+            FROM edges e JOIN obs a ON a.point=e.point_a AND a.direction=e.direction
+            JOIN obs b ON b.point=e.point_b AND a.canon=b.canon AND a.seq=b.seq AND a.ack=b.ack
+                AND a.flags=b.flags AND a.length=b.length AND a.direction=b.direction
+            WHERE a.proto='TCP' AND a.length>0 AND a.eligible AND b.eligible
+                AND a.translation_reason IS NULL AND b.translation_reason IS NULL AND abs(a.corrected-b.corrected)<=?
+            QUALIFY count(*) OVER(PARTITION BY e.point_a,e.point_b,a.frame)=1
+                AND count(*) OVER(PARTITION BY e.point_a,e.point_b,b.frame)=1)
+        SELECT point_a,point_b,direction,frame_a,frame_b FROM pairs
+        WHERE json_extract_string(before_fields,'$.payload_complete')='true'
+            AND json_extract_string(after_fields,'$.payload_complete')='true'
+            AND json_extract_string(before_fields,'$.payload_sha256')<>json_extract_string(after_fields,'$.payload_sha256')""",
+        [[e[i] for e in edges] for i in range(3)] + [topology.match_window_ms / 1000],
+    )
+    changed = set(db.execute("SELECT DISTINCT point_a,point_b FROM modified_payload_pairs").fetchall())
+    for a, b, _ in edges:
+        if (a, b) not in changed or any(models[points[p].capture_id].uncertainty is None for p in (a, b)):
+            continue
+        # Read current keys at each edge so successive mutations remain one physical occurrence.
+        db.execute(
+            """UPDATE obs SET packet_key=paired.before_key FROM (
+            SELECT a.packet_key AS before_key,b.packet_key AS after_key FROM modified_payload_pairs m
+            JOIN obs a ON a.point=m.point_a AND a.frame=m.frame_a
+            JOIN obs b ON b.point=m.point_b AND b.frame=m.frame_b WHERE m.point_a=? AND m.point_b=?) paired
+            WHERE obs.packet_key=paired.after_key""",
+            [a, b],
+        )
 
 
 def duplicate_pairs(db, point, duplicate_us, mode):
@@ -144,6 +156,15 @@ class Checks:
         self.inventories = {
             cid: json.loads(inv) for cid, inv in db.execute("SELECT id,inventory FROM captures").fetchall()
         }
+
+    def location(self, segment):
+        return (
+            segment.get("device")
+            or f"link between {self.points[segment['point_a']].label} and {self.points[segment['point_b']].label}"
+        )
+
+    def has_endpoint(self, path, direction):
+        return bool(path) and self.points[path[0]].kind == ("Client" if direction == "forward" else "Server")
 
     def reason(self, segment, ts):
         if ts is None:
@@ -285,7 +306,28 @@ class Checks:
                             (packet["corrected"] or packet["ts"]) + 30,
                         ],
                     )
+                endpoint_available = self.has_endpoint(path, segment["direction"])
+                if not endpoint_available:
+                    samples = []
+                # Compare TTL at the first-observation point, using endpoint packets that actually traversed it.
+                endpoint_keys = [p["packet_key"] for p in samples]
+                local_samples = (
+                    rows(
+                        self.db,
+                        """SELECT * FROM obs WHERE point=? AND eligible
+                    AND packet_key IN (SELECT unnest(?::VARCHAR[])) ORDER BY corrected LIMIT 16""",
+                        [packet["point"], endpoint_keys],
+                    )
+                    if endpoint_keys
+                    else []
+                )
                 pattern = endpoint_pattern(samples, packet)
+                comparison_ttls = sorted({p["ttl"] for p in local_samples})
+                pattern["ttl_values_at_first_point"] = comparison_ttls
+                pattern["ttl_consistent_with_endpoint"] = (
+                    packet["ttl"] in comparison_ttls if len(local_samples) >= 3 else None
+                )
+
                 why = self.reason(segment, packet["corrected"])
                 if segment.get("location") != "device":
                     why = why or "Capture points do not bracket one device; injection source unknown"
@@ -295,6 +337,12 @@ class Checks:
                         or packet.get("excluded_reason")
                         or "Unmatchable origin identity"
                     )
+                if not endpoint_available:
+                    why = "no endpoint-side capture"
+                elif pattern["ttl_consistent_with_endpoint"] is True:
+                    why = why or "Endpoint-origin TTL pattern is consistent; capture miss cannot be excluded"
+                elif pattern["ttl_consistent_with_endpoint"] is None:
+                    why = why or "Insufficient matched endpoint references at the first-observation point"
                 if pattern["status"] == "unknown":
                     why = why or pattern["reason"]
                 vendor = json.loads(packet.get("vendor") or "{}")
@@ -303,7 +351,7 @@ class Checks:
                 summary = (
                     f"{label} injected by {segment['device']}"
                     if not why
-                    else f"{label} first observed at {self.points[packet['point']].label}; origin unknown: {why}"
+                    else f"{label} first observed at {self.points[packet['point']].label} ({self.location(segment)}); origin unknown: {why}"
                 )
                 if reset:
                     summary += f"; F5 reset explanation: {reset}"
@@ -320,7 +368,7 @@ class Checks:
                         vendor=vendor,
                     ),
                     not why,
-                    [packet, *samples],
+                    [packet, *samples[:7], *local_samples[:7]],
                     severity="high",
                     cause="vendor_reset_evidence" if reset else "unknown",
                 )
@@ -348,6 +396,7 @@ class Checks:
                 QUALIFY row_number() OVER(PARTITION BY flow,proto ORDER BY corrected,frame)=1 LIMIT ?""",
                 [path[0], direction, LIMIT],
             )
+            endpoint_available = self.has_endpoint(path, direction)
             for packet in packets:
                 refs = rows(
                     self.db,
@@ -356,17 +405,23 @@ class Checks:
                 )
                 label = "RST" if packet["proto"] == "TCP" else "ICMP error"
                 self.add(
-                    {**segment, "device": self.points[path[0]].device},
+                    {**segment, "device": self.points[path[0]].device if endpoint_available else None},
                     "reset_origin" if packet["proto"] == "TCP" else "icmp_origin",
                     packet,
-                    f"{label} first observed at {self.points[path[0]].label}; source authenticity unknown",
+                    f"{label} first observed at {self.points[path[0]].label}; "
+                    + (
+                        "source authenticity unknown"
+                        if endpoint_available
+                        else "origin unknown: no endpoint-side capture"
+                    ),
                     ORIGIN_TIP,
                     dict(
                         count=packet["origin_count"],
                         first_point=path[0],
-                        endpoint_pattern=endpoint_pattern(refs, packet),
+                        endpoint_pattern=endpoint_pattern(refs if endpoint_available else [], packet),
+                        quality_reason=None if endpoint_available else "no endpoint-side capture",
                     ),
-                    True,
+                    endpoint_available,
                     [packet, *refs],
                     severity="quality",
                 )
@@ -374,24 +429,19 @@ class Checks:
     def payload_changes(self):
         for segment in self.segments:
             a, b = self.points[segment["point_a"]], self.points[segment["point_b"]]
-            if a.device != b.device or any(
-                p.translation == "full_proxy" or p.payload_transform != "none" for p in (a, b)
+            if any(p.translation == "full_proxy" for p in (a, b)) or (
+                a.device == b.device and any(p.payload_transform != "none" for p in (a, b))
             ):
                 continue
             candidates = rows(
                 self.db,
-                """SELECT * FROM (SELECT a AS before_packet,b AS after_packet
-                FROM integrity_obs a JOIN integrity_obs b ON a.canon=b.canon AND a.seq=b.seq AND a.ack=b.ack
-                AND a.flags=b.flags AND a.length=b.length AND a.direction=b.direction
-                WHERE a.point=? AND b.point=? AND a.direction=? AND a.proto='TCP' AND a.length>0
-                AND a.eligible AND b.eligible AND a.translation_reason IS NULL AND b.translation_reason IS NULL
-                AND abs(a.corrected-b.corrected)<=?
-                QUALIFY count(*) OVER(PARTITION BY a.frame)=1 AND count(*) OVER(PARTITION BY b.frame)=1
-                 ) paired WHERE json_extract_string(before_packet.path_fields,'$.payload_complete')='true'
-                AND json_extract_string(after_packet.path_fields,'$.payload_complete')='true'
-                AND json_extract_string(before_packet.path_fields,'$.payload_sha256')<>json_extract_string(after_packet.path_fields,'$.payload_sha256')
-                ORDER BY before_packet.corrected LIMIT ?""",
-                [a.id, b.id, segment["direction"], self.topology.match_window_ms / 1000, LIMIT + 1],
+                """SELECT a AS before_packet,b AS after_packet FROM modified_payload_pairs m
+                JOIN integrity_obs a ON a.point=m.point_a AND a.frame=m.frame_a
+                JOIN integrity_obs b ON b.point=m.point_b AND b.frame=m.frame_b
+                WHERE m.point_a=? AND m.point_b=? AND m.direction=? AND a.eligible AND b.eligible
+                    AND a.translation_reason IS NULL AND b.translation_reason IS NULL
+                ORDER BY a.corrected LIMIT ?""",
+                [a.id, b.id, segment["direction"], LIMIT + 1],
             )
             if len(candidates) > LIMIT:
                 self.notes.append(
@@ -411,9 +461,9 @@ class Checks:
                     segment,
                     "payload_modified",
                     before,
-                    f"Payload changed across {a.device}"
+                    f"Payload changed across {self.location(segment)}"
                     if not why
-                    else f"Payload comparison unknown at {a.device}: {why}",
+                    else f"Payload comparison unknown at {self.location(segment)}: {why}",
                     "Unique canonical tuple/SEQ/ACK/flags/length pair within the match window; complete payload hashes differ. Ambiguous retries and offload boundaries are excluded. A change does not establish malicious intent.",
                     dict(
                         before_sha256=x["payload_sha256"],
@@ -495,7 +545,7 @@ class Checks:
                     segment,
                     "mss_clamping",
                     before,
-                    f"MSS clamping at {segment.get('device') or segment['label']}: {before['mss']} → {after['mss']} B",
+                    f"MSS clamping at {self.location(segment)}: {before['mss']} → {after['mss']} B",
                     "MSS advertisement reduced between matched SYNs. This is observed clamping, not proof of a path MTU fault.",
                     dict(count=pair["count"], before_mss=before["mss"], after_mss=after["mss"]),
                     True,
@@ -547,13 +597,12 @@ class Checks:
                     ORDER BY corrected LIMIT 4""",
                     [packet["flow"]],
                 )
-                name = segment.get("device") or self.points[segment["point_a"]].device
+                name = self.location(segment)
                 self.add(
                     segment,
                     "mtu_black_hole",
                     packet,
-                    f"MTU/PMTUD black-hole pattern after {name}, toward {self.points[segment['point_b']].label}; cause unknown"
-                    + (f" ({why})" if why else ""),
+                    f"MTU/PMTUD black-hole pattern at {name}; cause unknown" + (f" ({why})" if why else ""),
                     "At least three distinct large TCP ranges disappear while three smaller payload segments of the same flow pass. DF/IPv6 and quoted-flow ICMP feedback are shown. Size-selective policy or capture loss can mimic MTU trouble; missing ICMP is not proof it was never sent.",
                     dict(
                         count=loss["lost_ranges"],
@@ -610,7 +659,7 @@ class Checks:
                         segment,
                         kind,
                         before,
-                        f"{label} at {segment.get('device') or segment['label']}",
+                        f"{label} at {self.location(segment)}",
                         tooltip,
                         dict(
                             count=pair["count"],
@@ -670,39 +719,75 @@ class Checks:
                     supported=False,
                     packets=[pair["first_packet"], pair["repeat_packet"]],
                 )
-        if self.topology.reverse:
-            for point in set(self.topology.forward) - set(self.topology.reverse):
-                segment = next(
-                    (s for s in self.segments if s["point_a"] == point and s["direction"] == "forward"), None
+        self.asymmetric_paths()
+
+    def asymmetric_paths(self):
+        forward, reverse = self.topology.forward, self.topology.reverse
+        if not reverse:
+            return
+        targets = []
+        # Consolidate an entire bypassed device instead of blaming every adjacent edge.
+        from itertools import groupby
+
+        for device, group in groupby(enumerate(forward), key=lambda entry: self.points[entry[1]].device):
+            entries = list(group)
+            missing = [p for _, p in entries]
+            lo, hi = entries[0][0], entries[-1][0]
+            if lo == 0 or hi == len(forward) - 1 or any(p in reverse for p in missing):
+                continue
+            segment = next(
+                (s for s in self.segments if s["direction"] == "forward" and s["point_a"] == missing[0]), None
+            )
+            if segment:
+                targets.append(({**segment, "device": device}, missing, [forward[lo - 1], forward[hi + 1]]))
+        for segment in self.segments:
+            a, b = segment["point_a"], segment["point_b"]
+            if (
+                segment["direction"] == "forward"
+                and segment.get("location") == "link"
+                and a in reverse
+                and b in reverse
+            ):
+                if reverse.index(a) > reverse.index(b) + 1:
+                    targets.append((segment, [], [a, b]))
+        for segment, missing, anchors in targets:
+            a, b = anchors
+            if a not in reverse or b not in reverse or reverse.index(b) >= reverse.index(a):
+                continue
+            alternative = reverse[reverse.index(b) + 1 : reverse.index(a)]
+            if not alternative:
+                continue
+            point = missing[0] if missing else segment["point_a"]
+            pairs = rows(
+                self.db,
+                """WITH forward_first AS (
+                SELECT * FROM integrity_obs WHERE point=? AND direction='forward' AND eligible
+                QUALIFY row_number() OVER(PARTITION BY flow ORDER BY corrected,frame)=1),
+                return_first AS (
+                SELECT * FROM integrity_obs WHERE point IN (SELECT unnest(?::VARCHAR[])) AND direction='reverse' AND eligible
+                QUALIFY row_number() OVER(PARTITION BY flow ORDER BY corrected,point,frame)=1)
+                SELECT f AS forward_packet,r AS return_packet FROM forward_first f JOIN return_first r USING(flow)
+                WHERE NOT EXISTS(SELECT 1 FROM integrity_obs q WHERE q.flow=f.flow AND q.direction='reverse' AND q.point IN (SELECT unnest(?::VARCHAR[])))
+                AND (SELECT count(DISTINCT point) FROM integrity_obs q WHERE q.flow=f.flow AND q.direction='reverse' AND q.eligible AND q.point IN (SELECT unnest(?::VARCHAR[])))=2
+                ORDER BY f.corrected,r.corrected LIMIT 1""",
+                [point, alternative, missing, anchors],
+            )
+            for pair in pairs:
+                self.add(
+                    segment,
+                    "asymmetric_routing",
+                    pair["forward_packet"],
+                    f"Asymmetric return bypasses {self.location(segment)} in the configured path",
+                    "Forward evidence plus same-flow return evidence on the declared alternate path and both bounding points. A bypassed device is reported once; a detoured inter-device edge stays a link, not a device fault.",
+                    dict(
+                        bypassed_points=missing,
+                        return_point=pair["return_packet"]["point"],
+                        bounding_points=anchors,
+                    ),
+                    True,
+                    [pair["forward_packet"], pair["return_packet"]],
+                    severity="quality",
                 )
-                if not segment:
-                    continue
-                packets = rows(
-                    self.db,
-                    """WITH forward_first AS (
-                        SELECT * FROM integrity_obs WHERE point=? AND direction='forward' AND eligible
-                        QUALIFY row_number() OVER(PARTITION BY flow ORDER BY corrected,frame)=1),
-                    return_first AS (
-                        SELECT * FROM integrity_obs WHERE point IN (SELECT unnest(?::VARCHAR[])) AND direction='reverse' AND eligible
-                        QUALIFY row_number() OVER(PARTITION BY flow ORDER BY corrected,point,frame)=1)
-                    SELECT f AS forward_packet,r AS return_packet FROM forward_first f JOIN return_first r USING(flow)
-                    WHERE NOT EXISTS(SELECT 1 FROM integrity_obs q WHERE q.point=f.point AND q.flow=f.flow AND q.direction='reverse')
-                    ORDER BY f.corrected,r.corrected LIMIT 1""",
-                    [point, self.topology.reverse],
-                )
-                for pair in packets:
-                    packet = pair["forward_packet"]
-                    self.add(
-                        segment,
-                        "asymmetric_routing",
-                        packet,
-                        f"Asymmetric return bypasses {self.points[point].device} in the configured path",
-                        "Forward traffic is observed here; the same flow returns at a different configured point and no return packet is captured here. This supports the declared asymmetric path, not a device fault; hidden capture loss can mimic absence.",
-                        dict(bypassed_point=point, return_point=pair["return_packet"]["point"]),
-                        True,
-                        [packet, pair["return_packet"]],
-                        severity="quality",
-                    )
 
 
 def analyze_integrity(db, topology, segments, coverage, models, start, end):

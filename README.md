@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.1.8-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.1.9-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -427,3 +427,11 @@ Declare **Payload transformation** (proxy, ALG or SSL inspection) in the path ed
 expected. Full proxies still have no end-to-end packet identity; their field comparisons remain
 unknown. This part does not implement TLS decryption or general full-proxy request correlation.
 Reattach older capture indexes once to populate schema-6 path fields. Real captures remain local.
+
+
+PR #6 attribution hardening (0.1.9): identify capture endpoints as **Client** / **Server**
+in the path editor. A middlebox at the beginning of a path is not an endpoint capture;
+reset origin stays unknown with `no endpoint-side capture`. A server-compatible TTL pattern
+at the first observation also leaves capture miss unresolved. Links are explicitly named
+(e.g. `link between FW egress and LB ingress`) with no device assignment. Updating from
+0.1.8 invalidates the old analysis report; run **Analyze path** again.

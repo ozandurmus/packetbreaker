@@ -1,6 +1,5 @@
-import pytest
-
 from packetbreaker.integrity import endpoint_pattern
+from test_integrity_attribution import for_port
 
 
 def test_origin_patterns_are_not_authentication():
@@ -12,16 +11,16 @@ def test_origin_patterns_are_not_authentication():
     assert endpoint_pattern([packet] * 3, {**packet, "src": "2001:db8::1"})["candidate_ip_id"] is None
 
 
-def test_integrity_ground_truth_devices_evidence_and_exports(scenarios):
+def test_integrity_ground_truth_devices_evidence_and_exports(multi):
     from packetbreaker.export import export_data, html_report
 
-    project, truth, _, report = scenarios("integrity_all")
+    project, truth, _, report = multi("FW", ("zero", False))
     for expected in truth["findings"]:
         found = [
-            f for f in report["findings"] if f["type"] == expected["type"] and f["severity"] != "quality"
+            f for f in for_port(report, expected["port"], expected["type"]) if f["severity"] != "quality"
         ]
         assert found, (expected, [(f["type"], f["summary"]) for f in report["findings"]])
-        assert all(f["device"] == "Firewall" and f["confidence"] == "supported" for f in found), found
+        assert all(f["device"] == "FW" and f["confidence"] == "supported" for f in found), found
         assert all(f["tooltip"] and all(e["content_filter"] for e in f["evidence"]) for f in found)
     modified = next(f for f in report["findings"] if f["type"] == "payload_modified")
     with project.connect() as db:
@@ -38,35 +37,22 @@ def test_integrity_ground_truth_devices_evidence_and_exports(scenarios):
         )
     data = export_data(project)
     assert data["schema_version"] == 3 and data["report"]["field_diffs"]["items"]
-    assert "Payload changed across Firewall" in html_report(data)
+    assert "Payload changed across FW" in html_report(data)
 
 
-def test_asymmetric_ground_truth(scenarios):
-    _, _, _, report = scenarios("integrity_asymmetric_return")
-    found = [f for f in report["findings"] if f["type"] == "asymmetric_routing"]
-    assert found and any("Firewall" in f["summary"] for f in found)
-    assert all(f["evidence"] for f in found)
-
-
-def test_integrity_capture_miss_never_injection(scenarios):
-    _, _, _, report = scenarios("integrity_capture_miss")
-    assert not any(
-        f["type"] in ("reset_origin", "payload_modified", "mtu_black_hole", "downstream_packet")
-        for f in report["findings"]
-    )
-
-
-def test_declared_alg_and_unknown_clock_do_not_claim_modification(scenarios):
+def test_declared_alg_and_unknown_clock_do_not_claim_modification(multi, clone_project):
     from packetbreaker.analysis import analyze
     from copy import deepcopy
 
-    project, _, topology, _ = scenarios("integrity_all")
+    project, _, topology, _ = multi("FW", ("zero", False))
+    project = clone_project(project)
     declared = deepcopy(topology)
     for point in declared["points"]:
-        if point["device"] == "Firewall":
+        if point["device"] == "FW":
             point["payload_transform"] = "alg"
     report = analyze(project, declared)
-    assert not any(f["type"] == "payload_modified" for f in report["findings"])
+    assert not any(f["type"] == "payload_modified" and f["device"] == "FW" for f in report["findings"])
+    assert {"LB", None} <= {f["device"] for f in report["findings"] if f["type"] == "payload_modified"}
     uncertain = deepcopy(topology)
     uncertain["clock_overrides"] = {p["capture_id"]: dict(offset_ms=0) for p in topology["points"]}
     report = analyze(project, uncertain)
@@ -76,18 +62,6 @@ def test_declared_alg_and_unknown_clock_do_not_claim_modification(scenarios):
         and f["severity"] != "quality"
         for f in report["findings"]
     )
-    # Restore the shared fixture's saved report for other tests.
-    analyze(project, topology)
-
-
-@pytest.mark.parametrize("ip_id,ipv6", [("zero", False), ("constant", True)])
-def test_integrity_zero_id_and_ipv6(scenarios, ip_id, ipv6):
-    _, truth, _, report = scenarios("integrity_all", ip_id=ip_id, ipv6=ipv6)
-    for expected in truth["findings"]:
-        assert any(
-            f["type"] == expected["type"] and f["device"] == "Firewall" and f["confidence"] == "supported"
-            for f in report["findings"]
-        ), expected
 
 
 def test_long_repeat_stream_uses_adjacent_evidence():
