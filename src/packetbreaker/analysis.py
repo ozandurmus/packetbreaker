@@ -765,6 +765,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             ],
         )
         project.set(db, "topology", topology.model_dump())
+        project.set(db, "export_findings", findings)
         project.set(db, "report", report)
         return report
 

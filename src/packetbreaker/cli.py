@@ -8,6 +8,7 @@ import webbrowser
 
 from . import __version__
 from .analysis import analyze
+from .export import export_report
 from .batch_ingest import ingest_many
 from .store import Project
 from .synthetic import generate, bind_capture_ids
@@ -71,6 +72,9 @@ def main():
     )
     run = commands.add_parser("analyze", help="Analyze saved or supplied topology; print JSON")
     run.add_argument("--topology", type=Path)
+    export = commands.add_parser("export", help="Export the last analysis as offline HTML or versioned JSON")
+    export.add_argument("--format", required=True, choices=["html", "json"])
+    export.add_argument("--output", "-o", type=Path, help="New output file; defaults to stdout")
     args = parser.parse_args()
     try:
         if args.command == "demo":
@@ -101,6 +105,14 @@ def main():
             if not topology:
                 parser.error("Save a topology in the UI or supply --topology")
             print(json.dumps(analyze(project, topology), indent=2))
+        elif args.command == "export":
+            content = export_report(Project(args.project), args.format)
+            if args.output:
+                with args.output.open("x", encoding="utf-8") as output:
+                    output.write(content)
+                print(f"Exported {args.output}")
+            else:
+                print(content, end="")
         else:
             if not 1024 <= args.port <= 65535:
                 parser.error("Port must be between 1024 and 65535")

@@ -199,3 +199,17 @@ Use ECharts for the live timeline and a parallel evidence table for every bar,
 including unknown durations. Capture-point offsets cancel for same-capture
 intervals; timestamp precision and residual drift remain approximate. Cross-file
 bars carry the sum of their endpoint clock uncertainty bounds.
+
+## Part 4 export contract
+
+Use a versioned Pydantic metadata envelope and publish its generated JSON Schema.
+Keep raw payloads and source file contents out of exports; addresses and evidence
+filters remain investigation metadata and are not automatically redacted. Export
+all grouped findings, not only the UI's summary slice. Require a current analysis
+and reject export during an active job.
+
+Use a small inline canvas renderer for the offline heatmap rather than embedding
+the full application or relying on a CDN. Escape all capture-derived content;
+use textContent for tooltip labels. CLI exports to stdout or a new output file;
+an existing output file is never silently overwritten. UI downloads are explicit
+HTML/JSON buttons and always describe the complete saved analysis window.

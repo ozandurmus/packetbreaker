@@ -6,11 +6,12 @@ from urllib.parse import urlsplit
 import uuid
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .waterfall import waterfall
+from .export import export_report
 from .analysis import analyze, event_page, flow_page, ladder, findings_page
 from .ingest import find_tshark
 from .batch_ingest import ingest_many, normalize_paths
@@ -227,6 +228,16 @@ def create_app(project_path):
     def report():
         with project.connect() as db:
             return project.get(db, "report")
+
+    @app.get("/api/export")
+    def export(format: str = Query("html", pattern="^(html|json)$")):
+        idle()
+        content = export_report(project, format)
+        return Response(
+            content,
+            media_type="text/html" if format == "html" else "application/json",
+            headers={"Content-Disposition": f'attachment; filename="packetbreaker-report.{format}"'},
+        )
 
     @app.get("/api/findings")
     def findings(

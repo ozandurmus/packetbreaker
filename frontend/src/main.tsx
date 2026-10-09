@@ -307,6 +307,20 @@ function App() {
       fail(e);
     }
   }
+  async function downloadReport(format: "html" | "json") {
+    const response = await fetch(`/api/export?format=${format}`);
+    if (!response.ok)
+      throw new Error((await response.json()).detail || "Export failed");
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `packetbreaker-report.${format}`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setNotice(
+      "Exported the complete saved analysis window (independent of the heatmap brush).",
+    );
+  }
   async function saveTopology(t: Topology) {
     const saved = await api<Topology>("/topology", "PUT", t);
     setTopology(saved);
@@ -454,6 +468,20 @@ function App() {
           </div>
           <div className="header-actions">
             <Badge kind="neutral">● OFFLINE</Badge>
+            <button
+              className="secondary"
+              disabled={busy || !report}
+              onClick={() => action(() => downloadReport("html"))}
+            >
+              Export HTML
+            </button>
+            <button
+              className="secondary"
+              disabled={busy || !report}
+              onClick={() => action(() => downloadReport("json"))}
+            >
+              Export JSON
+            </button>
             <button
               disabled={busy || ready < 2 || topology.forward.length < 2}
               onClick={() => action(analyze)}

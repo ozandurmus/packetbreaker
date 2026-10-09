@@ -346,3 +346,22 @@ bytes missing from prefixes. Chunked requests, overlapping/pipelined requests an
 TLS are not decoded. The on-demand budget is 20,000 observations per flow, 8 KiB
 headers, 8 MiB requests and 100 selectable request starts. These limits are visible;
 no waterfall work is added to the full-capture analysis pass.
+
+## Part 4: offline export
+
+`export.py` validates a `packetbreaker.findings` envelope (schema version 1) before
+serializing JSON or HTML. The contract is published in `findings-v1.schema.json`;
+its version is separate from the internal analysis report schema. Every finding
+has a type, hop, time range, metrics, evidence refs and confidence. The analysis
+persists the complete finding list for export, independent of the UI's 200-row
+summary cap. Export takes a locked snapshot of that report, stored buckets and
+per-file flow filters. It includes the complete saved analysis window, independent
+of the live heatmap brush, and contains no raw packet payloads.
+
+HTML embeds escaped metadata, inline CSS and a small canvas heatmap renderer; it
+has no external assets or requests. Its CSP disables network connections. Capture
+labels and evidence text are HTML-escaped; embedded JSON escapes markup delimiters.
+Coverage gaps remain not-capturing cells, partial/unknown cells stay distinct from
+zero, and metric tooltips/onset markers remain available offline. Summary, onset,
+findings, segments and filters are plain HTML and remain readable without scripts.
+The live per-flow waterfall is not precomputed for every flow during export.
