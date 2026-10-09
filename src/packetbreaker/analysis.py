@@ -1032,4 +1032,11 @@ def findings_page(project, start=None, end=None):
                     "evidence": evidence(db, "o.packet_key IN (?,?,?)", list(event)),
                 }
             )
+        items.extend(
+            f
+            for f in (project.get(db, "export_findings") or [])
+            if f["id"].startswith("integrity:")
+            and (start is None or f["time_range"][1] >= start)
+            and (end is None or f["time_range"][0] < end)
+        )
         return dict(items=items)

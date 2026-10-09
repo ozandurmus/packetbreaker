@@ -625,7 +625,7 @@ function App() {
                     <button
                       key={i}
                       className="finding"
-                      
+
                       onClick={() => setEvidence(m.evidence)}
                     >
                       {m.ingress} → {m.egress} · flow{" "}
@@ -681,7 +681,7 @@ function App() {
                   {report.f5.requests.map((r, i) => (
                     <button
                       className="finding"
-                      
+
                       key={i}
                       onClick={() => setEvidence(r.evidence)}
                     >
@@ -693,7 +693,7 @@ function App() {
                   {report.f5.resets.map((r, i) => (
                     <button
                       className="finding"
-                      
+
                       key={i}
                       onClick={() => setEvidence(r.evidence)}
                     >
@@ -951,7 +951,7 @@ function App() {
                                     key={f.id}
                                     title={f.tooltip || f.evidence_note}
                                     className="finding"
-                                    
+
                                     onClick={() => setEvidence(f.evidence)}
                                   >
                                     <Badge kind={f.severity}>
@@ -1082,7 +1082,7 @@ function App() {
                       {events.items.map((e) => (
                         <button
                           className="finding"
-                          
+
                           key={e.id}
                           onClick={() => setEvidence(e.evidence)}
                         >

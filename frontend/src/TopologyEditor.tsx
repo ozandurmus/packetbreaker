@@ -512,6 +512,20 @@ export function TopologyEditor({
                 />
               </label>
               <label>
+                Declared payload transformation
+                <select
+                  value={selected.payload_transform || "none"}
+                  onChange={(e) =>
+                    update({ payload_transform: e.target.value })
+                  }
+                >
+                  <option value="none">None</option>
+                  <option value="proxy">Proxy</option>
+                  <option value="alg">ALG</option>
+                  <option value="ssl_inspection">SSL inspection</option>
+                </select>
+              </label>
+              <label>
                 Translation
                 <select
                   value={selected.translation}

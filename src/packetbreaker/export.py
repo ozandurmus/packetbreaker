@@ -42,6 +42,8 @@ class Finding(BaseModel):
         "confirmed_device_drop",
         "reset_origin",
         "icmp_origin",
+        "payload_modified",
+        "downstream_packet",
     ]
     tooltip: str | None = None
     device: str | None = None

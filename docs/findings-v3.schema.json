@@ -47,7 +47,9 @@
             "unknown",
             "confirmed_device_drop",
             "reset_origin",
-            "icmp_origin"
+            "icmp_origin",
+            "payload_modified",
+            "downstream_packet"
           ],
           "title": "Type",
           "type": "string"

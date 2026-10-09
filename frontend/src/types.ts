@@ -35,6 +35,7 @@ export type Point = {
   vendor_interface?: string | null;
   inspection_complete?: boolean;
   source_cidr: string | null;
+  payload_transform?: "none" | "proxy" | "alg" | "ssl_inspection";
   translation: string;
   x: number;
   y: number;

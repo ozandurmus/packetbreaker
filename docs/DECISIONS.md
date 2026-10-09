@@ -276,3 +276,10 @@ endpoint references. TTL and IP ID are corroborating observations, never authent
 Constant/zero IDs and IPv6 have no usable IP-ID fingerprint. Missing references remain unknown;
 policy/IPS intent is unknown unless vendor evidence explains the reset. Findings schema v3 adds
 path-integrity classes and tooltips without putting them in loss-rate numerators.
+
+Payload modification uses unique canonical tuple/SEQ/ACK/flags/length pairs inside the matching
+window, including candidates whose changed prefix prevented ordinary matching. Both payloads
+must be complete. Repeated ambiguous identities and offload splits are not compared. Users can
+declare proxy/ALG/SSL inspection in the path editor; these nodes are exempt from unexpected
+payload-modification findings. A downstream-only observation remains origin-unknown because
+absence alone cannot distinguish injection from capture loss.
