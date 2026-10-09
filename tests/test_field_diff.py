@@ -55,3 +55,41 @@ def test_matched_field_diff_evidence(scenarios):
         assert item["fields"]["src"]["status"] == "unchanged"
         assert item["tooltip"] and len(item["evidence"]) == 2
         assert all(ref["content_filter"] for ref in item["evidence"])
+
+
+def test_icmp_error_keeps_quoted_tcp_out_of_outer_identity():
+    fields = [
+        "frame.number",
+        "frame.time_epoch",
+        "ip.src",
+        "ip.dst",
+        "ip.proto",
+        "icmp.type",
+        "icmp.code",
+        "icmp.mtu",
+        "tcp.srcport",
+        "tcp.dstport",
+        "tcp.seq_raw",
+        "frame.len",
+        "frame.cap_len",
+    ]
+    row = [
+        "1",
+        "1700000000",
+        "10.0.0.254,10.0.0.1",
+        "10.0.0.1,10.0.0.2",
+        "1,6",
+        "3",
+        "4",
+        "1280",
+        "50000",
+        "80",
+        "123",
+        "100",
+        "100",
+    ]
+    packet = dict(zip(PACKET_COLUMNS, parse_packet(row, "capture", 64, fields)))
+    assert packet["proto"] == "ICMP" and packet["sport"] == 0 and packet["seq"] == 0
+    values = json.loads(packet["path_fields"])
+    assert values["icmp_mtu"] == 1280
+    assert values["quoted"] == dict(src="10.0.0.1", dst="10.0.0.2", sport=50000, dport=80, seq=123)

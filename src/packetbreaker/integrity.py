@@ -293,10 +293,103 @@ class Checks:
                     False,
                 )
 
+    def changed_pair(self, segment, condition):
+        return rows(
+            self.db,
+            f"""SELECT a AS before_packet,b AS after_packet,count(*) OVER() AS count
+            FROM obs a JOIN obs b ON a.packet_key=b.packet_key WHERE a.point=? AND b.point=?
+            AND a.direction=? AND a.eligible AND b.eligible AND ({condition})
+            ORDER BY a.corrected LIMIT 1""",
+            [segment["point_a"], segment["point_b"], segment["direction"]],
+        )
+
+    def mtu(self):
+        for segment in self.segments:
+            if segment.get("location") == "device_stage":
+                continue
+            for pair in self.changed_pair(segment, "(a.flags&2)>0 AND a.mss>b.mss AND b.mss>0"):
+                before, after = pair["before_packet"], pair["after_packet"]
+                self.add(
+                    segment,
+                    "mss_clamping",
+                    before,
+                    f"MSS clamping at {segment.get('device') or segment['label']}: {before['mss']} → {after['mss']} B",
+                    "MSS advertisement reduced between matched SYNs. This is observed clamping, not proof of a path MTU fault.",
+                    dict(count=pair["count"], before_mss=before["mss"], after_mss=after["mss"]),
+                    True,
+                    [before, after],
+                )
+            losses = rows(
+                self.db,
+                """SELECT a.flow,min(a.length) AS min_length,count(DISTINCT a.seq) AS lost_ranges,
+                first(a ORDER BY a.corrected) AS packet FROM events e JOIN obs a ON a.packet_key=e.packet_key AND a.point=e.point_a
+                WHERE e.point_a=? AND e.point_b=? AND e.direction=? AND e.kind IN ('impactful_loss','unrecovered_loss','recovered_loss')
+                AND a.proto='TCP' AND a.length BETWEEN 1200 AND 9000
+                GROUP BY a.flow HAVING count(DISTINCT a.seq)>=3 LIMIT ?""",
+                [segment["point_a"], segment["point_b"], segment["direction"], LIMIT],
+            )
+            for loss in losses:
+                packet = loss["packet"]
+                small = rows(
+                    self.db,
+                    """SELECT a.* FROM obs a WHERE a.point=? AND a.flow=? AND a.direction=?
+                    AND a.length>0 AND a.length<? AND EXISTS(SELECT 1 FROM observation_matches m
+                    WHERE m.point_a=a.point AND m.point_b=? AND m.key_a=a.packet_key)
+                    ORDER BY a.corrected LIMIT 3""",
+                    [
+                        segment["point_a"],
+                        packet["flow"],
+                        segment["direction"],
+                        loss["min_length"] / 2,
+                        segment["point_b"],
+                    ],
+                )
+                if len(small) < 3:
+                    continue
+                why = self.reason(segment, packet["corrected"])
+                if ":" not in packet["src"] and metadata(packet).get("df") is not True:
+                    why = why or "IPv4 DF not established"
+                feedback = rows(
+                    self.db,
+                    """SELECT * FROM obs o WHERE proto IN ('ICMP','ICMPv6')
+                    AND ((json_extract_string(path_fields,'$.icmp_type')='3' AND json_extract_string(path_fields,'$.icmp_code')='4')
+                         OR (proto='ICMPv6' AND json_extract_string(path_fields,'$.icmp_type')='2'))
+                    AND EXISTS(SELECT 1 FROM obs p WHERE p.flow=?
+                       AND p.src=json_extract_string(o.path_fields,'$.quoted.src')
+                       AND p.dst=json_extract_string(o.path_fields,'$.quoted.dst')
+                       AND p.sport=try_cast(json_extract_string(o.path_fields,'$.quoted.sport') AS INTEGER)
+                       AND p.dport=try_cast(json_extract_string(o.path_fields,'$.quoted.dport') AS INTEGER)
+                       AND p.raw_seq=try_cast(json_extract_string(o.path_fields,'$.quoted.seq') AS BIGINT))
+                    ORDER BY corrected LIMIT 4""",
+                    [packet["flow"]],
+                )
+                name = segment.get("device") or self.points[segment["point_a"]].device
+                self.add(
+                    segment,
+                    "mtu_black_hole",
+                    packet,
+                    f"MTU/PMTUD black-hole pattern after {name}, toward {self.points[segment['point_b']].label}; cause unknown"
+                    + (f" ({why})" if why else ""),
+                    "At least three distinct large TCP ranges disappear while three smaller payload segments of the same flow pass. DF/IPv6 and quoted-flow ICMP feedback are shown. Size-selective policy or capture loss can mimic MTU trouble; missing ICMP is not proof it was never sent.",
+                    dict(
+                        count=loss["lost_ranges"],
+                        large_min_bytes=loss["min_length"],
+                        small_passed=len(small),
+                        df=metadata(packet).get("df"),
+                        icmp_feedback="present" if feedback else "not observed; generation/delivery unknown",
+                        advertised_mtu=[metadata(p).get("icmp_mtu") for p in feedback],
+                        quality_reason=why,
+                    ),
+                    not why,
+                    [packet, *small, *feedback],
+                    severity="high",
+                )
+
 
 def analyze_integrity(db, topology, segments, coverage, models, start, end):
     checks = Checks(db, topology, segments, coverage, models, start, end)
     checks.origins()
     checks.payload_changes()
     checks.downstream_only()
+    checks.mtu()
     return checks.findings, checks.notes

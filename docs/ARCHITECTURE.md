@@ -466,3 +466,12 @@ SHA-256 (separate from the existing matching prefix). Schema 6 / parser 9 requir
 captures. `/api/packets/{packet_key}/field-diff` supplies stream drill-down comparisons and evidence.
 Offline HTML and JSON include a labelled, bounded 200-comparison sample. Truncated payloads,
 missing fields, unsupported boundaries and offload segmentation are unknown, not modifications.
+
+PMTUD checks require three distinct disappearing large sequence ranges plus three passing small
+payload segments of the same flow. They report a size-selective black-hole pattern, not a proven
+MTU cause. IPv4 DF, IPv6, MSS clamping and ICMP feedback are separate evidence. Quoted ICMP TCP
+headers are retained as quoted metadata and never mistaken for the outer packet's transport.
+Feedback association requires the quoted tuple and raw sequence to match an observed flow.
+Protocol references: [RFC 1191](https://www.rfc-editor.org/info/rfc1191/),
+[RFC 8201](https://www.rfc-editor.org/info/rfc8201/), and
+[Wireshark ICMP fields](https://www.wireshark.org/docs/dfref/i/icmp.html).

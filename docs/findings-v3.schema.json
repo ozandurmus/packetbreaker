@@ -49,7 +49,9 @@
             "reset_origin",
             "icmp_origin",
             "payload_modified",
-            "downstream_packet"
+            "downstream_packet",
+            "mss_clamping",
+            "mtu_black_hole"
           ],
           "title": "Type",
           "type": "string"

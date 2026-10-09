@@ -83,6 +83,16 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         if g("udp.srcport")
         else ("ICMP" if g("icmp.type") else "ICMPv6" if g("icmpv6.type") else "OTHER")
     )
+    quoted = {"src": None, "dst": None, "sport": None, "dport": None, "seq": None}
+    if (g("ip.proto") or g("ipv6.nxt")) in ("1", "58"):
+        for name in ("src", "dst"):
+            addresses = (d.get("ip." + name) or d.get("ipv6." + name) or "").split(",")
+            quoted[name] = addresses[1] if len(addresses) > 1 else None
+        quoted.update(
+            sport=number(g("tcp.srcport"), None),
+            dport=number(g("tcp.dstport"), None),
+            seq=number(g("tcp.seq_raw"), None),
+        )
     outer_proto = g("ip.proto") or g("ipv6.nxt")
     if outer_proto in ("1", "58"):
         proto = "ICMP" if outer_proto == "1" else "ICMPv6"
@@ -171,6 +181,7 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         vendor=decoded_vendor(d),
         path_fields=json.dumps(
             {
+                "quoted": quoted,
                 "window_scale": number(g("tcp.options.wscale.shift"), None),
                 "tcp_options": g("tcp.options") if caplen == wirelen else None,
                 "sack_permitted": bool(g("tcp.options.sack_perm")) if caplen == wirelen else None,

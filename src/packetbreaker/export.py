@@ -44,6 +44,8 @@ class Finding(BaseModel):
         "icmp_origin",
         "payload_modified",
         "downstream_packet",
+        "mss_clamping",
+        "mtu_black_hole",
     ]
     tooltip: str | None = None
     device: str | None = None
