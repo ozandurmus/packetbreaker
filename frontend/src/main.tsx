@@ -491,7 +491,14 @@ function App() {
               Export JSON
             </button>
             <button
-              disabled={busy || ready < 2 || topology.forward.length < 2}
+              disabled={
+                busy ||
+                ready < 1 ||
+                (topology.forward.length < 2 &&
+                  !topology.points.some(
+                    (p) => p.vendor === "paloalto" && p.vendor_stage === "drop",
+                  ))
+              }
               onClick={() => action(analyze)}
             >
               ▶ Analyze path
@@ -809,7 +816,15 @@ function App() {
                       <b>02</b> Map the path →
                     </button>
                     <button
-                      disabled={topology.forward.length < 2 || busy}
+                      disabled={
+                        busy ||
+                        (topology.forward.length < 2 &&
+                          !topology.points.some(
+                            (p) =>
+                              p.vendor === "paloalto" &&
+                              p.vendor_stage === "drop",
+                          ))
+                      }
                       onClick={() => action(analyze)}
                     >
                       <b>03</b> Analyze →

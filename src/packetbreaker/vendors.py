@@ -260,3 +260,32 @@ def f5_report(db, topology):
             )
         )
     return result
+
+
+def paloalto_audit(db, topology):
+    from .store import rows
+    from .evidence import evidence
+
+    result = []
+    for point in topology.points:
+        if point.vendor != "paloalto" or point.vendor_stage != "drop":
+            continue
+        observations = rows(db, "SELECT * FROM obs WHERE point=? ORDER BY ts,frame", [point.id])
+        for o in observations:
+            result.append(
+                dict(
+                    point=point.id,
+                    device=point.device,
+                    stage="drop",
+                    flow=o["flow"],
+                    packet_key=o["packet_key"],
+                    frame=o["frame"],
+                    capture_id=point.capture_id,
+                    time=o["corrected"] if o["corrected"] is not None else o["ts"],
+                    time_source="corrected" if o["corrected"] is not None else "observed; clock unaligned",
+                    status="confirmed_device_drop",
+                    reason="Positive Palo Alto drop-stage capture (user file tag)",
+                    evidence=evidence(db, "o.point=? AND o.frame=?", [point.id, o["frame"]], 1),
+                )
+            )
+    return result

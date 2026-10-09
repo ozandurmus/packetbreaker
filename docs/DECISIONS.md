@@ -234,3 +234,10 @@ merging proxy TCP sequence spaces. Use explicit client/server points and narrow
 client CIDRs. Preserve tshark's HTTP decode for request markers; never implement
 a proprietary trailer parser in production. Names, IDs and reset text remain
 untrusted display data and use the existing escaped evidence/export paths.
+
+Palo Alto stage names are explicit user file tags, retained as provenance in frame
+evidence. A file cannot be tagged with conflicting nodes/stages. No proprietary
+Palo Alto protocol decoder is introduced. Positive drop-stage evidence does not
+require absence inference or uninterrupted network-path coverage. Allow one file
+with multiple distinct capture points (fw monitor/TMM) and standalone drop-stage
+analysis; file count is not the minimum evidence-point count.

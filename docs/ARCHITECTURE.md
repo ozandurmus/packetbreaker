@@ -401,3 +401,11 @@ unequal counts and reversed time order remain unknown. This is not whole-body
 completion or server processing. Same-capture timing cancels clock offset. The
 request budget is 2,000 observations per pair; reset annotations retain TMM's
 rstcausetxt verbatim as evidence, not an independently inferred policy diagnosis.
+
+Palo Alto files receive explicit receive/firewall/transmit/drop tags for one node.
+Receive/transmit map to ingress/egress; drop and other auxiliary stage points need
+not be forwarding-path edges. Auxiliary observations are indexed for evidence and
+positive session links, but do not shorten the common path coverage interval.
+Every usable drop-stage frame is positive device-stage evidence, regardless of
+whether cross-capture clocks are aligned. Unaligned evidence retains observed time.
+A drop-only investigation is allowed without inventing a network path.

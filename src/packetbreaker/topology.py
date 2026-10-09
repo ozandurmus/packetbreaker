@@ -38,6 +38,10 @@ class Point(BaseModel):
             "OE",
         ):
             raise ValueError("Choose a Check Point inspection stage")
+        if self.vendor == "paloalto" and self.vendor_stage not in ("receive", "firewall", "transmit", "drop"):
+            raise ValueError("Choose a Palo Alto capture stage")
+        if self.vendor == "paloalto" and self.vendor_stage in ("receive", "transmit"):
+            self.side = "ingress" if self.vendor_stage == "receive" else "egress"
         if self.vendor == "f5":
             if self.vendor_stage not in ("client", "server"):
                 raise ValueError("Choose the F5 client or server leg")
@@ -107,6 +111,12 @@ class Topology(BaseModel):
         for path in (self.forward, self.reverse):
             if len(path) != len(set(path)) or any(p not in ids for p in path):
                 raise ValueError("Paths must contain existing capture points once; cycles are unsupported")
+        paloalto_files = {}
+        for p in self.points:
+            if p.vendor == "paloalto":
+                paloalto_files.setdefault(p.capture_id, set()).add((p.device, p.vendor_stage))
+        if any(len(tags) > 1 for tags in paloalto_files.values()):
+            raise ValueError("Each Palo Alto stage file must have one node/stage tag")
         checkpoint_nodes = {}
         for p in self.points:
             if p.vendor == "checkpoint":

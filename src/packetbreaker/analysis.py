@@ -10,7 +10,7 @@ from .headlines import add_headlines
 from .evidence import evidence, prepare_flow_filters
 from .store import rows
 from .topology import Topology
-from .vendors import point_selector, checkpoint_audit, prepare_f5_connections, f5_report
+from .vendors import point_selector, checkpoint_audit, prepare_f5_connections, f5_report, paloalto_audit
 from .timeseries import build_timeseries
 from .onset import add_onsets
 from .translation import normalize_sequences, sequence_report
@@ -40,6 +40,7 @@ def prepare(db, topology):
     prepare_f5_connections(db, topology)
     ready = {r[0] for r in db.execute("SELECT id FROM captures WHERE state='ready'").fetchall()}
     used = set(topology.forward + (topology.reverse or list(reversed(topology.forward))))
+    used.update(p.id for p in topology.points if p.vendor == "paloalto")
     for point in topology.points:
         if point.id not in used:
             continue
@@ -71,6 +72,21 @@ def prepare(db, topology):
             f"INSERT INTO obs SELECT *,seq,ack,NULL,NULL,?,tuple_key FROM packets WHERE {clause}",
             [point.id, *params],
         )
+        if point.vendor == "paloalto":
+            db.execute(
+                "UPDATE obs SET vendor=? WHERE point=?",
+                [
+                    json.dumps(
+                        dict(
+                            adapter="paloalto",
+                            stage=point.vendor_stage,
+                            device=point.device,
+                            stage_source="user_file_tag",
+                        )
+                    ),
+                    point.id,
+                ],
+            )
     db.execute("ALTER TABLE obs ADD COLUMN corrected DOUBLE")
     db.execute("ALTER TABLE obs ADD COLUMN direction VARCHAR")
     db.execute("ALTER TABLE obs ADD COLUMN canon_reverse VARCHAR")
@@ -204,7 +220,11 @@ def prepare(db, topology):
 
 def align(db, topology):
     points = {p.id: p for p in topology.points}
-    order = list(dict.fromkeys(topology.forward + topology.reverse))
+    order = list(
+        dict.fromkeys(
+            topology.forward + topology.reverse + [p.id for p in topology.points if p.vendor == "paloalto"]
+        )
+    )
     models = {}
     ref = points[order[0]].capture_id
     epoch = db.execute("SELECT min(ts) FROM obs WHERE capture_id=?", [ref]).fetchone()[0] or 0
@@ -281,7 +301,11 @@ def align(db, topology):
 def analyze(project, topology: Topology | dict, progress=None):
     topology = topology if isinstance(topology, Topology) else Topology.model_validate(topology)
     if len(topology.forward) < 2:
-        raise ValueError("Connect at least two capture points in a forward path")
+        drops = [p.id for p in topology.points if p.vendor == "paloalto" and p.vendor_stage == "drop"]
+        if not drops:
+            raise ValueError("Connect at least two capture points in a forward path")
+        if not topology.forward:
+            topology = topology.model_copy(update={"forward": [drops[0]]})
     progress = progress or (lambda **kw: None)
     with project.connect() as db:
         db.execute("SET preserve_insertion_order=false")
@@ -304,7 +328,8 @@ def analyze(project, topology: Topology | dict, progress=None):
         points = {p.id: p for p in topology.points}
         coverage = rows(
             db,
-            'SELECT point,min(corrected) AS start,max(corrected) AS "end",count(*) AS packets FROM obs GROUP BY point',
+            'SELECT point,min(corrected) AS start,max(corrected) AS "end",count(*) AS packets FROM obs WHERE point IN (SELECT unnest(?::VARCHAR[])) GROUP BY point',
+            [list(set(topology.forward + topology.reverse))],
         )
         known = all(x["start"] is not None for x in coverage) and len(coverage) == len(
             set(topology.forward + topology.reverse)
@@ -739,7 +764,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         report = dict(
             schema_version=2,
             f5=f5_report(db, topology),
-            vendor_device_events=checkpoint_audit(db, topology),
+            vendor_device_events=checkpoint_audit(db, topology) + paloalto_audit(db, topology),
             sequence_translations=sequence_report(db),
             offload_points=range_notes(db) if byte_active else [],
             timeseries=timeseries,

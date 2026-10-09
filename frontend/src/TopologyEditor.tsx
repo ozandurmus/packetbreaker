@@ -382,15 +382,45 @@ export function TopologyEditor({
                           ? "i"
                           : e.target.value === "f5"
                             ? "client"
-                            : null,
+                            : e.target.value === "paloalto"
+                              ? "receive"
+                              : null,
                     })
                   }
                 >
                   <option value="none">Generic capture</option>
                   <option value="checkpoint">Check Point fw monitor</option>
                   <option value="f5">F5 TMM trailer</option>
+                  <option value="paloalto">Palo Alto stage file</option>
                 </select>
               </label>
+              {selected.vendor === "paloalto" && (
+                <label>
+                  Capture stage
+                  <select
+                    value={selected.vendor_stage || "receive"}
+                    onChange={(e) =>
+                      update({
+                        vendor_stage: e.target.value,
+                        side:
+                          e.target.value === "receive"
+                            ? "ingress"
+                            : e.target.value === "transmit"
+                              ? "egress"
+                              : "both",
+                      })
+                    }
+                  >
+                    {["receive", "firewall", "transmit", "drop"].map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                  </select>
+                  <small>
+                    Use the same device name for all stage files. A drop point
+                    can remain off the forwarding path.
+                  </small>
+                </label>
+              )}
               {selected.vendor === "f5" && (
                 <label>
                   Proxy leg
