@@ -404,7 +404,7 @@ export function TopologyEditor({
                   <option value="nat">NAT / PAT</option>
                   <option value="full_proxy">Full proxy (unsupported)</option>
                   <option value="seq_randomization">
-                    Seq randomization (unsupported)
+                    Seq randomization (learn offsets)
                   </option>
                 </select>
               </label>

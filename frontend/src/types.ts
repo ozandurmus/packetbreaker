@@ -1,4 +1,15 @@
 export type Ref = {
+  byte_ranges?: { start_seq: number; end_seq: number; bytes: number }[];
+  range_note?: string;
+  sequence_translation?: {
+    observed_seq: number;
+    observed_ack: number;
+    canonical_seq: number;
+    canonical_ack: number;
+    seq_offset: number;
+    ack_offset: number;
+    reason: string | null;
+  };
   point: string;
   file: string;
   capture_id: string;
@@ -96,6 +107,11 @@ export type Finding = {
   metrics: Record<string, number>;
 };
 export type Segment = {
+  loss_suspect?: boolean;
+  symptom_note?: string;
+  matching_mode?: string;
+  byte_loss_percent?: number | null;
+  lost_bytes?: number;
   onset_status?: string;
   onset_quality_notes?: {
     capture_misses: number;
@@ -125,6 +141,18 @@ export type Segment = {
   offset_uncertainty_ms: number | null;
 };
 export type Report = {
+  offload_points?: { point: string; large_frames: number; note: string }[];
+  sequence_translations?: {
+    ingress: string;
+    egress: string;
+    flow: string | null;
+    status: string;
+    reason: string | null;
+    boundary_forward_offset: number | null;
+    boundary_reverse_offset: number | null;
+    samples: number;
+    evidence: Ref[];
+  }[];
   onsets?: {
     directions: Record<
       string,
@@ -142,6 +170,8 @@ export type Report = {
       bucket: number;
       time: number;
       explanation: string;
+      display_label?: string;
+      related_loss_segments?: string[];
       evidence: Ref[];
     }[];
   };
@@ -217,6 +247,7 @@ export type State = {
   job: Job;
 };
 export type Flow = {
+  matching_unknown_reason?: string | null;
   flow: string;
   tuple: string;
   start: number | null;

@@ -66,8 +66,31 @@ function Evidence({ refs, onClose }: { refs: Ref[]; onClose: () => void }) {
                     <strong>{e.point}</strong>
                     <small>{e.file}</small>
                   </td>
-                  <td>{e.frame}</td>
-                  <td>{time(e.observed_time)}</td>
+                  <td>
+                    {e.frame}
+                    {e.sequence_translation && (
+                      <small>
+                        {e.sequence_translation.reason
+                          ? `Unknown translation: ${e.sequence_translation.reason}`
+                          : `SEQ ${e.sequence_translation.observed_seq} → ${e.sequence_translation.canonical_seq}; ACK ${e.sequence_translation.observed_ack} → ${e.sequence_translation.canonical_ack}; offsets ${e.sequence_translation.seq_offset} / ${e.sequence_translation.ack_offset} (mod 2³²)`}
+                      </small>
+                    )}
+                  </td>
+                  <td>
+                    {time(e.observed_time)}
+                    {e.byte_ranges?.length ? (
+                      <small>
+                        {e.byte_ranges
+                          .slice(0, 4)
+                          .map(
+                            (r) => `${r.start_seq}–${r.end_seq} (${r.bytes} B)`,
+                          )
+                          .join(", ")}
+                        {e.byte_ranges.length > 4 ? " …" : ""}
+                      </small>
+                    ) : null}
+                    {e.range_note && <small>{e.range_note}</small>}
+                  </td>
                   <td>{time(e.corrected_time)}</td>
                   <td>
                     <code>{e.display_filter}</code>
@@ -396,7 +419,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 2 / PART 2 · v0.1.4</small>
+          <small>PHASE 2 / PART 3 · v0.1.5</small>
         </div>
       </aside>
       <main>
@@ -545,6 +568,46 @@ function App() {
           )}
           {tab === "Overview" && (
             <>
+              {!!report?.sequence_translations?.length && (
+                <section>
+                  <h2>Sequence translations</h2>
+                  {report.sequence_translations.map((m, i) => (
+                    <button
+                      key={i}
+                      className="finding"
+                      onClick={() => setEvidence(m.evidence)}
+                    >
+                      {m.ingress} → {m.egress} · flow{" "}
+                      {m.flow?.slice(0, 8) || "unknown"}:{" "}
+                      {m.status === "learned"
+                        ? `forward SEQ offset ${m.boundary_forward_offset}, ACK offset ${m.boundary_reverse_offset} (mod 2³²); ${m.samples} anchors`
+                        : `unknown — ${m.reason}`}
+                    </button>
+                  ))}
+                </section>
+              )}
+              {!!report?.offload_points?.length && (
+                <section>
+                  <h2>Offload / segmentation notes</h2>
+                  {report.offload_points
+                    .filter((p) => p.large_frames > 0)
+                    .map((p) => (
+                      <p key={p.point}>
+                        <strong>
+                          {topology.points.find((x) => x.id === p.point)
+                            ?.label || p.point}
+                          : {p.large_frames} large TCP frames.
+                        </strong>{" "}
+                        {p.note}
+                      </p>
+                    ))}
+                  <p className="hint">
+                    Matching uses TCP sequence coverage, not equality of capture
+                    packet counts. Loss counts describe affected upstream
+                    frames; missing-byte totals retain partial-frame detail.
+                  </p>
+                </section>
+              )}
               {report?.onsets && (
                 <section>
                   <h2>Degradation onset</h2>
@@ -801,7 +864,7 @@ function App() {
                               </Tip>
                             </th>
                             <th>
-                              <Tip text="Unambiguous packet appearances matched at both ends of this segment.">
+                              <Tip text="Matched packet appearances or TCP byte-range units at both ends; offload units may span several frames.">
                                 Matched
                               </Tip>
                             </th>
@@ -822,6 +885,14 @@ function App() {
                             >
                               <td>
                                 <strong>{s.label}</strong>
+                                {s.loss_suspect && (
+                                  <small className="red">
+                                    Loss suspect — supported disappearance here
+                                  </small>
+                                )}
+                                {s.symptom_note && (
+                                  <small>{s.symptom_note}</small>
+                                )}
                                 <small>{s.location}</small>
                               </td>
                               <td>{s.direction}</td>
@@ -1301,6 +1372,11 @@ function App() {
                         >
                           <td>
                             <code>{f.tuple}</code>
+                            {f.matching_unknown_reason && (
+                              <small className="red">
+                                Unknown matching: {f.matching_unknown_reason}
+                              </small>
+                            )}
                             <small>
                               {f.has_reset ? "RST observed · " : ""}
                               {f.handshake_incomplete

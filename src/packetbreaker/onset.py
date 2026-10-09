@@ -7,6 +7,7 @@ import math
 from .evidence import evidence
 from .headlines import time_labels
 from .store import rows
+from .symptoms import label_retransmissions
 
 WINDOW_SECONDS = 15
 MIN_EVENTS = 3
@@ -304,6 +305,7 @@ def add_onsets(db, topology, segments):
             labels = first["time_labels"]
             text = f" Change-point onset at {labels['local']} / {labels['utc']}; {first['explanation']} Timing uncertainty includes the {topology.bucket_seconds:g} s bucket and capture clock estimates."
             s["headline"] = s.get("headline", f"Observed {first['metric']} change at {s['label']}.") + text
+    label_retransmissions(db, segments, detections, topology)
     network_detections = [x for x in detections if x["scope"] == "network_segment"]
     directions = {}
     for d in ("forward", "reverse"):

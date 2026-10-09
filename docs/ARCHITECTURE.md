@@ -36,8 +36,9 @@ React Flow edges, with an optional separately drawn return path. A point selects
 a file and optional interface plus a source CIDR filter. Reused interface IDs across multiple pcapng sections are rejected when an interface filter is requested. Several points may use
 the same file with different filters. Forward direction is explicitly defined by
 client CIDRs (including translated addresses). Never infer direction from address
-lexical order. User order is authoritative. Full proxy/sequence translation are
-recorded as unsupported boundaries in Phase 1 and stop packet-level attribution.
+lexical order. User order is authoritative. Full proxies stop packet-level
+attribution. Part 3 learns declared sequence-randomization boundaries per session;
+insufficient or contradictory translation evidence leaves that session unknown.
 
 ## Matching
 Forwarding-invariant candidates combine protocol, IPv4 ID/IPv6 flow label, TCP
@@ -285,3 +286,44 @@ invalidated, while current packet indexes remain reusable.
 Review 0.1.4 invalidates old reports while retaining packet indexes.
 Default pytest excludes registered `slow` real-tshark matrices and large repeated-analysis fixtures;
 explicit slow selection runs every matrix case. No tests were deleted.
+
+## Phase 2 / Part 3: declared sequence randomization
+
+Adjacent ingress/egress points of the same declared device learn per-connection
+modulo-2³² SEQ/ACK translations. Independent payload/ID anchors link local streams;
+three packet correspondences and two observations for each directional offset are
+required. Any contradictory offset marks the affected connection unknown rather
+than selecting a majority. Raw packet SEQ/ACK stay in the index and in content
+filters; only analysis coordinates are normalized. Frame evidence exposes both
+coordinate systems. Other connections remain independently matchable.
+
+## Part 3: offload-aware TCP coverage
+
+Physical `obs` rows stay intact for pps, throughput, frame filters and local TCP
+counters. Differing segmentation creates a separate bounded `byte_obs` table of
+shared sequence intervals. SYN/FIN consume sequence-space units without adding
+payload bytes; wrap is split at 2³². Clock fitting can use unique first-byte/prefix
+anchors, and occurrence matching keeps original and retransmitted ranges separate.
+`byte_links` records one-to-many coverage; `byte_missing` retains missing ranges and
+byte counts. Recovery must cover every missing interval, and ACKs after an earlier
+range retry cannot prove a pure capture miss. Partial conflicting delivery support
+is unknown rather than an inflated whole-frame network-loss claim.
+
+Counts are affected upstream capture frames; at an MSS capture point a missing MSS
+segment is one loss. Byte totals quantify partial/coalesced frames and flow bytes
+are deduplicated across representations. Evidence uses original positive frame
+numbers and raw headers, with sequence-range context; no virtual atom ID leaks into
+Wireshark filters. Offload/coalescing notes are visible on the affected points.
+Checksums are not classified as network errors. Legacy excluded-superframe indexes
+require reattach to rebuild missing segmentation/fragment metadata.
+
+Range expansion is limited to one million observations and 65,535 boundaries in
+one frame; larger inputs must be split. Payload equality is checked only where both
+captured prefixes exist. Conflicting/reused range content becomes unknown, and
+offload capture timestamps are not individual wire-segment timestamps.
+
+Retransmission onset records carry a display label, a false local suspect flag
+and related downstream loss segments. `symptoms.py` joins the onset's observed
+retransmitting sessions to independently classified loss events within its time
+window. Segment loss-suspect badges derive from loss classes, preserving the
+distinction between sender symptoms and a supported disappearance boundary.

@@ -147,7 +147,7 @@ def test_tunnel_identity_is_not_mixed_with_inner_transport():
     assert "Tunnel encapsulation" in row["unsupported"]
 
 
-def test_superframe_ingests_but_is_excluded(tmp_path, tshark):
+def test_superframe_ingests_for_byte_range_matching(tmp_path, tshark):
     from packetbreaker.synthetic import tcp_packet, write_pcap
 
     path = tmp_path / "offload.pcap"
@@ -159,8 +159,16 @@ def test_superframe_ingests_but_is_excluded(tmp_path, tshark):
     with project.connect() as db:
         length, reason, prefix = db.execute("SELECT length,unsupported,prefix FROM packets").fetchone()
     assert length == 64000
-    assert "offload super-frame" in reason
+    assert reason is None
     assert len(prefix) == 128
+    with project.connect() as db:
+        db.execute("UPDATE packets SET unsupported='Possible offload super-frame; legacy parser'")
+    reopened = Project(project.path)
+    assert reopened.inventory()[0]["state"] == "stale"
+    ingest(reopened, path, tshark=tshark)
+    assert reopened.inventory()[0]["state"] == "ready"
+    with reopened.connect() as db:
+        assert db.execute("SELECT unsupported FROM packets").fetchone()[0] is None
 
 
 def test_engine_upgrade_invalidates_report_but_keeps_current_index(tmp_path, tshark):
