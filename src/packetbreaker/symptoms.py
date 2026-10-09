@@ -1,6 +1,12 @@
 """A sender's retransmission is a symptom; disappearance evidence locates loss."""
 
-LOSS_KINDS = ("recovered_loss", "impactful_loss", "unrecovered_loss", "handshake_blocked")
+LOSS_KINDS = (
+    "recovered_loss",
+    "impactful_loss",
+    "unrecovered_loss",
+    "handshake_blocked",
+    "confirmed_device_drop",
+)
 SYMPTOM = "symptom observed here (sender retransmits)"
 
 
@@ -21,7 +27,7 @@ def label_retransmissions(db, segments, detections, topology):
         index = path.index(segment["point_a"])
         found = db.execute(
             """SELECT DISTINCT e.point_a,e.point_b FROM events e WHERE e.direction=?
-            AND e.kind IN ('recovered_loss','impactful_loss','unrecovered_loss','handshake_blocked')
+            AND e.kind IN ('recovered_loss','impactful_loss','unrecovered_loss','handshake_blocked','confirmed_device_drop')
             AND e.ts<? AND e.ts+coalesce(greatest(e.recovery_ms,e.impact_ms)/1000,60)>=?
             AND e.flow IN (SELECT DISTINCT flow FROM obs WHERE point=? AND direction=? AND retrans
                 AND corrected>=? AND corrected<?)""",

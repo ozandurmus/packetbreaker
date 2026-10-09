@@ -17,6 +17,10 @@ class Point(BaseModel):
     side: Literal["ingress", "egress", "both"] = "both"
     capture_id: str
     interface: int | None = Field(default=None, ge=0)
+    vendor: Literal["none", "checkpoint", "f5", "paloalto", "fortinet"] = "none"
+    vendor_stage: str | None = None
+    vendor_interface: str | None = Field(default=None, max_length=100)
+    inspection_complete: bool = False
     source_cidr: str | None = None
     translation: Literal["none", "nat", "full_proxy", "seq_randomization"] = "none"
     x: float = 0
@@ -24,6 +28,25 @@ class Point(BaseModel):
 
     @model_validator(mode="after")
     def valid(self):
+        if self.vendor == "checkpoint" and self.vendor_stage not in (
+            "i",
+            "I",
+            "o",
+            "O",
+            "e",
+            "E",
+            "oe",
+            "OE",
+        ):
+            raise ValueError("Choose a Check Point inspection stage")
+        if self.vendor == "paloalto" and self.vendor_stage not in ("receive", "firewall", "transmit", "drop"):
+            raise ValueError("Choose a Palo Alto capture stage")
+        if self.vendor == "paloalto" and self.vendor_stage in ("receive", "transmit"):
+            self.side = "ingress" if self.vendor_stage == "receive" else "egress"
+        if self.vendor == "f5":
+            if self.vendor_stage not in ("client", "server"):
+                raise ValueError("Choose the F5 client or server leg")
+            self.translation = "full_proxy"
         if self.source_cidr:
             ipaddress.ip_network(self.source_cidr, strict=False)
         if not math.isfinite(self.x) or not math.isfinite(self.y):
@@ -89,6 +112,18 @@ class Topology(BaseModel):
         for path in (self.forward, self.reverse):
             if len(path) != len(set(path)) or any(p not in ids for p in path):
                 raise ValueError("Paths must contain existing capture points once; cycles are unsupported")
+        paloalto_files = {}
+        for p in self.points:
+            if p.vendor == "paloalto":
+                paloalto_files.setdefault(p.capture_id, set()).add((p.device, p.vendor_stage))
+        if any(len(tags) > 1 for tags in paloalto_files.values()):
+            raise ValueError("Each Palo Alto stage file must have one node/stage tag")
+        checkpoint_nodes = {}
+        for p in self.points:
+            if p.vendor == "checkpoint":
+                checkpoint_nodes.setdefault(p.capture_id, set()).add(p.device)
+        if any(len(devices) > 1 for devices in checkpoint_nodes.values()):
+            raise ValueError("A fw monitor file must map to inspection points of one node")
         for cidr in self.client_cidrs:
             ipaddress.ip_network(cidr, strict=False)
         if not self.client_cidrs:

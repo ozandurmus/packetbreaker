@@ -118,6 +118,12 @@ def link_tcp_sessions(db, topology):
 
     paths = (topology.forward, topology.reverse or list(reversed(topology.forward)))
     pairs = {tuple(sorted((a, b))) for path in paths for a, b in zip(path, path[1:])}
+    # Auxiliary PA stage captures can share a positive packet identity with path points.
+    from itertools import combinations
+
+    for device in {p.device for p in topology.points if p.vendor == "paloalto"}:
+        same_node = [p.id for p in topology.points if p.device == device and p.vendor == "paloalto"]
+        pairs.update(tuple(sorted(pair)) for pair in combinations(same_node, 2))
     for a, b in pairs:
         edges = db.execute(
             """SELECT DISTINCT a.point,a.stream,a.flow,b.point,b.stream,b.flow

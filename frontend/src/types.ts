@@ -1,4 +1,5 @@
 export type Ref = {
+  vendor?: Record<string, string>;
   byte_ranges?: { start_seq: number; end_seq: number; bytes: number }[];
   range_note?: string;
   sequence_translation?: {
@@ -29,6 +30,10 @@ export type Point = {
   side: string;
   capture_id: string;
   interface: number | null;
+  vendor?: string;
+  vendor_stage?: string | null;
+  vendor_interface?: string | null;
+  inspection_complete?: boolean;
   source_cidr: string | null;
   translation: string;
   x: number;
@@ -135,12 +140,50 @@ export type Segment = {
   max_ms: number | null;
   loss_percent: number | null;
   eligible_packets: number;
-  eligible_ratio: number;
+  eligible_ratio: number | null;
   excluded_counts: Record<string, number>;
   classes: Record<string, number>;
   offset_uncertainty_ms: number | null;
 };
 export type Report = {
+  confirmed_device_drop_count?: number;
+  confirmed_device_drops?: { device: string; stage: string; count: number }[];
+  vendor_device_event_count?: number;
+  vendor_device_events?: {
+    device: string;
+    stage: string;
+    status: string;
+    reason: string;
+    evidence: Ref[];
+  }[];
+  f5?: {
+    note?: string;
+    connection_count?: number;
+    pairs: {
+      flowid: string;
+      peerid: string;
+      tmm: string;
+      role: string;
+      reason: string | null;
+      client_flow?: string;
+      server_flow?: string;
+    }[];
+    requests: {
+      device: string;
+      request: string;
+      request_dwell_ms: number | null;
+      clock_uncertainty_ms: number;
+      reason: string | null;
+      note: string;
+      evidence: Ref[];
+    }[];
+    resets: {
+      device: string;
+      reason: string;
+      time: number | null;
+      evidence: Ref[];
+    }[];
+  };
   offload_points?: { point: string; large_frames: number; note: string }[];
   sequence_translations?: {
     ingress: string;
@@ -170,6 +213,7 @@ export type Report = {
       bucket: number;
       time: number;
       explanation: string;
+      scope?: string;
       display_label?: string;
       related_loss_segments?: string[];
       evidence: Ref[];
@@ -242,7 +286,19 @@ export type State = {
   captures: Capture[];
   topology: Topology;
   report: Report | null;
-  settings: { tshark?: string; prefix_bytes?: number; parallel?: boolean };
+  fortinet_conversion?: {
+    packets: number;
+    skipped_lines: number;
+    skipped_packets: number;
+    files: { interface: string; packets: number; clock_confidence: string }[];
+  };
+  settings: {
+    checkpoint_uuid?: boolean;
+    f5_trailer?: boolean;
+    tshark?: string;
+    prefix_bytes?: number;
+    parallel?: boolean;
+  };
   tshark: { path: string | null; error: string | null };
   job: Job;
 };
@@ -254,6 +310,7 @@ export type Flow = {
   end: number | null;
   bytes: number;
   points: number;
+  confirmed_device_drop: number;
   impactful_loss: number;
   recovered_loss: number;
   unrecovered_loss: number;

@@ -344,7 +344,7 @@ section {
 }
 .stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
   gap: 16px;
   margin-bottom: 22px;
 }
@@ -948,4 +948,16 @@ footer span:last-child {
   .inspector > .eyebrow {
     display: none;
   }
+}
+
+.finding.onset-symptom {
+  background: #f4f6f5;
+  color: #667772;
+  border-left-color: #bac7c2;
+  font-size: 0.9em;
+}
+
+.capture-node.confirmed-device {
+  border: 2px solid #b64c45;
+  background: #fff3ef;
 }

@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 
 from . import __version__
 from .clock import ClockModel, fit_clock
+from .device_drops import prepare_proofs, upgrade_events, finding_context, add_unplaced, device_report
 from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions, propagate_translation_unknown
 from .ingest import tuple_id
 from .headlines import add_headlines
 from .evidence import evidence, prepare_flow_filters
 from .store import rows
 from .topology import Topology
+from .vendors import point_selector, prepare_f5_connections, f5_report
 from .timeseries import build_timeseries
 from .onset import add_onsets
 from .translation import normalize_sequences, sequence_report
@@ -36,14 +38,19 @@ def prepare(db, topology):
     db.execute(
         "CREATE TABLE obs AS SELECT *, seq AS raw_seq, ack AS raw_ack, NULL::VARCHAR AS translation_reason, NULL::VARCHAR AS range_reason, NULL::VARCHAR AS point, NULL::VARCHAR AS canon FROM packets WHERE false"
     )
+    prepare_f5_connections(db, topology)
     ready = {r[0] for r in db.execute("SELECT id FROM captures WHERE state='ready'").fetchall()}
     used = set(topology.forward + (topology.reverse or list(reversed(topology.forward))))
+    used.update(p.id for p in topology.points if p.vendor == "paloalto")
     for point in topology.points:
         if point.id not in used:
             continue
         if point.capture_id not in ready:
             raise ValueError(f"{point.label}: capture is not ready")
         clause, params = "capture_id=?", [point.capture_id]
+        extra, values = point_selector(point)
+        clause += extra
+        params += values
         if point.interface is not None:
             inv = json.loads(
                 db.execute("SELECT inventory FROM captures WHERE id=?", [point.capture_id]).fetchone()[0]
@@ -66,6 +73,21 @@ def prepare(db, topology):
             f"INSERT INTO obs SELECT *,seq,ack,NULL,NULL,?,tuple_key FROM packets WHERE {clause}",
             [point.id, *params],
         )
+        if point.vendor == "paloalto":
+            db.execute(
+                "UPDATE obs SET vendor=? WHERE point=?",
+                [
+                    json.dumps(
+                        dict(
+                            adapter="paloalto",
+                            stage=point.vendor_stage,
+                            device=point.device,
+                            stage_source="user_file_tag",
+                        )
+                    ),
+                    point.id,
+                ],
+            )
     db.execute("ALTER TABLE obs ADD COLUMN corrected DOUBLE")
     db.execute("ALTER TABLE obs ADD COLUMN direction VARCHAR")
     db.execute("ALTER TABLE obs ADD COLUMN canon_reverse VARCHAR")
@@ -174,6 +196,11 @@ def prepare(db, topology):
         t.canon AS canon,t.canon_reverse AS canon_reverse,t.direction AS direction,
         md5(t.canon || o.signature) AS packet_key,md5(least(t.canon,t.canon_reverse)) AS flow)
         FROM obs o JOIN tuple_lookup t ON o.tuple_key=t.tuple_key""")
+    if any(p.vendor == "f5" for p in topology.points):
+        db.execute("""UPDATE obs SET direction=CASE
+            WHEN (c.role='client') = (lower(json_extract_string(obs.vendor,'$."f5ethtrailer.ingress"')) IN ('true','1')) THEN 'forward'
+            ELSE 'reverse' END FROM f5_connections c WHERE obs.capture_id=c.capture_id AND obs.stream=c.stream
+            AND c.role IN ('client','server') AND json_extract_string(obs.vendor,'$."f5ethtrailer.ingress"') IS NOT NULL""")
     normalize_sequences(db, topology)
     # Compare the shared captured prefix, not the digest of different-length payloads.
     db.execute("""CREATE OR REPLACE TEMP TABLE prefix_lengths AS
@@ -194,7 +221,11 @@ def prepare(db, topology):
 
 def align(db, topology):
     points = {p.id: p for p in topology.points}
-    order = list(dict.fromkeys(topology.forward + topology.reverse))
+    order = list(
+        dict.fromkeys(
+            topology.forward + topology.reverse + [p.id for p in topology.points if p.vendor == "paloalto"]
+        )
+    )
     models = {}
     ref = points[order[0]].capture_id
     epoch = db.execute("SELECT min(ts) FROM obs WHERE capture_id=?", [ref]).fetchone()[0] or 0
@@ -255,6 +286,25 @@ def align(db, topology):
             break
     for p in order:
         models.setdefault(points[p].capture_id, ClockModel(epoch=epoch))
+    # Files split from one Fortinet transcript share an actual source clock.
+    from dataclasses import replace
+
+    groups = {}
+    for cid, raw in db.execute("SELECT id,inventory FROM captures").fetchall():
+        source = json.loads(raw).get("source_metadata") or {}
+        if cid in models and source.get("adapter") == "fortinet":
+            groups.setdefault(source.get("clock_group", cid), []).append((cid, source))
+    for group in groups.values():
+        known = next((models[cid] for cid, _ in group if models[cid].offset is not None), None)
+        for cid, source in group:
+            if known is not None:
+                models[cid] = replace(
+                    known, reason="Interfaces split from one Fortinet text clock", confidence="shared_source"
+                )
+            if source.get("clock_confidence") == "low":
+                models[cid].confidence = "low"
+                models[cid].uncertainty = None
+                models[cid].reason = "Relative Fortinet timestamps anchored by a user-supplied start time"
     db.execute(
         "CREATE OR REPLACE TEMP TABLE clock_values(capture_id VARCHAR,epoch DOUBLE,offset_s DOUBLE,drift DOUBLE)"
     )
@@ -271,7 +321,11 @@ def align(db, topology):
 def analyze(project, topology: Topology | dict, progress=None):
     topology = topology if isinstance(topology, Topology) else Topology.model_validate(topology)
     if len(topology.forward) < 2:
-        raise ValueError("Connect at least two capture points in a forward path")
+        drops = [p.id for p in topology.points if p.vendor == "paloalto" and p.vendor_stage == "drop"]
+        if not drops:
+            raise ValueError("Connect at least two capture points in a forward path")
+        if not topology.forward:
+            topology = topology.model_copy(update={"forward": [drops[0]]})
     progress = progress or (lambda **kw: None)
     with project.connect() as db:
         db.execute("SET preserve_insertion_order=false")
@@ -294,7 +348,8 @@ def analyze(project, topology: Topology | dict, progress=None):
         points = {p.id: p for p in topology.points}
         coverage = rows(
             db,
-            'SELECT point,min(corrected) AS start,max(corrected) AS "end",count(*) AS packets FROM obs GROUP BY point',
+            'SELECT point,min(corrected) AS start,max(corrected) AS "end",count(*) AS packets FROM obs WHERE point IN (SELECT unnest(?::VARCHAR[])) GROUP BY point',
+            [list(set(topology.forward + topology.reverse))],
         )
         known = all(x["start"] is not None for x in coverage) and len(coverage) == len(
             set(topology.forward + topology.reverse)
@@ -312,6 +367,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         inventories = {
             cid: json.loads(inv) for cid, inv in db.execute("SELECT id,inventory FROM captures").fetchall()
         }
+        has_device_proofs = prepare_proofs(db, topology, start, end)
         segments, findings = [], []
         progress(state="classifying")
         for direction, path in (
@@ -374,7 +430,21 @@ def analyze(project, topology: Topology | dict, progress=None):
                     if start is None or end is None or end < common_start or start > common_end
                     else None
                 )
+                if pa.vendor == "checkpoint" and pb.device == pa.device:
+                    inv = inventories[pa.capture_id]
+                    if (
+                        not pa.inspection_complete
+                        or inv.get("damaged_tail")
+                        or inv.get("ifdrop")
+                        or inv.get("osdrop")
+                        or inv.get("timestamp_excluded_counts")
+                    ):
+                        reason = "Inspection coverage incomplete or not attested"
                 classification_reason = reason
+                if pa.vendor == "checkpoint" and pb.device == pa.device:
+                    classification_reason = (
+                        reason or "Inspection-stage absence has no positive device-drop proof"
+                    )
                 quality_rows = rows(
                     db,
                     """SELECT point,
@@ -572,6 +642,8 @@ def analyze(project, topology: Topology | dict, progress=None):
                         common_end,
                     ],
                 )
+                if has_device_proofs:
+                    upgrade_events(db, a, b, direction, pa.device)
                 total = db.execute(
                     """SELECT count(*) FROM obs WHERE point=? AND direction=? AND eligible
                     AND (length>0 OR (proto='TCP' AND (flags&7)>0) OR proto IN ('UDP','ICMP'))
@@ -591,11 +663,25 @@ def analyze(project, topology: Topology | dict, progress=None):
                     x["count"]
                     for x in classes
                     if x["kind"]
-                    in ("recovered_loss", "impactful_loss", "unrecovered_loss", "handshake_blocked")
+                    in (
+                        "recovered_loss",
+                        "impactful_loss",
+                        "unrecovered_loss",
+                        "handshake_blocked",
+                        "confirmed_device_drop",
+                    )
                 )
+                if (
+                    pa.vendor == "checkpoint"
+                    and pb.device == pa.device
+                    and any(c["kind"] == "unknown" for c in classes)
+                ):
+                    reason = classification_reason
+                    segment["reason"] = reason
                 segment["loss_percent"] = 100 * loss_count / total if total and not reason else None
                 for cls in classes:
                     severity = {
+                        "confirmed_device_drop": "high",
                         "handshake_blocked": "high",
                         "unrecovered_loss": "low",
                         "impactful_loss": "high",
@@ -612,13 +698,22 @@ def analyze(project, topology: Topology | dict, progress=None):
                         dict(
                             id=f"{segment_id}:{cls['kind']}",
                             type=cls["kind"],
+                            **(
+                                finding_context(db, a, b, direction)
+                                if cls["kind"] == "confirmed_device_drop"
+                                else {}
+                            ),
                             severity=severity,
                             hop=segment_id,
                             direction=direction,
                             time_range=[cls["first_seen"], cls["last_seen"]],
                             confidence="supported" if severity != "unknown" else "unknown",
                             metrics=cls,
-                            cause="unknown" if cls["kind"] != "capture_miss" else "capture_visibility",
+                            cause="device_stage_evidence"
+                            if cls["kind"] == "confirmed_device_drop"
+                            else "unknown"
+                            if cls["kind"] != "capture_miss"
+                            else "capture_visibility",
                             summary=(
                                 f"Handshake blocked between {pa.label} and {pb.label}; cause unknown."
                                 if cls["kind"] == "handshake_blocked"
@@ -655,6 +750,8 @@ def analyze(project, topology: Topology | dict, progress=None):
                     )
                 segments.append(segment)
         progress(state="summarizing")
+        if has_device_proofs:
+            add_unplaced(db, topology, segments, findings)
         db.execute("""CREATE OR REPLACE TABLE flow_summary AS
             WITH base AS (SELECT flow,max(coalesce(translation_reason,range_reason)) AS matching_unknown_reason,min(corrected) AS start,max(corrected) AS "end",count(DISTINCT point) AS points,
                 count(DISTINCT packet_key) AS unique_observations,count(*) FILTER(WHERE retrans) AS retrans_observations,
@@ -668,12 +765,14 @@ def analyze(project, topology: Topology | dict, progress=None):
                 count(*) FILTER(WHERE kind='capture_miss') AS capture_miss,
                 count(*) FILTER(WHERE kind='unrecovered_loss') AS unrecovered_loss,
                 count(*) FILTER(WHERE kind='handshake_blocked') AS handshake_blocked,
+                count(*) FILTER(WHERE kind='confirmed_device_drop') AS confirmed_device_drop,
                 count(*) FILTER(WHERE kind='unknown') AS unknown_events,
                 max(greatest(impact_ms,recovery_ms)) AS max_stall_ms
                 FROM events GROUP BY flow)
             SELECT base.*,bytes.bytes,coalesce(impactful_loss,0) AS impactful_loss,
                 coalesce(recovered_loss,0) AS recovered_loss,coalesce(capture_miss,0) AS capture_miss,max_stall_ms,
                 coalesce(unrecovered_loss,0) AS unrecovered_loss,coalesce(handshake_blocked,0) AS handshake_blocked,
+                coalesce(confirmed_device_drop,0) AS confirmed_device_drop,
                 coalesce(unknown_events,0) AS unknown_events,
                 (syns>0 AND synacks=0) OR coalesce(handshake_blocked,0)>0 AS handshake_incomplete
             FROM base JOIN bytes USING(flow) LEFT JOIN losses USING(flow)""")
@@ -728,13 +827,17 @@ def analyze(project, topology: Topology | dict, progress=None):
         )
         report = dict(
             schema_version=2,
+            f5=f5_report(db, topology),
+            **device_report(db),
             sequence_translations=sequence_report(db),
             offload_points=range_notes(db) if byte_active else [],
             timeseries=timeseries,
             onsets=onsets,
             engine_version=__version__,
             generated_at=datetime.now(timezone.utc).isoformat(),
-            verdict="Impactful loss observed"
+            verdict="Confirmed device drops observed"
+            if any(f["type"] == "confirmed_device_drop" for f in findings)
+            else "Impactful loss observed"
             if any(f["type"] == "impactful_loss" for f in findings)
             else "Handshake failure observed"
             if any(f["type"] == "handshake_blocked" for f in findings)
@@ -745,7 +848,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 2 / Part 4; translation-aware matching, onset estimates, waterfall and offline export",
+            scope="Phase 2 / Part 5; vendor-stage evidence, translation-aware matching, onset, waterfall and offline export",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,
@@ -783,6 +886,7 @@ def flow_page(project, offset=0, limit=50, search="", filter_by="", sort="bytes"
         filters = {
             "impactful": "impactful_loss>0",
             "resets": "has_reset",
+            "device_drops": "confirmed_device_drop>0",
             "handshakes": "handshake_incomplete",
         }
         if filter_by in filters:

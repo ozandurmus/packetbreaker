@@ -370,3 +370,90 @@ Waterfall frame refs are resolved in one batch after constructing the stages,
 then reused across bars. The flow inspector does not issue a separate metadata
 lookup for each bar. The 0.1.6 analysis version refreshes reports while retaining
 compatible packet indexes.
+
+## Part 5 vendor metadata: Check Point
+
+Snoop RFC 1761 container framing is read for inventory only. tshark performs all
+protocol decoding with `eth.interpret_as_fw1_monitor:TRUE` and chain display on.
+The UUID file variant is an explicit ingest setting (`fw1.with_uuid`); it changes
+the header's interface-name width and is never guessed. The four exported fw1
+fields remain in per-frame vendor metadata and original evidence refs.
+
+Each stage maps to a distinct point of one node using one file; overlap is rejected.
+The inspection audit reuses matched occurrence identities. An unmatched i event
+is confirmed only with explicitly attested continuous stage coverage, mapped I/o
+points, no container/timestamp/drop-counter problems and enough trailing coverage.
+Later appearances, including O/additional inspection points, contradict the disappearance.
+Unattested or incomplete capture evidence stays unknown. The separate audit feeds
+the final confirmed-device-drop integration. Ordinary tshark TCP flags can include
+repeated inspection appearances; they are not independent device-drop evidence.
+
+F5 trailer decoding is enabled with tshark's `--enable-protocol f5ethtrailer`.
+Raw flow/peer IDs, peer addresses/ports, ingress, VIP, processor and reset-cause
+fields are retained (including multiple peer-field occurrences). The adapter
+pairs reciprocal nonzero IDs within a capture and slot/TMM namespace, checking
+local TCP streams for reuse and client CIDRs for an unambiguous role. Client and
+server TCP conversations remain separate; the proxy is not packet-forwarding.
+
+Request forwarding dwell uses tshark-decoded HTTP request-bearing frames on the
+paired legs. Distinct request lines match one-to-one; repeated identical lines,
+unequal counts and reversed time order remain unknown. This is not whole-body
+completion or server processing. Same-capture timing cancels clock offset. The
+request budget is 2,000 observations per pair; reset annotations retain TMM's
+rstcausetxt verbatim as evidence, not an independently inferred policy diagnosis.
+
+Palo Alto files receive explicit receive/firewall/transmit/drop tags for one node.
+Receive/transmit map to ingress/egress; drop and other auxiliary stage points need
+not be forwarding-path edges. Auxiliary observations are indexed for evidence and
+positive session links, but do not shorten the common path coverage interval.
+Every usable drop-stage frame is positive device-stage evidence, regardless of
+whether cross-capture clocks are aligned. Unaligned evidence retains observed time.
+A drop-only investigation is allowed without inventing a network path.
+
+Fortinet verbose-6 import is an original text/container converter. It copies only
+hex bytes into nanosecond pcap records and splits interfaces into separate files
+and points; tshark then performs ordinary dissection. Absolute `a` timestamps are
+UTC and retained exactly. Relative timestamps require an ISO start with timezone,
+and low clock confidence persists through cache/reattach. Split interfaces share
+the transcript's clock domain, not independently inferred file clocks.
+
+CRLF, ANSI console coloring, ASCII gutters and indented hex continuations are
+handled. Malformed/gapped hex causes that packet to be skipped, not zero-filled or
+spliced. Noise/skipped lines and packets are counted. Explicit cooked-link metadata is compared against tshark Ethernet/SLL/SLL2
+decodes. Only a unique matching link type is used; bytes are never rewritten.
+Ambiguous or incomplete cooked metadata is reported and skipped. At a byte boundary, unseen
+trailing bytes cannot be inferred from text alone. Conversion has 64-interface and
+16 MiB per-frame limits and creates only new owned output directories; cancellation
+checks run while streaming the text. Provenance survives interrupted ingest.
+
+## Confirmed device-drop integration and export v2
+
+`device_proofs` persists every vendor evidence row in DuckDB, with device, stage,
+source frame, time basis and coverage status. SQL batches build and associate proof
+rows; display refs are bounded and resolved together. A unique packet identity can
+link a PA auxiliary stage to a path event without guessing a clock offset. Positive
+evidence upgrades that event to `confirmed_device_drop`; unmatched evidence gets
+a device-stage finding with no invented upstream loss-rate denominator. Capture
+misses are not relabeled as disappearance proof. Inferred recovery metrics remain.
+
+Unknown inspection-stage absences are not ordinary network-loss claims. Confirmed
+counts feed the executive summary, node/edge overlay, flow filters, time series
+and exports. Standalone stage evidence has no healthy path baseline for an onset.
+The export contract is now `packetbreaker.findings` version 2; confirmed findings
+require nonempty `device` and `evidence_stage`. Version 1 remains documented for
+old consumers. F5 forwarding/reset metadata is also inspectable in offline HTML.
+
+### Format references
+
+- [Snoop RFC 1761](https://www.rfc-editor.org/rfc/rfc1761).
+- [Wireshark fw1 fields](https://www.wireshark.org/docs/dfref/f/fw1.html) and
+  [tagged fw1 dissector](https://github.com/wireshark/wireshark/blob/v4.6.9/epan/dissectors/packet-fw1.c).
+- [Wireshark F5 fields](https://www.wireshark.org/docs/dfref/f/f5ethtrailer.html) and
+  [tagged trailer dissector](https://github.com/wireshark/wireshark/blob/v4.6.9/epan/dissectors/packet-f5ethtrailer.c).
+- [Check Point fw monitor options](https://sc1.checkpoint.com/documents/R81/WebAdminGuides/EN/CP_R81_CLI_ReferenceGuide/Topics-CLIG/FWG/fw-monitor.htm).
+- [Fortinet sniffer KB](https://community.fortinet.com/fortigate-3/troubleshooting-tip-using-the-fortios-built-in-packet-sniffer-for-capturing-packets-96295)
+  and [timestamp format reference](https://docs.fortinet.com/document/fortigate/7.0.11/administration-guide/680228/performing-a-sniffer-trace-cli-and-packet-capture).
+
+Wire-layout references inform only synthetic test construction. Production vendor
+fields and expected test values come from tshark; no third-party captures are
+embedded in tests or tracked.

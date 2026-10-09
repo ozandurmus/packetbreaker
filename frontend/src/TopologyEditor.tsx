@@ -72,6 +72,10 @@ export function TopologyEditor({
     [selection, setSelection] = useState<string | null>(null),
     [direction, setDirection] = useState("forward");
   useEffect(() => {
+    const deviceDrops = (device: string) =>
+      report?.confirmed_device_drops
+        ?.filter((d) => d.device === device)
+        .reduce((n, d) => n + d.count, 0) || 0;
     setNodes(
       topology.points.map((p) => ({
         id: p.id,
@@ -85,6 +89,12 @@ export function TopologyEditor({
                 {p.kind} · {p.side}
               </small>
               <strong>{p.label}</strong>
+              {!!deviceDrops(p.device) && (
+                <small className="red">
+                  {p.device}: {deviceDrops(p.device)} confirmed device drops
+                  (device total)
+                </small>
+              )}
               <span>
                 {captures.find((c) => c.id === p.capture_id)?.name ||
                   "Assign a capture"}
@@ -92,7 +102,7 @@ export function TopologyEditor({
             </div>
           ),
         },
-        className: "capture-node",
+        className: `capture-node ${deviceDrops(p.device) ? "confirmed-device" : ""}`,
       })),
     );
     setEdges(
@@ -107,7 +117,9 @@ export function TopologyEditor({
               s.direction === dir,
           );
           const color =
-            seg?.classes.impactful_loss || seg?.classes.handshake_blocked
+            seg?.classes.confirmed_device_drop ||
+            seg?.classes.impactful_loss ||
+            seg?.classes.handshake_blocked
               ? "#c44842"
               : seg?.reason
                 ? "#b48526"
@@ -370,6 +382,111 @@ export function TopologyEditor({
                   ))}
                 </select>
               </label>
+              <label>
+                Vendor input
+                <select
+                  value={selected.vendor || "none"}
+                  onChange={(e) =>
+                    update({
+                      vendor: e.target.value,
+                      vendor_stage:
+                        e.target.value === "checkpoint"
+                          ? "i"
+                          : e.target.value === "f5"
+                            ? "client"
+                            : e.target.value === "paloalto"
+                              ? "receive"
+                              : null,
+                    })
+                  }
+                >
+                  <option value="none">Generic capture</option>
+                  <option value="checkpoint">Check Point fw monitor</option>
+                  <option value="f5">F5 TMM trailer</option>
+                  <option value="paloalto">Palo Alto stage file</option>
+                  <option value="fortinet">Converted Fortinet interface</option>
+                </select>
+              </label>
+              {selected.vendor === "paloalto" && (
+                <label>
+                  Capture stage
+                  <select
+                    value={selected.vendor_stage || "receive"}
+                    onChange={(e) =>
+                      update({
+                        vendor_stage: e.target.value,
+                        side:
+                          e.target.value === "receive"
+                            ? "ingress"
+                            : e.target.value === "transmit"
+                              ? "egress"
+                              : "both",
+                      })
+                    }
+                  >
+                    {["receive", "firewall", "transmit", "drop"].map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                  </select>
+                  <small>
+                    Use the same device name for all stage files. A drop point
+                    can remain off the forwarding path.
+                  </small>
+                </label>
+              )}
+              {selected.vendor === "f5" && (
+                <label>
+                  Proxy leg
+                  <select
+                    value={selected.vendor_stage || "client"}
+                    onChange={(e) => update({ vendor_stage: e.target.value })}
+                  >
+                    <option value="client">Client side</option>
+                    <option value="server">Server side</option>
+                  </select>
+                  <small>
+                    Enable F5 trailer decoding in Settings and reattach first.
+                    Use specific client CIDRs. Reciprocal TMM IDs pair
+                    connections; TCP legs stay separate.
+                  </small>
+                </label>
+              )}
+              {selected.vendor === "checkpoint" && (
+                <>
+                  <label>
+                    fw1.interface filter (optional)
+                    <input
+                      value={selected.vendor_interface || ""}
+                      onChange={(e) =>
+                        update({ vendor_interface: e.target.value || null })
+                      }
+                      placeholder="Decoded interface name"
+                    />
+                  </label>
+                  <label>
+                    Inspection stage
+                    <select
+                      value={selected.vendor_stage || "i"}
+                      onChange={(e) => update({ vendor_stage: e.target.value })}
+                    >
+                      {["i", "I", "o", "O", "e", "E", "oe", "OE"].map((s) => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={selected.inspection_complete || false}
+                      onChange={(e) =>
+                        update({ inspection_complete: e.target.checked })
+                      }
+                    />
+                    Required inspection stages captured continuously (map I and
+                    o too)
+                  </label>
+                </>
+              )}
               <label>
                 Interface ID (blank = all)
                 <input

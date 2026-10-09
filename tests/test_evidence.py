@@ -29,6 +29,7 @@ def filter_frames(tshark, path, expression):
     ]
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("ipv6", [False, True])
 def test_content_filters_survive_merge_and_resave(scenarios, tshark, tmp_path, ipv6):
     _, truth, _, report = scenarios("recovered_loss", ip_id="zero", ipv6=ipv6)
@@ -61,7 +62,7 @@ def test_flow_filter_uses_post_nat_tuple_per_file(scenarios, tshark):
     }
     analyze(project, topology)
     flow = flow_page(project)["items"][0]["flow"]
-    trace = ladder(project, flow)
+    trace = ladder(project, flow, limit=1)
     assert len(trace["flow_filters"]) == 5
     for f in trace["flow_filters"]:
         path = next(p for p in truth["files"] if Path(p).name == f["file"])

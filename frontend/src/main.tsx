@@ -69,6 +69,12 @@ function Evidence({ refs, onClose }: { refs: Ref[]; onClose: () => void }) {
                   </td>
                   <td>
                     {e.frame}
+                    {e.vendor && (
+                      <details>
+                        <summary>Vendor evidence</summary>
+                        <pre>{JSON.stringify(e.vendor, null, 2)}</pre>
+                      </details>
+                    )}
                     {e.sequence_translation && (
                       <small>
                         {e.sequence_translation.reason
@@ -196,6 +202,11 @@ function App() {
     offset: number;
   } | null>(null);
   const [parallelIngest, setParallelIngest] = useState(false);
+  const [checkpointUuid, setCheckpointUuid] = useState(false);
+  const [f5Trailer, setF5Trailer] = useState(false);
+  const [fortiPath, setFortiPath] = useState("");
+  const [fortiStart, setFortiStart] = useState("");
+  const [fortiDevice, setFortiDevice] = useState("FortiGate");
   const [tsharkPath, setTsharkPath] = useState(""),
     [prefix, setPrefix] = useState(64);
   useEffect(() => {
@@ -234,6 +245,8 @@ function App() {
     setTsharkPath(s.settings.tshark || "");
     setPrefix(s.settings.prefix_bytes || 64);
     setParallelIngest(s.settings.parallel ?? false);
+    setCheckpointUuid(s.settings.checkpoint_uuid ?? false);
+    setF5Trailer(s.settings.f5_trailer ?? false);
   }
   const fail = (e: unknown) =>
     setError(e instanceof Error ? e.message : String(e));
@@ -434,7 +447,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 2 / PART 4 · v0.1.6</small>
+          <small>PHASE 2 / PART 5 · v0.1.7</small>
         </div>
       </aside>
       <main>
@@ -483,7 +496,14 @@ function App() {
               Export JSON
             </button>
             <button
-              disabled={busy || ready < 2 || topology.forward.length < 2}
+              disabled={
+                busy ||
+                ready < 1 ||
+                (topology.forward.length < 2 &&
+                  !topology.points.some(
+                    (p) => p.vendor === "paloalto" && p.vendor_stage === "drop",
+                  ))
+              }
               onClick={() => action(analyze)}
             >
               ▶ Analyze path
@@ -615,6 +635,70 @@ function App() {
                   ))}
                 </section>
               )}
+              {!!report?.vendor_device_events?.some(
+                (e) => e.status === "unknown",
+              ) && (
+                <section>
+                  <h2>Inspection evidence limitations</h2>
+                  {report.vendor_device_events
+                    .filter((e) => e.status === "unknown")
+                    .slice(0, 10)
+                    .map((e, i) => (
+                      <button
+                        className="finding onset-symptom"
+                        key={i}
+                        onClick={() => setEvidence(e.evidence)}
+                      >
+                        {e.device} · {e.stage}: {e.reason}
+                      </button>
+                    ))}
+                </section>
+              )}
+              {!!report?.f5?.pairs.length && (
+                <section>
+                  <h2>F5 connection pairs and request forwarding</h2>
+                  <p className="hint">{report.f5.note}</p>
+                  <p className="hint">
+                    Capture context. Client/server TCP legs remain separate;
+                    forwarding intervals use tshark-decoded request-bearing
+                    frames.
+                  </p>
+                  {report.f5.pairs.map((p, i) => (
+                    <p key={i}>
+                      {p.role} · flowid {p.flowid} ↔ peerid {p.peerid} ·
+                      processor {p.tmm}
+                      {p.reason && ` · unknown: ${p.reason}`}
+                      {p.client_flow && (
+                        <small>
+                          Client conversation {p.client_flow} / server
+                          conversation {p.server_flow}
+                        </small>
+                      )}
+                    </p>
+                  ))}
+                  {report.f5.requests.map((r, i) => (
+                    <button
+                      className="finding"
+                      key={i}
+                      onClick={() => setEvidence(r.evidence)}
+                    >
+                      {r.device} · {r.request}: {num(r.request_dwell_ms, " ms")}{" "}
+                      ±{num(r.clock_uncertainty_ms, " ms")}
+                      <small>{r.reason || r.note}</small>
+                    </button>
+                  ))}
+                  {report.f5.resets.map((r, i) => (
+                    <button
+                      className="finding"
+                      key={i}
+                      onClick={() => setEvidence(r.evidence)}
+                    >
+                      {r.device} · {time(r.time)} · RST origin (TMM reported):{" "}
+                      {r.reason}
+                    </button>
+                  ))}
+                </section>
+              )}
               {!!report?.offload_points?.length && (
                 <section>
                   <h2>Offload / segmentation notes</h2>
@@ -686,7 +770,7 @@ function App() {
                   {report.onsets.items.map((o, i) => (
                     <button
                       key={i}
-                      className="finding"
+                      className={`finding ${o.scope === "capture_signal" ? "onset-symptom" : ""}`}
                       onClick={() => setEvidence(o.evidence)}
                     >
                       {o.segment} · {o.explanation}
@@ -729,6 +813,18 @@ function App() {
                   </strong>
                 </div>
                 <div>
+                  <Tip text="Positive vendor-stage evidence, not an inferred device cause. Each finding names its device and inspection/drop stage.">
+                    Confirmed device drops
+                  </Tip>
+                  <strong
+                    className={report?.confirmed_device_drop_count ? "red" : ""}
+                  >
+                    {report
+                      ? num(report.confirmed_device_drop_count || 0, "", 0)
+                      : "—"}
+                  </strong>
+                </div>
+                <div>
                   <Tip text="Intermediate capture absence contradicted by later packet or ACK evidence. These are not network loss.">
                     Capture misses
                   </Tip>
@@ -757,7 +853,15 @@ function App() {
                       <b>02</b> Map the path →
                     </button>
                     <button
-                      disabled={topology.forward.length < 2 || busy}
+                      disabled={
+                        busy ||
+                        (topology.forward.length < 2 &&
+                          !topology.points.some(
+                            (p) =>
+                              p.vendor === "paloalto" &&
+                              p.vendor_stage === "drop",
+                          ))
+                      }
                       onClick={() => action(analyze)}
                     >
                       <b>03</b> Analyze →
@@ -916,7 +1020,9 @@ function App() {
                                 <strong>{s.label}</strong>
                                 {s.loss_suspect && (
                                   <small className="red">
-                                    Loss suspect — supported disappearance here
+                                    {s.classes.confirmed_device_drop
+                                      ? "Confirmed device drop — stage evidence"
+                                      : "Loss suspect — supported disappearance here"}
                                   </small>
                                 )}
                                 {s.symptom_note && (
@@ -927,13 +1033,24 @@ function App() {
                               <td>{s.direction}</td>
                               <td>{num(s.loss_percent, "%")}</td>
                               <td>{num(s.p95_ms, " ms", 3)}</td>
-                              <td>{num(s.matched, "", 0)}</td>
+                              <td>
+                                {s.location === "device_stage"
+                                  ? "not applicable"
+                                  : num(s.matched, "", 0)}
+                              </td>
                               <td
                                 title={Object.entries(s.excluded_counts || {})
                                   .map(([k, v]) => `${k}: ${v}`)
                                   .join(", ")}
                               >
-                                {num(s.eligible_ratio * 100, "%")}
+                                {s.location === "device_stage"
+                                  ? "not applicable"
+                                  : num(
+                                      s.eligible_ratio == null
+                                        ? null
+                                        : s.eligible_ratio * 100,
+                                      "%",
+                                    )}
                               </td>
                               <td>
                                 {s.reason ||
@@ -1020,9 +1137,69 @@ function App() {
           {tab === "Captures" && (
             <>
               <section>
+                <h2>Import Fortinet verbose-6 text</h2>
+                <p className="hint">
+                  One capture point per interface. Absolute “a” timestamps are
+                  UTC. Relative timestamps require an explicit start and retain
+                  low clock confidence. Draw the path after importing.
+                </p>
+                <label>
+                  Text file (absolute local path)
+                  <input
+                    value={fortiPath}
+                    onChange={(e) => setFortiPath(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Device name
+                  <input
+                    value={fortiDevice}
+                    onChange={(e) => setFortiDevice(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Start time for relative timestamps
+                  <input
+                    placeholder="2026-10-09T12:00:00Z"
+                    value={fortiStart}
+                    onChange={(e) => setFortiStart(e.target.value)}
+                  />
+                </label>
+                <button
+                  disabled={busy || !fortiPath || !fortiDevice}
+                  onClick={() =>
+                    action(async () =>
+                      setJob(
+                        await api<Job>("/fortinet/import", "POST", {
+                          path: fortiPath,
+                          start_time: fortiStart || null,
+                          device: fortiDevice,
+                        }),
+                      ),
+                    )
+                  }
+                >
+                  Convert and attach interfaces
+                </button>
+                {state.fortinet_conversion && (
+                  <p>
+                    Last conversion: {state.fortinet_conversion.packets}{" "}
+                    packets; {state.fortinet_conversion.skipped_lines} skipped
+                    lines; {state.fortinet_conversion.skipped_packets}{" "}
+                    incomplete/unsupported packets skipped.{" "}
+                    {state.fortinet_conversion.files
+                      .map(
+                        (f) =>
+                          `${f.interface}: ${f.packets} packets, clock ${f.clock_confidence}`,
+                      )
+                      .join(" · ")}
+                  </p>
+                )}
+              </section>
+              <section>
                 <div className="section-head">
                   <h2>Add packet captures</h2>
-                  <Badge>PCAP / PCAPNG</Badge>
+                  <Badge>PCAP / PCAPNG / SNOOP</Badge>
                 </div>
                 <div className="upload-area">
                   <span>⇧</span>
@@ -1036,7 +1213,7 @@ function App() {
                     <input
                       type="file"
                       multiple
-                      accept=".pcap,.pcapng"
+                      accept=".pcap,.pcapng,.cap,.snoop"
                       hidden
                       disabled={busy}
                       onChange={(e) => action(() => upload(e.target.files))}
@@ -1337,6 +1514,7 @@ function App() {
                     }}
                   >
                     <option value="">All conversations</option>
+                    <option value="device_drops">Confirmed device drops</option>
                     <option value="impactful">Impactful loss</option>
                     <option value="handshakes">Incomplete handshakes</option>
                     <option value="resets">Resets observed</option>
@@ -1377,6 +1555,7 @@ function App() {
                             Retrans observations
                           </Tip>
                         </th>
+                        <th>Confirmed device drops</th>
                         <th>
                           <Tip text="Impactful / recovered / unrecovered / capture miss / blocked handshake / unknown events. A capture miss is not network loss.">
                             Loss classes
@@ -1423,6 +1602,9 @@ function App() {
                             )}
                           </td>
                           <td>{f.retrans_observations}</td>
+                          <td className={f.confirmed_device_drop ? "red" : ""}>
+                            {f.confirmed_device_drop || 0}
+                          </td>
                           <td>
                             {f.impactful_loss} / {f.recovered_loss} /{" "}
                             {f.unrecovered_loss} / {f.capture_miss} /{" "}
@@ -1676,6 +1858,23 @@ function App() {
                   Detected: {state.tshark.path || "unknown"}
                 </p>
                 <label>
+                  <input
+                    type="checkbox"
+                    checked={checkpointUuid}
+                    onChange={(e) => setCheckpointUuid(e.target.checked)}
+                  />
+                  fw monitor file includes UUID (-u); reattach after changing
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={f5Trailer}
+                    onChange={(e) => setF5Trailer(e.target.checked)}
+                  />
+                  Decode F5 TMM trailer and request metadata; reattach after
+                  changing
+                </label>
+                <label>
                   tshark override (blank = auto-detect)
                   <input
                     value={tsharkPath}
@@ -1699,9 +1898,12 @@ function App() {
                   onClick={() =>
                     action(async () => {
                       await api("/settings", "POST", {
+                        ...state.settings,
                         tshark: tsharkPath || null,
                         prefix_bytes: prefix,
                         parallel: parallelIngest,
+                        checkpoint_uuid: checkpointUuid,
+                        f5_trailer: f5Trailer,
                       });
                       setNotice(
                         "Settings saved. Reattach files to apply a changed payload prefix.",

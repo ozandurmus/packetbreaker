@@ -46,13 +46,13 @@ def test_loss_rates_and_brush_filters(scenarios):
     flow = flow_page(project, start=onset, end=onset + 2)["items"][0]["flow"]
     view = ladder(project, flow, start=onset, end=onset + 2)
     assert view["items"] and all(onset <= p["ts"] < onset + 2 for p in view["items"])
-    assert view["total"] < ladder(project, flow)["total"]
+    assert view["total"] < ladder(project, flow, limit=1)["total"]
     with TestClient(create_app(project.path), base_url="http://127.0.0.1") as client:
         assert client.get("/api/timeseries").json()["items"]
         assert client.get(f"/api/findings?start={onset - 6}&end={onset}").json()["items"] == []
         assert client.get(f"/api/flows?start={onset + 100}&end={onset + 101}").json()["total"] == 0
         assert (
-            client.get(f"/api/flows/{flow}/ladder?start={onset}&end={onset + 2}").json()["total"]
+            client.get(f"/api/flows/{flow}/ladder?limit=1&start={onset}&end={onset + 2}").json()["total"]
             == view["total"]
         )
         assert client.get("/api/flows?start=nan").status_code == 422

@@ -5,15 +5,42 @@ from html import escape
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from .store import rows
+from .onset import ordered_onsets
 
 
 class Finding(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {"properties": {"type": {"const": "confirmed_device_drop"}}, "required": ["type"]},
+                    "then": {
+                        "required": ["device", "evidence_stage"],
+                        "properties": {
+                            "device": {"type": "string", "minLength": 1},
+                            "evidence_stage": {"type": "string", "minLength": 1},
+                        },
+                    },
+                }
+            ]
+        },
+    )
     id: str
-    type: str
+    type: Literal[
+        "recovered_loss",
+        "impactful_loss",
+        "unrecovered_loss",
+        "handshake_blocked",
+        "capture_miss",
+        "unknown",
+        "confirmed_device_drop",
+    ]
+    device: str | None = None
+    evidence_stage: str | None = None
     hop: str
     direction: str
     time_range: tuple[float | None, float | None]
@@ -24,11 +51,17 @@ class Finding(BaseModel):
     summary: str
     cause: str
 
+    @model_validator(mode="after")
+    def stage_provenance(self):
+        if self.type == "confirmed_device_drop" and (not self.device or not self.evidence_stage):
+            raise ValueError("Confirmed device drops require device and evidence_stage")
+        return self
+
 
 class FindingsExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_name: Literal["packetbreaker.findings"] = "packetbreaker.findings"
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     engine_version: str
     exported_at: str
     findings: list[Finding]
@@ -70,6 +103,8 @@ def export_data(project):
                         )
                     },
                     evidence_refs=f["evidence"],
+                    device=f.get("device"),
+                    evidence_stage=f.get("evidence_stage"),
                 )
                 for f in findings
             ],
@@ -108,7 +143,7 @@ def html_report(data):
         )
 
     findings = "".join(
-        f'<article id="finding-{i}"><h3>{h(f["type"])} · {h(f["hop"])}</h3><p>{h(f["summary"])}</p><p>Confidence: {h(f["confidence"])}; severity: {h(f["severity"])}</p>{details(f["metrics"], "Metrics")}<ul>{refs(f["evidence_refs"])}</ul></article>'
+        f'<article id="finding-{i}"><h3>{h(f["type"])} · {h(f["hop"])}</h3><p>{h(f["summary"])}</p><p>{h(f.get("device") or "")} {h(f.get("evidence_stage") or "")}</p><p>Confidence: {h(f["confidence"])}; severity: {h(f["severity"])}</p>{details(f["metrics"], "Metrics")}<ul>{refs(f["evidence_refs"])}</ul></article>'
         for i, f in enumerate(data["findings"])
     )
     segments = "".join(
@@ -117,8 +152,8 @@ def html_report(data):
     )
     onset = report.get("onsets", {})
     onsets = "".join(
-        f"<article><h3>{h(o['segment'])} · {h(o['metric'])}</h3><p>{h(o['explanation'])}</p>{details(o.get('time_labels'), 'Onset time')}<ul>{refs(o.get('evidence', []))}</ul></article>"
-        for o in onset.get("items", [])
+        f"<article class='{'symptom' if o.get('scope') == 'capture_signal' else 'primary'}'><h3>{h(o['segment'])} · {h(o['metric'])}</h3><p>{h(o['explanation'])}</p>{details(o.get('time_labels'), 'Onset time')}<ul>{refs(o.get('evidence', []))}</ul></article>"
+        for o in ordered_onsets(onset.get("items", []), onset.get("directions", {}))
     )
     # JSON is data, not executable markup. Escape '<' even inside arbitrary capture labels.
     encoded = (
@@ -131,7 +166,7 @@ def html_report(data):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>PacketBreaker offline report</title><style>
-body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:1200px;margin:auto;padding:24px}}h1,h2,h3{{line-height:1.3}}article,section{{background:white;padding:18px;margin:16px 0;border:1px solid #d7e3df;border-radius:8px}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f7f6;padding:12px}}summary,select{{cursor:pointer}}canvas{{display:block}}.scroll{{overflow:auto}}nav a{{margin-right:18px;color:#176b68}}small{{color:#526b6a}}li{{margin:10px 0}}#tip{{white-space:pre-wrap;min-height:4em}}
+body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:1200px;margin:auto;padding:24px}}h1,h2,h3{{line-height:1.3}}article,section{{background:white;padding:18px;margin:16px 0;border:1px solid #d7e3df;border-radius:8px}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f7f6;padding:12px}}article.symptom{{background:#f4f6f5;color:#667772;font-size:0.9em}}summary,select{{cursor:pointer}}canvas{{display:block}}.scroll{{overflow:auto}}nav a{{margin-right:18px;color:#176b68}}small{{color:#526b6a}}li{{margin:10px 0}}#tip{{white-space:pre-wrap;min-height:4em}}
 </style></head><body><h1>PacketBreaker · offline report</h1>
 <p>Engine {h(data["engine_version"])} · findings schema {data["schema_version"]} · exported {h(data["exported_at"])}</p>
 <p>This file contains capture metadata, addresses and evidence filters. It embeds no packet payloads. Treat it with the same care as an investigation summary.</p>

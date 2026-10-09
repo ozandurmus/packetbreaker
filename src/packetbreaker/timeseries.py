@@ -9,6 +9,7 @@ CLASSES = (
     "impactful_loss",
     "unrecovered_loss",
     "handshake_blocked",
+    "confirmed_device_drop",
     "capture_miss",
     "unknown",
 )
@@ -26,7 +27,7 @@ METRICS = {
     "loss_percent": (
         "Network loss",
         "%",
-        "Supported recovered, impactful, unrecovered and blocked-handshake events / eligible upstream packets.",
+        "Supported recovered, impactful, unrecovered, blocked-handshake and confirmed device-drop events / eligible upstream packets.",
     ),
     "retrans_percent": (
         "Retransmissions",
@@ -209,7 +210,7 @@ def build_timeseries(db, topology, segments, coverage, window):
                             100 * ev.get(k, {}).get("n", 0) / eligible if eligible else None
                         )
                     metrics["loss_percent"] = (
-                        sum(metrics[k + "_percent"] for k in CLASSES[:4]) if eligible else None
+                        sum(metrics[k + "_percent"] for k in CLASSES[:5]) if eligible else None
                     )
                     metrics["failed_handshakes"] = ev.get("handshake_blocked", {}).get("flows", 0)
                 if not reason:
@@ -233,7 +234,7 @@ def build_timeseries(db, topology, segments, coverage, window):
                     y.get("matched", 0),
                     miss,
                     unknown,
-                    sum(ev.get(k, {}).get("n", 0) for k in CLASSES[:4]),
+                    sum(ev.get(k, {}).get("n", 0) for k in CLASSES[:5]),
                     x.get("matchable", 0),
                     x.get("tcp", 0),
                     x.get("retrans", 0),

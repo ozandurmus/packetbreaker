@@ -21,13 +21,22 @@ from .timeseries import timeseries_page
 
 
 class Attach(BaseModel):
+    f5_trailer: bool | None = None
     paths: list[str] = Field(min_length=1, max_length=100)
 
 
 class Settings(BaseModel):
+    f5_trailer: bool = False
+    checkpoint_uuid: bool = False
     parallel: bool = False
     tshark: str | None = None
     prefix_bytes: int = Field(default=64, ge=8, le=4096)
+
+
+class FortinetImport(BaseModel):
+    path: str
+    start_time: str | None = None
+    device: str = Field(default="FortiGate", min_length=1, max_length=100)
 
 
 class CancelFile(BaseModel):
@@ -119,6 +128,7 @@ def create_app(project_path):
             settings = project.get(db, "preferences", {})
             topology = project.get(db, "topology", Topology().model_dump())
             report = project.get(db, "report")
+            conversion = project.get(db, "fortinet_conversion")
         try:
             tshark = dict(path=find_tshark(settings.get("tshark")), error=None)
         except ValueError as exc:
@@ -129,6 +139,7 @@ def create_app(project_path):
             topology=topology,
             report=report,
             settings=settings,
+            fortinet_conversion=conversion,
             tshark=tshark,
             job=jobs.status,
         )
@@ -149,10 +160,12 @@ def create_app(project_path):
             project.set(db, "preferences", body.model_dump())
         return body
 
-    def ingest_files(paths):
+    def ingest_files(paths, f5_trailer=None):
         paths = normalize_paths(paths)
         with project.connect() as db:
             preferences = project.get(db, "preferences", {})
+        if f5_trailer is not None:
+            preferences["f5_trailer"] = f5_trailer
         with jobs.lock:
             jobs.file_cancels = {str(i): threading.Event() for i in range(len(paths))}
         ingest_many(
@@ -164,19 +177,32 @@ def create_app(project_path):
             progress=jobs.update,
         )
 
+    @app.post("/api/fortinet/import")
+    def fortinet_import(body: FortinetImport):
+        from .fortinet import import_text
+
+        if not Path(body.path).expanduser().is_file():
+            raise ValueError("Fortinet text file does not exist")
+        return jobs.start(
+            "ingest",
+            lambda: import_text(
+                project, Path(body.path).expanduser(), body.start_time, body.device, jobs.cancel, jobs.update
+            ),
+        )
+
     @app.post("/api/captures/attach")
     def attach(body: Attach):
         for path in body.paths:
             if not Path(path).expanduser().is_file():
                 raise ValueError("File does not exist: " + path)
-        return jobs.start("ingest", lambda: ingest_files(body.paths))
+        return jobs.start("ingest", lambda: ingest_files(body.paths, body.f5_trailer))
 
     @app.post("/api/captures/upload")
     async def upload(request: Request, name: str = Query(min_length=1, max_length=255), defer: bool = False):
         idle()
         name = name.replace("\\", "/").split("/")[-1]
-        if Path(name).suffix.lower() not in (".pcap", ".pcapng"):
-            raise ValueError("Choose a .pcap or .pcapng file")
+        if Path(name).suffix.lower() not in (".pcap", ".pcapng", ".cap", ".snoop"):
+            raise ValueError("Choose a pcap, pcapng or snoop capture")
         uploads = project.path / "captures"
         uploads.mkdir(exist_ok=True)
         destination = uploads / (uuid.uuid4().hex[:8] + "-" + name)
