@@ -75,6 +75,12 @@ def main():
     export = commands.add_parser("export", help="Export the last analysis as offline HTML or versioned JSON")
     export.add_argument("--format", required=True, choices=["html", "json"])
     export.add_argument("--output", "-o", type=Path, help="New output file; defaults to stdout")
+    forti = commands.add_parser(
+        "import-fortinet", help="Convert verbose-6 text and add one capture point per interface"
+    )
+    forti.add_argument("path", type=Path)
+    forti.add_argument("--start-time", help="Required for relative timestamps, ISO 8601 with Z or offset")
+    forti.add_argument("--device", default="FortiGate")
     args = parser.parse_args()
     try:
         if args.command == "demo":
@@ -105,6 +111,14 @@ def main():
             if not topology:
                 parser.error("Save a topology in the UI or supply --topology")
             print(json.dumps(analyze(project, topology), indent=2))
+        elif args.command == "import-fortinet":
+            from .fortinet import import_text
+
+            print(
+                json.dumps(
+                    import_text(Project(args.project), args.path, args.start_time, args.device), indent=2
+                )
+            )
         elif args.command == "export":
             content = export_report(Project(args.project), args.format)
             if args.output:

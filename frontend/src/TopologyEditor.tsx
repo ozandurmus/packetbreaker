@@ -392,6 +392,7 @@ export function TopologyEditor({
                   <option value="checkpoint">Check Point fw monitor</option>
                   <option value="f5">F5 TMM trailer</option>
                   <option value="paloalto">Palo Alto stage file</option>
+                  <option value="fortinet">Converted Fortinet interface</option>
                 </select>
               </label>
               {selected.vendor === "paloalto" && (

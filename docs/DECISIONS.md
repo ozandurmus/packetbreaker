@@ -241,3 +241,10 @@ Palo Alto protocol decoder is introduced. Positive drop-stage evidence does not
 require absence inference or uninterrupted network-path coverage. Allow one file
 with multiple distinct capture points (fw monitor/TMM) and standalone drop-stage
 analysis; file count is not the minimum evidence-point count.
+
+Write the Fortinet converter from the vendor's documented text layout; no code
+from FortiGate-PCAP or other converters was copied. `a` means absolute UTC, not
+local time. A timezone-bearing anchor is mandatory for relative timestamps; it
+does not create high-confidence wall-clock evidence. Preserve shown bytes and
+skip damaged dumps instead of repairing or guessing protocol headers. Explicit
+cooked-link variants are outside this Ethernet converter and are counted as skips.

@@ -203,6 +203,9 @@ function App() {
   } | null>(null);
   const [parallelIngest, setParallelIngest] = useState(false);
   const [checkpointUuid, setCheckpointUuid] = useState(false);
+  const [fortiPath, setFortiPath] = useState("");
+  const [fortiStart, setFortiStart] = useState("");
+  const [fortiDevice, setFortiDevice] = useState("FortiGate");
   const [tsharkPath, setTsharkPath] = useState(""),
     [prefix, setPrefix] = useState(64);
   useEffect(() => {
@@ -1087,9 +1090,69 @@ function App() {
           {tab === "Captures" && (
             <>
               <section>
+                <h2>Import Fortinet verbose-6 text</h2>
+                <p className="hint">
+                  One capture point per interface. Absolute “a” timestamps are
+                  UTC. Relative timestamps require an explicit start and retain
+                  low clock confidence. Draw the path after importing.
+                </p>
+                <label>
+                  Text file (absolute local path)
+                  <input
+                    value={fortiPath}
+                    onChange={(e) => setFortiPath(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Device name
+                  <input
+                    value={fortiDevice}
+                    onChange={(e) => setFortiDevice(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Start time for relative timestamps
+                  <input
+                    placeholder="2026-10-09T12:00:00Z"
+                    value={fortiStart}
+                    onChange={(e) => setFortiStart(e.target.value)}
+                  />
+                </label>
+                <button
+                  disabled={busy || !fortiPath || !fortiDevice}
+                  onClick={() =>
+                    action(async () =>
+                      setJob(
+                        await api<Job>("/fortinet/import", "POST", {
+                          path: fortiPath,
+                          start_time: fortiStart || null,
+                          device: fortiDevice,
+                        }),
+                      ),
+                    )
+                  }
+                >
+                  Convert and attach interfaces
+                </button>
+                {state.fortinet_conversion && (
+                  <p>
+                    Last conversion: {state.fortinet_conversion.packets}{" "}
+                    packets; {state.fortinet_conversion.skipped_lines} skipped
+                    lines; {state.fortinet_conversion.skipped_packets}{" "}
+                    incomplete/unsupported packets skipped.{" "}
+                    {state.fortinet_conversion.files
+                      .map(
+                        (f) =>
+                          `${f.interface}: ${f.packets} packets, clock ${f.clock_confidence}`,
+                      )
+                      .join(" · ")}
+                  </p>
+                )}
+              </section>
+              <section>
                 <div className="section-head">
                   <h2>Add packet captures</h2>
-                  <Badge>PCAP / PCAPNG</Badge>
+                  <Badge>PCAP / PCAPNG / SNOOP</Badge>
                 </div>
                 <div className="upload-area">
                   <span>⇧</span>

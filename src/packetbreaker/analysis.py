@@ -285,6 +285,25 @@ def align(db, topology):
             break
     for p in order:
         models.setdefault(points[p].capture_id, ClockModel(epoch=epoch))
+    # Files split from one Fortinet transcript share an actual source clock.
+    from dataclasses import replace
+
+    groups = {}
+    for cid, raw in db.execute("SELECT id,inventory FROM captures").fetchall():
+        source = json.loads(raw).get("source_metadata") or {}
+        if cid in models and source.get("adapter") == "fortinet":
+            groups.setdefault(source.get("clock_group", cid), []).append((cid, source))
+    for group in groups.values():
+        known = next((models[cid] for cid, _ in group if models[cid].offset is not None), None)
+        for cid, source in group:
+            if known is not None:
+                models[cid] = replace(
+                    known, reason="Interfaces split from one Fortinet text clock", confidence="shared_source"
+                )
+            if source.get("clock_confidence") == "low":
+                models[cid].confidence = "low"
+                models[cid].uncertainty = None
+                models[cid].reason = "Relative Fortinet timestamps anchored by a user-supplied start time"
     db.execute(
         "CREATE OR REPLACE TEMP TABLE clock_values(capture_id VARCHAR,epoch DOUBLE,offset_s DOUBLE,drift DOUBLE)"
     )

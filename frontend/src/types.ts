@@ -273,6 +273,12 @@ export type State = {
   captures: Capture[];
   topology: Topology;
   report: Report | null;
+  fortinet_conversion?: {
+    packets: number;
+    skipped_lines: number;
+    skipped_packets: number;
+    files: { interface: string; packets: number; clock_confidence: string }[];
+  };
   settings: {
     checkpoint_uuid?: boolean;
     tshark?: string;

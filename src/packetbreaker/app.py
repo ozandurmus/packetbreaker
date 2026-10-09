@@ -31,6 +31,12 @@ class Settings(BaseModel):
     prefix_bytes: int = Field(default=64, ge=8, le=4096)
 
 
+class FortinetImport(BaseModel):
+    path: str
+    start_time: str | None = None
+    device: str = Field(default="FortiGate", min_length=1, max_length=100)
+
+
 class CancelFile(BaseModel):
     file_id: str | None = None
 
@@ -120,6 +126,7 @@ def create_app(project_path):
             settings = project.get(db, "preferences", {})
             topology = project.get(db, "topology", Topology().model_dump())
             report = project.get(db, "report")
+            conversion = project.get(db, "fortinet_conversion")
         try:
             tshark = dict(path=find_tshark(settings.get("tshark")), error=None)
         except ValueError as exc:
@@ -130,6 +137,7 @@ def create_app(project_path):
             topology=topology,
             report=report,
             settings=settings,
+            fortinet_conversion=conversion,
             tshark=tshark,
             job=jobs.status,
         )
@@ -163,6 +171,19 @@ def create_app(project_path):
             cancel=jobs.cancel,
             file_cancels=jobs.file_cancels,
             progress=jobs.update,
+        )
+
+    @app.post("/api/fortinet/import")
+    def fortinet_import(body: FortinetImport):
+        from .fortinet import import_text
+
+        if not Path(body.path).expanduser().is_file():
+            raise ValueError("Fortinet text file does not exist")
+        return jobs.start(
+            "ingest",
+            lambda: import_text(
+                project, Path(body.path).expanduser(), body.start_time, body.device, jobs.cancel, jobs.update
+            ),
         )
 
     @app.post("/api/captures/attach")

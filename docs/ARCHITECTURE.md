@@ -409,3 +409,18 @@ positive session links, but do not shorten the common path coverage interval.
 Every usable drop-stage frame is positive device-stage evidence, regardless of
 whether cross-capture clocks are aligned. Unaligned evidence retains observed time.
 A drop-only investigation is allowed without inventing a network path.
+
+Fortinet verbose-6 import is an original text/container converter. It copies only
+hex bytes into nanosecond pcap records and splits interfaces into separate files
+and points; tshark then performs ordinary dissection. Absolute `a` timestamps are
+UTC and retained exactly. Relative timestamps require an ISO start with timezone,
+and low clock confidence persists through cache/reattach. Split interfaces share
+the transcript's clock domain, not independently inferred file clocks.
+
+CRLF, ANSI console coloring, ASCII gutters and indented hex continuations are
+handled. Malformed/gapped hex causes that packet to be skipped, not zero-filled or
+spliced. Noise/skipped lines and packets are counted. Explicit cooked-link output
+is reported and skipped rather than relabeled Ethernet. At a byte boundary, unseen
+trailing bytes cannot be inferred from text alone. Conversion has 64-interface and
+16 MiB per-frame limits and creates only new owned output directories; cancellation
+checks run while streaming the text. Provenance survives interrupted ingest.

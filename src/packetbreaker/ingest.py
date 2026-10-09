@@ -171,6 +171,7 @@ def ingest(
     batch_size=50000,
     profile=None,
     checkpoint_uuid=False,
+    source_metadata=None,
 ):
     cancel = cancel or threading.Event()
     progress = progress or (lambda **kw: None)
@@ -180,19 +181,31 @@ def ingest(
     if not 8 <= prefix_bytes <= 4096:
         raise ValueError("Payload prefix must be between 8 and 4096 bytes")
     stat = path.stat()
-    identity = json.dumps(
-        [str(path), stat.st_size, stat.st_mtime_ns, PARSER_VERSION, prefix_bytes, checkpoint_uuid]
-    )
     with project.connect() as db:
         existing = db.execute(
-            "SELECT id,identity,state,checkpoint FROM captures WHERE path=?", [str(path)]
+            "SELECT id,identity,state,checkpoint,inventory FROM captures WHERE path=?", [str(path)]
         ).fetchone()
+        if source_metadata is None and existing:
+            source_metadata = json.loads(existing[4]).get("source_metadata")
+        identity = json.dumps(
+            [
+                str(path),
+                stat.st_size,
+                stat.st_mtime_ns,
+                PARSER_VERSION,
+                prefix_bytes,
+                checkpoint_uuid,
+                source_metadata,
+            ]
+        )
         if existing and existing[1] == identity and existing[2] == "ready":
             progress(state="cached", frames=existing[3])
             return existing[0]
     binary = find_tshark(tshark)
     progress(state="scanning metadata", frames=0)
     info = metadata(path, cancel)
+    info["source_metadata"] = source_metadata
+    info["vendor_fields_version"] = 1
     if info.get("frame_limit") == 0:
         raise ValueError("Capture contains zero usable frames")
     timestamp_upper = time.time() + 86400
@@ -396,6 +409,14 @@ def ingest(
                             [cid],
                         ).fetchall()
                     ]
+                    if source_metadata:
+                        info["warnings"].append(
+                            f"Fortinet text: {source_metadata.get('skipped_lines', 0)} skipped lines; {source_metadata.get('skipped_packets', 0)} incomplete/unsupported packets skipped"
+                        )
+                        if source_metadata.get("relative_timestamps"):
+                            info["warnings"].append(
+                                "Low clock confidence: relative text timestamps use a user-supplied start time"
+                            )
                     info["timestamps_validated"] = True
                     info["records_read"] = last
                     info.update(
