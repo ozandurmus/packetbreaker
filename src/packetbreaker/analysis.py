@@ -745,7 +745,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 2 / Part 2; supported bucket-level onset estimates with clock uncertainty",
+            scope="Phase 2 / Part 4; translation-aware matching, onset estimates, waterfall and offline export",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,

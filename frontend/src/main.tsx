@@ -3,6 +3,7 @@ import type { TimeSeries, Finding } from "./types";
 import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, num, time, reverseTuple } from "./api";
+import { Waterfall } from "./Waterfall";
 import { Coverage, LadderChart } from "./Charts";
 import { TopologyEditor } from "./TopologyEditor";
 import type { State, Topology, Ref, Flow, Ladder, Segment, Job } from "./types";
@@ -419,7 +420,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 2 / PART 3 · v0.1.5</small>
+          <small>PHASE 2 / PART 4 · v0.1.6</small>
         </div>
       </aside>
       <main>
@@ -1430,6 +1431,14 @@ function App() {
                   </button>
                 </div>
               </section>
+              {selectedFlow && (
+                <Waterfall
+                  key={selectedFlow.flow}
+                  flow={selectedFlow.flow}
+                  rangeQuery={rangeQuery}
+                  onEvidence={setEvidence}
+                />
+              )}
               {selectedFlow && ladder && (
                 <section>
                   <div className="section-head">

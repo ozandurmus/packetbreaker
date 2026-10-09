@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .waterfall import waterfall
 from .analysis import analyze, event_page, flow_page, ladder, findings_page
 from .ingest import find_tshark
 from .batch_ingest import ingest_many, normalize_paths
@@ -259,6 +260,15 @@ def create_app(project_path):
         end: float | None = Query(None, allow_inf_nan=False),
     ):
         return ladder(project, flow, offset, limit, start, end)
+
+    @app.get("/api/flows/{flow}/waterfall")
+    def flow_waterfall(
+        flow: str,
+        request_index: int = Query(0, ge=0, le=99),
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
+    ):
+        return waterfall(project, flow, start, end, request_index)
 
     @app.get("/api/events")
     def events(

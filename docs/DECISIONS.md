@@ -184,3 +184,18 @@ no cost. The single-run result does not isolate its cause. The ordinary packet
 path avoids constructing a byte-range table unless differing large TCP frames
 require it; range expansion has an explicit budget. No speculative parser or
 concurrency rewrite is included in this phase.
+
+## Part 4 waterfall boundaries
+
+Use existing NAT/SEQ normalization and frame/byte occurrence identities; never
+correlate full-proxy legs by timing alone. Mark that boundary `unknown (full
+proxy, Phase 3)`. A supported HTTP processing interval needs complete request byte
+coverage and an identifiable final response. Cleartext request lines alone do not
+prove the request's end. Incomplete saved header prefixes, request transfer
+encoding and pipelining stay unknown; HTTP payload reassembly is deliberately
+bounded. Response-body download time is outside the first-byte waterfall.
+
+Use ECharts for the live timeline and a parallel evidence table for every bar,
+including unknown durations. Capture-point offsets cancel for same-capture
+intervals; timestamp precision and residual drift remain approximate. Cross-file
+bars carry the sum of their endpoint clock uncertainty bounds.

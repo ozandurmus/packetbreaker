@@ -61,6 +61,8 @@ def test_api_ingest_analysis_report(tmp_path):
         flows = client.get("/api/flows").json()
         trace = client.get("/api/flows/" + flows["items"][0]["flow"] + "/ladder").json()
         assert len(trace["items"][0]["evidence"]) == 5
+        timeline = client.get("/api/flows/" + flows["items"][0]["flow"] + "/waterfall").json()
+        assert {item["kind"] for item in timeline["items"]} == {"handshake", "http"}
         assert client.get("/api/flows?limit=100000").status_code == 422
         assert client.get("/api/events?a=p0&b=p1&direction=forward").json()["total"] > 0
         assert (

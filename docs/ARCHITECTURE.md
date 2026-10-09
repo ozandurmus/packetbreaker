@@ -327,3 +327,22 @@ and related downstream loss segments. `symptoms.py` joins the onset's observed
 retransmitting sessions to independently classified loss events within its time
 window. Segment loss-suspect badges derive from loss classes, preserving the
 distinction between sender symptoms and a supported disappearance boundary.
+
+## Phase 2 / Part 4: on-demand waterfalls
+
+`waterfall.py` reads normalized observations for one TCP session when the flow
+inspector requests a timeline. It traces matched physical frames (or shared byte
+occurrences for offload) over every ordered forward/return edge, distinguishing
+links from same-device ingress/egress dwell. The three-way handshake includes
+server SYN/ACK turnaround and client final-ACK turnaround. HTTP shows the client
+transmission/retry span, request-completion traversal, server processing from all
+request bytes received to the first final response, and its return traversal.
+Each bar retains original per-file frame filters and clock uncertainty. Negative
+or unverified clock intervals, missing evidence and full proxies remain unknown.
+
+HTTP reads contiguous captured header prefixes, recognizes Content-Length and
+tracks sequence coverage including out-of-order body delivery. It does not invent
+bytes missing from prefixes. Chunked requests, overlapping/pipelined requests and
+TLS are not decoded. The on-demand budget is 20,000 observations per flow, 8 KiB
+headers, 8 MiB requests and 100 selectable request starts. These limits are visible;
+no waterfall work is added to the full-capture analysis pass.
