@@ -1,4 +1,6 @@
 export type Ref = {
+  byte_ranges?: { start_seq: number; end_seq: number; bytes: number }[];
+  range_note?: string;
   sequence_translation?: {
     observed_seq: number;
     observed_ack: number;
@@ -105,6 +107,11 @@ export type Finding = {
   metrics: Record<string, number>;
 };
 export type Segment = {
+  loss_suspect?: boolean;
+  symptom_note?: string;
+  matching_mode?: string;
+  byte_loss_percent?: number | null;
+  lost_bytes?: number;
   onset_status?: string;
   onset_quality_notes?: {
     capture_misses: number;
@@ -134,6 +141,7 @@ export type Segment = {
   offset_uncertainty_ms: number | null;
 };
 export type Report = {
+  offload_points?: { point: string; large_frames: number; note: string }[];
   sequence_translations?: {
     ingress: string;
     egress: string;
@@ -162,6 +170,8 @@ export type Report = {
       bucket: number;
       time: number;
       explanation: string;
+      display_label?: string;
+      related_loss_segments?: string[];
       evidence: Ref[];
     }[];
   };

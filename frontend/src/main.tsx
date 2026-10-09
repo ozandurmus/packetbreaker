@@ -76,7 +76,21 @@ function Evidence({ refs, onClose }: { refs: Ref[]; onClose: () => void }) {
                       </small>
                     )}
                   </td>
-                  <td>{time(e.observed_time)}</td>
+                  <td>
+                    {time(e.observed_time)}
+                    {e.byte_ranges?.length ? (
+                      <small>
+                        {e.byte_ranges
+                          .slice(0, 4)
+                          .map(
+                            (r) => `${r.start_seq}–${r.end_seq} (${r.bytes} B)`,
+                          )
+                          .join(", ")}
+                        {e.byte_ranges.length > 4 ? " …" : ""}
+                      </small>
+                    ) : null}
+                    {e.range_note && <small>{e.range_note}</small>}
+                  </td>
                   <td>{time(e.corrected_time)}</td>
                   <td>
                     <code>{e.display_filter}</code>
@@ -572,6 +586,28 @@ function App() {
                   ))}
                 </section>
               )}
+              {!!report?.offload_points?.length && (
+                <section>
+                  <h2>Offload / segmentation notes</h2>
+                  {report.offload_points
+                    .filter((p) => p.large_frames > 0)
+                    .map((p) => (
+                      <p key={p.point}>
+                        <strong>
+                          {topology.points.find((x) => x.id === p.point)
+                            ?.label || p.point}
+                          : {p.large_frames} large TCP frames.
+                        </strong>{" "}
+                        {p.note}
+                      </p>
+                    ))}
+                  <p className="hint">
+                    Matching uses TCP sequence coverage, not equality of capture
+                    packet counts. Loss counts describe affected upstream
+                    frames; missing-byte totals retain partial-frame detail.
+                  </p>
+                </section>
+              )}
               {report?.onsets && (
                 <section>
                   <h2>Degradation onset</h2>
@@ -828,7 +864,7 @@ function App() {
                               </Tip>
                             </th>
                             <th>
-                              <Tip text="Unambiguous packet appearances matched at both ends of this segment.">
+                              <Tip text="Matched packet appearances or TCP byte-range units at both ends; offload units may span several frames.">
                                 Matched
                               </Tip>
                             </th>
@@ -849,6 +885,14 @@ function App() {
                             >
                               <td>
                                 <strong>{s.label}</strong>
+                                {s.loss_suspect && (
+                                  <small className="red">
+                                    Loss suspect — supported disappearance here
+                                  </small>
+                                )}
+                                {s.symptom_note && (
+                                  <small>{s.symptom_note}</small>
+                                )}
                                 <small>{s.location}</small>
                               </td>
                               <td>{s.direction}</td>

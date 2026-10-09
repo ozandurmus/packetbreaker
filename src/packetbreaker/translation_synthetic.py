@@ -53,6 +53,14 @@ def generate_translation(directory, inconsistent=False, ip_id="zero", ipv6=False
                 qseq, qack = seq, ack
                 if h >= 2:
                     qseq = (seq + (delta if forward else r)) % 2**32
+                    if (
+                        inconsistent == "reverse_once"
+                        and port == 50000
+                        and not forward
+                        and seq == 9591
+                        and len(payload) == 59
+                    ):
+                        qseq = (qseq + 777) % 2**32
                     if flags & 16:
                         qack = (ack + (r if forward else delta)) % 2**32
                 packets.append(

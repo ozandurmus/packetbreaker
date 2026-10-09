@@ -26,7 +26,7 @@ ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstpor
  tcp.analysis.out_of_order tcp.analysis.ack_lost_segment tcp.analysis.zero_window tcp.analysis.ack_rtt
  ip.flags.mf ip.frag_offset ipv6.fraghdr.offset ipv6.fraghdr.more frame.protocols frame.md5_hash dns.id dns.flags.response""".split()
 CAPLEN_INDEX = list(PACKET_COLUMNS).index("caplen")
-PARSER_VERSION = 6
+PARSER_VERSION = 7
 csv.field_size_limit(16 * 1024 * 1024)
 
 
@@ -107,7 +107,7 @@ def parse_packet(values, capture_id, prefix_bytes):
         number(g(x)) for x in ("ip.flags.mf", "ip.frag_offset", "ipv6.fraghdr.offset", "ipv6.fraghdr.more")
     ):
         unsupported = "Fragmented packet; reassembly correlation is not available in Phase 1"
-    if length > 9000:
+    if length > 9000 and proto != "TCP":
         unsupported = "Possible offload super-frame; byte-range correlation is not available in Phase 1"
     if proto == "UDP" and not payload:
         unsupported = "UDP payload unavailable; identity is insufficient"
@@ -184,7 +184,7 @@ def ingest(
         raise ValueError("Capture contains zero usable frames")
     timestamp_upper = time.time() + 86400
     cid = existing[0] if existing else uuid.uuid4().hex
-    checkpoint = existing[3] if existing and existing[1] == identity else 0
+    checkpoint = existing[3] if existing and existing[1] == identity and existing[2] != "stale" else 0
     with project.connect() as db:
         if not checkpoint:
             db.execute("DELETE FROM packets WHERE capture_id=?", [cid])

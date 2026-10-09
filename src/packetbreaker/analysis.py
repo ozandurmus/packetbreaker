@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from . import __version__
 from .clock import ClockModel, fit_clock
-from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions
+from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions, propagate_translation_unknown
 from .ingest import tuple_id
 from .headlines import add_headlines
 from .evidence import evidence, prepare_flow_filters
@@ -13,7 +13,15 @@ from .topology import Topology
 from .timeseries import build_timeseries
 from .onset import add_onsets
 from .translation import normalize_sequences, sequence_report
-
+from .byte_ranges import (
+    add_byte_calibration,
+    prepare_byte_ranges,
+    range_condition,
+    range_later_seen,
+    range_recoveries,
+    range_ack_guard,
+    range_notes,
+)
 
 
 def reverse_tuple(key):
@@ -22,6 +30,8 @@ def reverse_tuple(key):
 
 
 def prepare(db, topology):
+    db.execute("DROP VIEW IF EXISTS observation_matches")
+    db.execute("CREATE OR REPLACE TABLE byte_flows(flow VARCHAR,direction VARCHAR)")
     db.execute("DROP TABLE IF EXISTS obs")
     db.execute(
         "CREATE TABLE obs AS SELECT *, seq AS raw_seq, ack AS raw_ack, NULL::VARCHAR AS translation_reason, NULL::VARCHAR AS range_reason, NULL::VARCHAR AS point, NULL::VARCHAR AS canon FROM packets WHERE false"
@@ -177,6 +187,8 @@ def prepare(db, topology):
         [nat_points],
     )
     prepare_occurrences(db, topology.duplicate_us)
+    if db.execute("SELECT count(*) FROM obs WHERE proto='TCP' AND length>1500 AND eligible").fetchone()[0]:
+        add_byte_calibration(db)
     return suggestions
 
 
@@ -270,6 +282,8 @@ def analyze(project, topology: Topology | dict, progress=None):
         models = align(db, topology)
         match_occurrences(db, topology)
         link_tcp_sessions(db, topology)
+        propagate_translation_unknown(db)
+        byte_active = prepare_byte_ranges(db, topology)
         prepare_flow_filters(db)
         for suggestion in suggestions:
             suggestion["evidence"] = evidence(
@@ -294,7 +308,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         db.execute("""CREATE OR REPLACE TABLE events (
             id VARCHAR, point_a VARCHAR,point_b VARCHAR,direction VARCHAR,kind VARCHAR,reason VARCHAR,
             packet_key VARCHAR,flow VARCHAR,ts DOUBLE,recovery_ms DOUBLE,recovery_key VARCHAR,
-            support_key VARCHAR,impact_ms DOUBLE,is_data BOOLEAN)""")
+            support_key VARCHAR,impact_ms DOUBLE,is_data BOOLEAN,missing_bytes BIGINT,byte_ranges VARCHAR)""")
         inventories = {
             cid: json.loads(inv) for cid, inv in db.execute("SELECT id,inventory FROM captures").fetchall()
         }
@@ -337,13 +351,12 @@ def analyze(project, topology: Topology | dict, progress=None):
                 clocks_ok = ma.offset is not None and mb.offset is not None
                 matched = rows(
                     db,
-                    """SELECT count(*) AS matched,min(b.corrected-a.corrected)*1000 AS min_ms,
-                    quantile_cont((b.corrected-a.corrected)*1000,.5) AS p50_ms,
-                    quantile_cont((b.corrected-a.corrected)*1000,.95) AS p95_ms,
-                    max((b.corrected-a.corrected)*1000) AS max_ms
-                    FROM obs a JOIN obs b USING(packet_key) WHERE a.point=? AND b.point=?
-                    AND a.direction=? AND a.eligible AND b.eligible
-                    AND (? IS NULL OR a.corrected>=?) AND (? IS NULL OR a.corrected<=?)""",
+                    """SELECT count(*) AS matched,min(time_b-time_a)*1000 AS min_ms,
+                    quantile_cont((time_b-time_a)*1000,.5) AS p50_ms,
+                    quantile_cont((time_b-time_a)*1000,.95) AS p95_ms,
+                    max((time_b-time_a)*1000) AS max_ms
+                    FROM observation_matches WHERE point_a=? AND point_b=? AND direction=?
+                    AND (? IS NULL OR time_a>=?) AND (? IS NULL OR time_a<=?)""",
                     [a, b, direction, start, start, end, end],
                 )[0]
                 negative = matched["min_ms"] is not None and matched["min_ms"] < -0.001
@@ -429,16 +442,21 @@ def analyze(project, topology: Topology | dict, progress=None):
                     for key in ("min_ms", "p50_ms", "p95_ms", "max_ms"):
                         segment[key] = None
                 downstream = path[idx + 2 :]
+                missing_condition = "NOT EXISTS(SELECT 1 FROM obs b WHERE b.point=? AND b.packet_key=a.packet_key AND b.eligible)"
+                if byte_active:
+                    missing_condition = f"((NOT {range_condition()} AND {missing_condition}) OR EXISTS(SELECT 1 FROM byte_missing z WHERE z.point_a=a.point AND z.point_b='{b}' AND z.source_frame=a.frame))"
                 db.execute(
-                    """CREATE OR REPLACE TEMP TABLE missing AS SELECT a.*,
+                    f"""CREATE OR REPLACE TEMP TABLE missing AS SELECT a.*,NULL::VARCHAR AS range_unknown,
                     EXISTS(SELECT 1 FROM obs later WHERE later.packet_key=a.packet_key AND later.point IN
                         (SELECT unnest(?::VARCHAR[])) AND later.eligible) AS later_seen
                     FROM obs a WHERE a.point=? AND a.direction=? AND a.eligible
                     AND (a.length>0 OR (a.proto='TCP' AND (a.flags&7)>0) OR a.proto IN ('UDP','ICMP'))
-                    AND NOT EXISTS(SELECT 1 FROM obs b WHERE b.point=? AND b.packet_key=a.packet_key AND b.eligible)
+                    AND {missing_condition}
                     AND (? IS NULL OR coalesce(a.corrected,a.ts)>=?) AND (? IS NULL OR coalesce(a.corrected,a.ts)<=?)""",
                     [downstream, a, direction, b, start, start, end, end],
                 )
+                if byte_active:
+                    range_later_seen(db, a, b, direction, downstream)
                 # Re-delivery requires the same byte range and local stream; new IP ID is allowed.
                 # ponytail: recoveries beyond 60 seconds stay unknown; extend for long-RTO investigations.
                 db.execute(
@@ -462,6 +480,8 @@ def analyze(project, topology: Topology | dict, progress=None):
                     AND u.corrected<=r.recovery_time GROUP BY m.packet_key""")
                 db.execute("""UPDATE recoveries SET attempts=c.attempts FROM retry_counts c
                     WHERE recoveries.packet_key=c.packet_key""")
+                if byte_active:
+                    range_recoveries(db, a, b)
                 db.execute(
                     """CREATE OR REPLACE TEMP TABLE acked AS
                     SELECT m.packet_key,arg_min(ack.packet_key,ack.corrected) AS ack_key FROM missing m JOIN obs ack ON ack.point=? AND ack.proto='TCP'
@@ -473,6 +493,8 @@ def analyze(project, topology: Topology | dict, progress=None):
                         AND r.stream=m.stream AND r.length=m.length AND r.corrected>m.corrected AND r.corrected<ack.corrected) GROUP BY m.packet_key""",
                     [a],
                 )
+                if byte_active:
+                    range_ack_guard(db, a, b)
                 db.execute("""INSERT INTO acked
                     SELECT m.packet_key,arg_min(reply.packet_key,reply.corrected) AS ack_key
                     FROM missing m JOIN obs reply ON reply.point=m.point AND reply.proto=m.proto
@@ -502,9 +524,10 @@ def analyze(project, topology: Topology | dict, progress=None):
                     [common_end, topology.stall_ms / 1000],
                 )
                 db.execute(
-                    """INSERT INTO events
+                    f"""INSERT INTO events
                     SELECT md5(? || m.packet_key),?,?,?,
                     CASE WHEN later_seen THEN 'capture_miss'
+                        WHEN m.range_unknown IS NOT NULL THEN 'unknown'
                         WHEN ? IS NOT NULL OR ? IS NULL OR m.corrected<? OR m.corrected>? THEN 'unknown'
                         WHEN ack.packet_key IS NOT NULL THEN 'capture_miss'
                         WHEN r.recovery_time IS NOT NULL THEN CASE WHEN (r.recovery_time-m.corrected)*1000>=? OR r.attempts>1
@@ -513,6 +536,7 @@ def analyze(project, topology: Topology | dict, progress=None):
                         WHEN (m.flags&2)>0 AND m.proto='TCP' THEN 'handshake_blocked'
                         WHEN f.failure_time IS NOT NULL THEN 'impactful_loss' ELSE 'unrecovered_loss' END,
                     CASE WHEN later_seen THEN 'Packet appears again farther along the path'
+                        WHEN m.range_unknown IS NOT NULL THEN m.range_unknown
                         WHEN ? IS NOT NULL THEN ? WHEN ? IS NULL OR m.corrected<? OR m.corrected>? THEN 'Outside common coverage; absence is not proof of loss'
                         WHEN ack.packet_key IS NOT NULL THEN 'Receiver ACK, DNS response, or echo reply proves delivery without an earlier retry'
                         WHEN r.recovery_time IS NOT NULL THEN 'Original missing downstream; repeated byte range was delivered'
@@ -522,9 +546,11 @@ def analyze(project, topology: Topology | dict, progress=None):
                         ELSE 'Unrecovered disappearance within covered, matchable traffic; cause unknown' END,
                     m.packet_key,m.flow,coalesce(m.corrected,m.ts),(r.recovery_time-m.corrected)*1000,r.recovery_key,
                     coalesce(ack.ack_key,CASE WHEN r.recovery_time IS NULL THEN f.failure_key END),
-                    CASE WHEN r.recovery_time IS NULL THEN (f.failure_time-m.corrected)*1000 END,m.length>0
+                    CASE WHEN r.recovery_time IS NULL THEN (f.failure_time-m.corrected)*1000 END,{"coalesce(z.missing_bytes,m.length)>0" if byte_active else "m.length>0"},
+                    {"coalesce(z.missing_bytes,m.length),z.byte_ranges" if byte_active else "m.length,NULL::VARCHAR"}
                     FROM missing m LEFT JOIN recoveries r USING(packet_key) LEFT JOIN acked ack USING(packet_key)
-                    LEFT JOIN failures f USING(packet_key)""",
+                    LEFT JOIN failures f USING(packet_key)
+                    {f"LEFT JOIN byte_missing z ON z.point_a=m.point AND z.point_b='{b}' AND z.source_frame=m.frame" if byte_active else ""}""",
                     [
                         segment_id,
                         a,
@@ -554,7 +580,7 @@ def analyze(project, topology: Topology | dict, progress=None):
                 ).fetchone()[0]
                 classes = rows(
                     db,
-                    """SELECT kind,count(*) AS count,min(ts) AS first_seen,max(ts) AS last_seen,
+                    """SELECT kind,count(*) AS count,sum(missing_bytes) AS missing_bytes,min(ts) AS first_seen,max(ts) AS last_seen,
                     max(recovery_ms) AS max_recovery_ms,max(greatest(impact_ms,recovery_ms)) AS max_stall_ms,
                     count(*) FILTER(WHERE is_data) AS data_count,
                     count(*) FILTER(WHERE recovery_key IS NOT NULL) AS delivered_retries FROM events WHERE point_a=? AND point_b=? AND direction=? GROUP BY kind""",
@@ -602,6 +628,31 @@ def analyze(project, topology: Topology | dict, progress=None):
                             evidence_note="First event shown; select the hop to browse all events",
                         )
                     )
+                if byte_active:
+                    byte_count = db.execute(
+                        "SELECT coalesce(sum(length),0) FROM obs WHERE point=? AND direction=? AND eligible AND (? IS NULL OR corrected>=?) AND (? IS NULL OR corrected<=?)",
+                        [a, direction, start, start, end, end],
+                    ).fetchone()[0]
+                    lost_bytes = sum(
+                        x["missing_bytes"] or 0
+                        for x in classes
+                        if x["kind"] in ("recovered_loss", "impactful_loss", "unrecovered_loss")
+                    )
+                    ranged = (
+                        db.execute(
+                            "SELECT count(*) FROM obs o JOIN byte_flows f ON o.flow=f.flow AND o.direction=f.direction WHERE o.point=? AND o.direction=?",
+                            [a, direction],
+                        ).fetchone()[0]
+                        > 0
+                    )
+                    segment.update(
+                        matching_mode="byte_ranges" if ranged else "packets",
+                        eligible_bytes=byte_count,
+                        lost_bytes=lost_bytes,
+                        byte_loss_percent=100 * lost_bytes / byte_count
+                        if byte_count and not reason
+                        else None,
+                    )
                 segments.append(segment)
         progress(state="summarizing")
         db.execute("""CREATE OR REPLACE TABLE flow_summary AS
@@ -626,6 +677,14 @@ def analyze(project, topology: Topology | dict, progress=None):
                 coalesce(unknown_events,0) AS unknown_events,
                 (syns>0 AND synacks=0) OR coalesce(handshake_blocked,0)>0 AS handshake_incomplete
             FROM base JOIN bytes USING(flow) LEFT JOIN losses USING(flow)""")
+        if byte_active:
+            db.execute("""UPDATE flow_summary SET bytes=x.bytes FROM (
+                SELECT flow,sum(length) AS bytes FROM (
+                    SELECT o.flow,o.packet_key,max(o.length) AS length FROM obs o WHERE NOT
+                        (o.proto='TCP' AND o.length>0 AND EXISTS(SELECT 1 FROM byte_flows f WHERE f.flow=o.flow AND f.direction=o.direction))
+                        GROUP BY o.flow,o.packet_key
+                    UNION ALL SELECT flow,packet_key,max(range_length) FROM byte_obs WHERE is_atom AND eligible GROUP BY flow,packet_key)
+                GROUP BY flow) x WHERE flow_summary.flow=x.flow""")
         quality = rows(
             db,
             """SELECT point,count(*) AS packets,count(*) FILTER(WHERE NOT eligible) AS excluded,
@@ -670,6 +729,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         report = dict(
             schema_version=2,
             sequence_translations=sequence_report(db),
+            offload_points=range_notes(db) if byte_active else [],
             timeseries=timeseries,
             onsets=onsets,
             engine_version=__version__,
@@ -806,6 +866,8 @@ def event_page(project, a, b, direction, offset=0, limit=50, start=None, end=Non
             [a, b, direction, start, start, end, end, limit, offset],
         )
         for item in data:
+            if item.get("byte_ranges"):
+                item["byte_ranges"] = json.loads(item["byte_ranges"])
             item["evidence"] = evidence(
                 db, "o.packet_key IN (?,?,?)", [item["packet_key"], item["recovery_key"], item["support_key"]]
             )

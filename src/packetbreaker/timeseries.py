@@ -151,13 +151,12 @@ def build_timeseries(db, topology, segments, coverage, window):
             r["bucket"]: r
             for r in rows(
                 db,
-                """SELECT a.bucket,count(*) AS matched,
-            quantile_cont((b.corrected-a.corrected)*1000,.5) AS latency_p50_ms,
-            quantile_cont((b.corrected-a.corrected)*1000,.95) AS latency_p95_ms,
-            max((b.corrected-a.corrected)*1000) AS latency_max_ms
-            FROM bucket_obs a JOIN obs b USING(packet_key) WHERE a.point=? AND b.point=?
-            AND a.direction=? AND a.eligible AND b.eligible GROUP BY a.bucket""",
-                [a, b, d],
+                """SELECT floor((time_a-?)/?)::BIGINT AS bucket,count(*) AS matched,
+            quantile_cont((time_b-time_a)*1000,.5) AS latency_p50_ms,
+            quantile_cont((time_b-time_a)*1000,.95) AS latency_p95_ms,
+            max((time_b-time_a)*1000) AS latency_max_ms
+            FROM observation_matches WHERE point_a=? AND point_b=? AND direction=? GROUP BY bucket""",
+                [origin, width, a, b, d],
             )
         }
         events = {}

@@ -29,7 +29,7 @@ def normalize_sequences(db, topology):
             WITH widths AS (SELECT flow,direction,length,min(length(coalesce(prefix,''))) AS width
                 FROM obs WHERE proto='TCP' GROUP BY flow,direction,length),
             shapes AS (SELECT o.*,md5(direction||':'||flags||':'||o.length||':'||left(coalesce(prefix,''),width)) AS shape
-                FROM obs o JOIN widths USING(flow,direction,length) WHERE proto='TCP' AND stream>=0),
+                FROM obs o JOIN widths USING(flow,direction,length) WHERE proto='TCP' AND stream>=0 AND coalesce(o.unsupported,'')=''),
             keys AS (SELECT *, 'payload:'||shape AS key FROM shapes WHERE length(prefix)>=16
                 UNION ALL SELECT *, 'id:'||ipid||':'||shape AS key FROM shapes)
             SELECT * FROM keys QUALIFY count(*) OVER(PARTITION BY point,flow,key)=1""")
@@ -78,8 +78,6 @@ def normalize_sequences(db, topology):
                     reason = "Ambiguous TCP session correspondence at sequence translation"
                 elif row["f"] != row["f_max"] or row["r"] != row["r_max"]:
                     reason = "Inconsistent sequence/ACK offset within this flow"
-                elif row["spread"] > topology.match_window_ms / 1000:
-                    reason = "Sequence-anchor timing exceeds the match window"
                 model_rows.append(
                     [
                         a,
@@ -107,6 +105,52 @@ def normalize_sequences(db, topology):
                     db.execute(
                         "INSERT INTO translation_links VALUES (?,?,?,?,?)",
                         [a, row["sa"], target, row["sb"], row["flow"]],
+                    )
+        for target in dict.fromkeys(m[2] for m in model_rows):
+            candidates = [
+                (m[3], m[4], m[5], m[6], m[7]) for m in model_rows if m[2] == target and m[11] == "learned"
+            ]
+            if not candidates:
+                continue
+            db.execute(
+                "CREATE OR REPLACE TEMP TABLE offset_candidates(flow VARCHAR,sa BIGINT,sb BIGINT,f BIGINT,r BIGINT)"
+            )
+            db.executemany("INSERT INTO offset_candidates VALUES (?,?,?,?,?)", candidates)
+            bad = rows(
+                db,
+                f"""WITH xx AS (
+                SELECT o.*,m.sa,m.sb,count(*) OVER(PARTITION BY o.flow,m.sa,m.sb,direction,flags,length,seq) AS ns,
+                    count(*) OVER(PARTITION BY o.flow,m.sa,m.sb,direction,flags,length,ack) AS na
+                FROM obs o JOIN offset_candidates m ON o.flow=m.flow AND o.stream=m.sa
+                WHERE o.point=? AND coalesce(o.unsupported,'')=''),
+            yy0 AS (SELECT o.*,m.sa,m.sb,
+                (raw_seq-CASE WHEN direction='forward' THEN m.f ELSE m.r END+{MOD})%{MOD} AS qs,
+                CASE WHEN (flags&16)>0 THEN (raw_ack-CASE WHEN direction='forward' THEN m.r ELSE m.f END+{MOD})%{MOD} ELSE raw_ack END AS qa
+                FROM obs o JOIN offset_candidates m ON o.flow=m.flow AND o.stream=m.sb
+                WHERE o.point=? AND coalesce(o.unsupported,'')=''),
+            yy AS (SELECT *,count(*) OVER(PARTITION BY flow,sa,sb,direction,flags,length,qs) AS ns,
+                count(*) OVER(PARTITION BY flow,sa,sb,direction,flags,length,qa) AS na FROM yy0),
+            pairs AS (
+                SELECT x.flow,x.sa,x.sb,x.seq,x.ack,x.flags,y.qs,y.qa FROM xx x JOIN yy y
+                ON x.flow=y.flow AND x.sa=y.sa AND x.sb=y.sb AND x.direction=y.direction AND x.flags=y.flags
+                AND x.length=y.length AND x.seq=y.qs AND x.ns=1 AND y.ns=1
+                WHERE left(coalesce(x.prefix,''),least(length(coalesce(x.prefix,'')),length(coalesce(y.prefix,''))))=
+                      left(coalesce(y.prefix,''),least(length(coalesce(x.prefix,'')),length(coalesce(y.prefix,''))))
+                UNION ALL
+                SELECT x.flow,x.sa,x.sb,x.seq,x.ack,x.flags,y.qs,y.qa FROM xx x JOIN yy y
+                ON x.flow=y.flow AND x.sa=y.sa AND x.sb=y.sb AND x.direction=y.direction AND x.flags=y.flags
+                AND x.length=y.length AND x.ack=y.qa AND x.na=1 AND y.na=1 AND (x.flags&16)>0
+                WHERE left(coalesce(x.prefix,''),least(length(coalesce(x.prefix,'')),length(coalesce(y.prefix,''))))=
+                      left(coalesce(y.prefix,''),least(length(coalesce(x.prefix,'')),length(coalesce(y.prefix,'')))))
+            SELECT DISTINCT flow,sa,sb FROM pairs WHERE seq<>qs OR ((flags&16)>0 AND ack<>qa)""",
+                [a, target],
+            )
+            bad_keys = {(x["flow"], x["sa"], x["sb"]) for x in bad}
+            for m in model_rows:
+                if m[2] == target and (m[3], m[4], m[5]) in bad_keys:
+                    m[11], m[12] = (
+                        "unknown",
+                        "Inconsistent sequence/ACK offset within this flow (independent SEQ/ACK cross-check)",
                     )
         if model_rows:
             db.executemany("INSERT INTO sequence_models VALUES (" + ",".join("?" * 15) + ")", model_rows)
@@ -191,8 +235,9 @@ def normalize_sequences(db, topology):
             coalesce(nullif(o.unsupported,''),m.reason) AS unsupported,coalesce(o.translation_reason,m.reason) AS translation_reason)
             FROM obs o LEFT JOIN sequence_map m ON o.point=m.point AND o.flow=m.old_flow AND o.stream=m.stream""")
         db.execute("""CREATE OR REPLACE TABLE obs AS SELECT o.* REPLACE(
-            CASE WHEN m.point IS NOT NULL THEN md5(proto||':'||ipid||':'||seq||':'||ack||':'||flags||':'||length) ELSE signature END AS signature)
-            FROM obs o LEFT JOIN sequence_map m ON o.point=m.point AND o.flow=m.old_flow AND o.stream=m.stream""")
+            CASE WHEN o.proto='TCP' AND o.flow IN (SELECT flow FROM obs WHERE raw_seq<>seq OR raw_ack<>ack)
+            THEN md5(proto||':'||ipid||':'||seq||':'||ack||':'||flags||':'||length) ELSE signature END AS signature)
+            FROM obs o""")
         db.execute("UPDATE obs SET packet_key=md5(canon||signature)")
 
 

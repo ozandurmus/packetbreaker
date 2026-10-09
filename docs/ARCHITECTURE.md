@@ -295,3 +295,28 @@ required. Any contradictory offset marks the affected connection unknown rather
 than selecting a majority. Raw packet SEQ/ACK stay in the index and in content
 filters; only analysis coordinates are normalized. Frame evidence exposes both
 coordinate systems. Other connections remain independently matchable.
+
+## Part 3: offload-aware TCP coverage
+
+Physical `obs` rows stay intact for pps, throughput, frame filters and local TCP
+counters. Differing segmentation creates a separate bounded `byte_obs` table of
+shared sequence intervals. SYN/FIN consume sequence-space units without adding
+payload bytes; wrap is split at 2³². Clock fitting can use unique first-byte/prefix
+anchors, and occurrence matching keeps original and retransmitted ranges separate.
+`byte_links` records one-to-many coverage; `byte_missing` retains missing ranges and
+byte counts. Recovery must cover every missing interval, and ACKs after an earlier
+range retry cannot prove a pure capture miss. Partial conflicting delivery support
+is unknown rather than an inflated whole-frame network-loss claim.
+
+Counts are affected upstream capture frames; at an MSS capture point a missing MSS
+segment is one loss. Byte totals quantify partial/coalesced frames and flow bytes
+are deduplicated across representations. Evidence uses original positive frame
+numbers and raw headers, with sequence-range context; no virtual atom ID leaks into
+Wireshark filters. Offload/coalescing notes are visible on the affected points.
+Checksums are not classified as network errors. Legacy excluded-superframe indexes
+require reattach to rebuild missing segmentation/fragment metadata.
+
+Range expansion is limited to one million observations and 65,535 boundaries in
+one frame; larger inputs must be split. Payload equality is checked only where both
+captured prefixes exist. Conflicting/reused range content becomes unknown, and
+offload capture timestamps are not individual wire-segment timestamps.

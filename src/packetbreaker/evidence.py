@@ -77,17 +77,52 @@ def prepare_flow_filters(db):
         db.executemany("INSERT INTO flow_filters VALUES (?,?,?)", data)
 
 
-def evidence(db, predicate, params, limit=128):
+def evidence(db, predicate, params, limit=128, _expand_ranges=True):
     data = rows(
         db,
         f"""SELECT o.point,c.name AS file,o.capture_id,o.frame,
         'frame.number == ' || o.frame AS display_filter,o.ts AS observed_time,o.corrected AS corrected_time,
-        o.flow,o.proto,o.src,o.dst,o.sport,o.dport,o.ipid,o.raw_seq AS seq,o.raw_ack AS ack,o.seq AS canonical_seq,o.ack AS canonical_ack,o.translation_reason,o.flags,o.length,
+        o.packet_key,o.flow,o.proto,o.src,o.dst,o.sport,o.dport,o.ipid,o.raw_seq AS seq,o.raw_ack AS ack,o.seq AS canonical_seq,o.ack AS canonical_ack,o.translation_reason,o.flags,o.length,
         o.dns_id,o.icmp_id,o.icmp_seq,o.icmp_type
         FROM obs o JOIN captures c ON c.id=o.capture_id WHERE {predicate}
         ORDER BY o.corrected NULLS LAST,o.point,o.frame LIMIT {int(limit)}""",
         params,
     )
+    range_context = {}
+    has_ranges = (
+        _expand_ranges
+        and data
+        and db.execute(
+            "SELECT count(*) FROM information_schema.tables WHERE table_name='byte_flows'"
+        ).fetchone()[0]
+    )
+    if has_ranges and db.execute("SELECT count(*) FROM byte_flows").fetchone()[0]:
+        keys = list({e["packet_key"] for e in data})
+        peers = rows(
+            db,
+            """SELECT point,source_frame,list(DISTINCT struct_pack(start_seq:=lo,end_seq:=hi,bytes:=range_length)) AS ranges
+            FROM byte_obs WHERE is_atom AND eligible AND packet_key IN (
+                SELECT packet_key FROM byte_obs WHERE is_atom AND eligible AND source_packet_key IN (SELECT unnest(?::VARCHAR[])))
+            GROUP BY point,source_frame ORDER BY point,source_frame""",
+            [keys],
+        )
+        range_context = {(r["point"], r["source_frame"]): r["ranges"][:128] for r in peers}
+        # Keep at least one representative per point before adding additional split frames.
+        chosen = list(dict.fromkeys((r["point"], r["frame"]) for r in data))
+        for point in dict.fromkeys(r["point"] for r in peers):
+            peer = next(r for r in peers if r["point"] == point)
+            if not any(p == point for p, f in chosen):
+                chosen.append((point, peer["source_frame"]))
+        chosen += [key for key in range_context if key not in chosen]
+        chosen = chosen[:limit]
+        selected = " OR ".join("(o.point=? AND o.frame=?)" for _ in chosen)
+        result = evidence(db, selected, [v for pair in chosen for v in pair], limit, _expand_ranges=False)
+        for item in result:
+            item["byte_ranges"] = range_context.get((item["point"], item["frame"]), [])
+            item["range_note"] = (
+                "One-to-many TCP sequence-range evidence; up to 128 ranges shown per frame. Offload timestamps describe the captured unit, not each wire segment; payload comparison is limited to captured prefixes."
+            )
+        return result
     flows = list({e["flow"] for e in data if e["flow"]})
     filters = {}
     if (

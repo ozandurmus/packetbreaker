@@ -146,3 +146,19 @@ Offsets are per TCP session, direction-aware and modulo 2³², including SYN/ACK
 semantics and wrap. Constant offsets do not license matching across a full proxy.
 Insufficient/ambiguous anchors and inconsistent offsets produce a per-flow unknown
 reason. Original capture filters never use normalized SEQ/ACK values.
+
+## Part 3 byte-range decisions
+
+- Keep physical observations and local counters; derive sequence coverage separately
+  instead of treating GSO/GRO packet-count differences as loss. Count affected source
+  frames and expose missing bytes/ranges explicitly; do not infer an unseen wire
+  packet count from a coalesced frame.
+- Reuse monotone occurrence matching for byte intervals. A delivered retry must be
+  present upstream and downstream, and a later ACK after a retry is not proof that
+  the original was delivered. SYN/FIN sequence consumption and wrap remain explicit.
+- Use captured payload prefixes to reject contradictions; absent middle-frame bytes
+  are not invented or reported as fully compared. Mixed partial delivery evidence
+  is unknown. Large-frame checksum artifacts do not produce error findings.
+- Retain original frame/header evidence and bound derived range expansion. Cached
+  old superframe exclusion markers lack sufficient fragment metadata, so rebuild
+  those indexes once rather than silently trusting an obsolete classification.
