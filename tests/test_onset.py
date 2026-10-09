@@ -7,6 +7,7 @@ from packetbreaker.timeseries import timeseries_page
 @pytest.mark.parametrize(
     "ip_id,ipv6", [("zero", False), ("constant", False), ("zero", True), ("constant", True)]
 )
+@pytest.mark.slow
 def test_ground_truth_onsets(scenarios, scenario, ip_id, ipv6):
     project, truth, topology, report = scenarios(scenario, ip_id=ip_id, ipv6=ipv6, loss_hop=1)
     detected = report["onsets"]["items"]
@@ -73,6 +74,7 @@ def test_detector_explains_first_crossing_and_rejects_isolated_spike():
 
 
 @pytest.mark.parametrize("width", [0.5, 2.0])
+@pytest.mark.slow
 def test_adjustable_bucket_onset_and_propagation(scenarios, width):
     from packetbreaker.analysis import analyze
 
@@ -127,6 +129,7 @@ def test_readme_and_existing_loss_onsets(scenarios, scenario):
     "scenario", [f"onset_intermittent_{n}" for n in (2, 3, 4, 5)] + ["onset_random_loss"]
 )
 @pytest.mark.parametrize("ipv6", [False, True])
+@pytest.mark.slow
 def test_sparse_capture_fixtures(scenarios, scenario, ipv6):
     _, truth, _, report = scenarios(scenario, ipv6=ipv6, ip_id="zero", loss_hop=1)
     expected = truth["onsets"][0]

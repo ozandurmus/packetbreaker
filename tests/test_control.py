@@ -7,6 +7,7 @@ import pytest
 )
 @pytest.mark.parametrize("ipv6", [False, True])
 @pytest.mark.parametrize("mode", ["increment", "zero", "constant", "random"])
+@pytest.mark.slow
 def test_control_and_unrecovered_outcomes(scenarios, scenario, ipv6, mode):
     _, truth, _, report = scenarios(scenario, ip_id=mode, ipv6=ipv6)
     expected = Counter(e["type"] for e in truth["events"])

@@ -42,7 +42,11 @@ jobs:
       - name: Verify Python tshark auto-detection
         run: python -c "from packetbreaker.ingest import find_tshark; import subprocess; p=find_tshark(); print(p); subprocess.run([p,'--version'],check=True)"
       - run: ruff check src tests tools
-      - run: pytest -q
+      - name: Fast portability suite
+        run: pytest -m "not slow" -q
+      - name: Slow real-tshark acceptance matrix
+        if: github.event_name != 'push' && matrix.os == 'macos-14' && matrix.python == '3.12'
+        run: pytest -m slow -q
       - run: python -m build
       - uses: actions/upload-artifact@v4
         with:

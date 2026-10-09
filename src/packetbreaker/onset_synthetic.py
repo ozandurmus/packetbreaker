@@ -155,7 +155,9 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
             dict(
                 direction="forward",
                 segment=f"forward:p{loss_hop}:p{loss_hop + 1}",
-                time=events[0]["time"] if events else base + onset,
+                time=events[0]["time"]
+                if events and (interval or scenario == "onset_random_loss")
+                else base + onset,
                 metric="latency_p95_ms" if scenario == "onset_delay" else "loss_percent",
             )
         )

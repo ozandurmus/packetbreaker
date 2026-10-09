@@ -67,6 +67,9 @@ def detect_series(values, metric, floor, baseline_count=5, multiplier=6):
         or mad > max(floor, abs(center) * 0.25)
     ):
         return None, "unknown: early baseline is not stable enough"
+    bucket_width = prefix[0]["end"] - prefix[0]["start"]
+    window_buckets = max(MIN_EVENT_BUCKETS, math.ceil(WINDOW_SECONDS / bucket_width))
+    window_seconds = window_buckets * bucket_width
     history = prefix[:]
     candidate = None
     recent = prefix[:]
@@ -89,7 +92,7 @@ def detect_series(values, metric, floor, baseline_count=5, multiplier=6):
                 history = []
             continue
         recent.append(x)
-        recent = [v for v in recent if v["end"] > x["end"] - WINDOW_SECONDS]
+        recent = [v for v in recent if v["end"] > x["end"] - window_seconds]
         samples = [v[metric] for v in history[-baseline_count:]]
         baseline = median(samples)
         spread = median(abs(v - baseline) for v in samples)
@@ -137,7 +140,8 @@ def detect_series(values, metric, floor, baseline_count=5, multiplier=6):
                     first_bucket_value=first[metric],
                     window_start=recent[0]["start"],
                     window_end=x["end"],
-                    window_seconds=WINDOW_SECONDS,
+                    window_seconds=window_seconds,
+                    window_buckets=window_buckets,
                     window_events=count,
                     window_denominator=exposure,
                     expected_events=expected,
@@ -278,8 +282,8 @@ def add_onsets(db, topology, segments):
             if "window_events" in item:
                 unit = "%" if COUNT_SIGNALS[metric][1] else " events/bucket"
                 item["explanation"] = (
-                    f"{metric}: baseline {item['baseline_value']:.3f}{unit}; robust threshold {item['threshold']:.3f}{unit}. "
-                    f"Rolling {WINDOW_SECONDS} s window: {item['window_events']} events, expected {item['expected_events']:.3f}; "
+                    f"{metric}: baseline {item['baseline_value']:.3f}{unit}; robust threshold {item['threshold']:.3f}{unit} (MAD {item['mad']:.3f}, multiplier 6 × 1.4826). "
+                    f"Rolling up to {item['window_seconds']:g} s window: {item['window_events']} events, expected {item['expected_events']:.3f}; "
                     f"count threshold {item['count_threshold']} (minimum {MIN_EVENTS} excess events in {MIN_EVENT_BUCKETS} buckets). "
                     f"First event bucket {item['bucket']}; first crossing bucket {item['first_crossing_bucket']}."
                 )

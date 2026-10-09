@@ -1,4 +1,4 @@
-# PacketBreaker validation — through Phase 2 / Part 1
+# PacketBreaker validation — through Phase 2 / Part 2 review
 
 The Phase 1.1 measurements and regression results below supersede the historical
 Phase 1 checks. The later Phase 2 / Part 1 section records the currently authorized infrastructure changes. Other Phase 2 work remains unstarted.
@@ -264,7 +264,7 @@ build and artifact upload. The matrix results were:
 
 Both Windows jobs verified `C:\Program Files\Wireshark\tshark.exe` exists, starts,
 and is returned by Python auto-detection. The single-job push policy also passed.
-The GitHub repository is private; `demo/`, capture files and databases are untracked.
+The GitHub repository was initially private (made public during PR #2 review); `demo/`, capture files and databases are untracked.
 The initial baseline was pushed to main once as requested; all Part 1 work is on
 `phase2-part1`, with one commit for each numbered item. PR #1 stays open with
 no auto-merge. Other Phase 2 work remains outside scope.
@@ -360,3 +360,58 @@ healthy. Onsets use supported network loss and matched transit-p95; traffic volu
 RTT, retransmission, reset and window counters are contextual heatmap metrics.
 Time order is uncertain within overlapping buckets/clock bounds and does not prove
 causation. The 200,000-cell limit requires coarser buckets for very long windows.
+
+## PR #2 review acceptance — 0.1.4
+
+This section supersedes the earlier onset-baseline and CI scheduling rules above.
+The branch remains `phase2-part2`; no Part 3 work or merge is included. The user
+explicitly requested public repository visibility and no CI for these pushes.
+Capture/secret file-history checks passed before publication. Every review commit
+uses `[skip ci]`; the workflow remains active. GitHub run listings showed no runs
+for these review commits. Cross-platform execution was intentionally not requested.
+
+### README demo regression
+
+Reproduced the prior failure on the NAT-confirmed README demo: **9 losses** on
+**FW egress → LB ingress** (5 recovered, 4 impactful), no sustained onset and an
+unknown overall onset summary. With the reviewed detector:
+
+- First loss: **14.102000 s** relative to the synthetic reference epoch.
+- Reported onset: **14.000 s**, the first loss bucket, at the correct segment.
+- Confirmation/threshold crossing: bucket **19**, after three loss events.
+- Reference loss rate: **0%**; rolling minimum event count: **3**.
+- Eight original/recovery frame references; overall status **detected**.
+- Sole forward prime-suspect segment: `forward:p2:p3`.
+
+`recovered_loss` and `impactful_loss` also detect the first loss within one bucket.
+New fixtures cover one loss every 2, 3, 4 or 5 seconds and seeded Bernoulli p=0.02
+loss, including zero-ID IPv4 and IPv6. Random realized counts, not an assertion of
+exactly 2% in a finite sample, remain ground truth. Quality-only samples do not
+invent loss or invalidate usable baselines; mixed valid/unknown segments retain
+per-segment status. Counter tests cover single events, isolated buckets, sustained
+excess counts, nonzero reference counts and actual SYN/retransmission/RST/zero-window
+frame evidence. SYN retries do not create additional failed connections.
+
+### Full local suite, disjoint selections
+
+| Invocation | Passed | Deselected | pytest duration | End-to-end wall time |
+|---|---:|---:|---:|---:|
+| Default `pytest -q` | 90 | 164 | **103.38 s** | 103.91 s |
+| `pytest -m slow -q` | 164 | 90 | **627.54 s** | 628.07 s |
+
+**All 254 tests passed locally, with no warnings.** Suites ran sequentially. No
+cases were deleted; the extra real-tshark identity/scenario matrices, 50-client
+fixtures and repeated-analysis headline/bucket checks are explicitly marked slow.
+The fast selection retains the README regression, API/ingest/cancel-resume tests,
+IPv4/IPv6 evidence filters, baseline/quality logic and TCP event-floor checks.
+The full validation remains substantial; it is not presented as a two-minute run.
+
+The first fast selection took 138 s; an explicit bucket-insert transaction trial
+did not improve it and was reverted. Moving the large repeated-analysis fixtures
+to the registered slow group provided headroom below the local two-minute target.
+Ruff, TypeScript/Vite and the 0.1.4 sdist/wheel build passed.
+
+PR/manual CI runs fast checks on all six OS/Python combinations. Slow checks run
+only once, on macos-14/Python 3.12, and are not repeated for push events. Push CI
+remains fast macos-14/Python 3.12 only. This policy is configured but was deliberately
+not executed for this review, per the user's instruction.

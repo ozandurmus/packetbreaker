@@ -101,20 +101,39 @@ unmeasured speedup. Exact packet-field equality was verified on all 5,000,750 ro
 
 ## Phase 2 / Part 2 onset semantics
 
-- Healthy means *apparently healthy in these captures*: covered, matchable,
-  without supported loss, capture-miss or unknown events, and a stable initial
-  latency sample. A stable but already-slow capture cannot prove historical health.
-- Detect supported loss and transit-p95 changes; do not attribute ordinary traffic
-  volume, endpoint RTT or local retransmission changes to a hop. Those metrics
-  remain available in the heatmap. Capture-miss evidence cannot seed an onset.
-- The threshold is rolling median + max(minimum delta, 6 × 1.4826 × MAD). The
-  minimum delta is 1 percentage point for loss, and max(1 ms, twice segment clock
-  uncertainty) for transit p95. Two crossing buckets confirm the first bucket.
-  Baselines require five consecutive healthy buckets; insufficient evidence is
-  explicitly unknown. Isolated spikes are not sustained onset.
+- Baseline usability depends on observed coverage, matchable observations and the
+  requested metric's availability. Capture-miss and unknown-event counts remain
+  quality notes and do not poison other measured signals or the overall summary.
+  Per-segment/per-metric unknown status remains explicit. A stable but already-slow
+  capture cannot prove historical health; an initially lossy loss reference is unknown.
+- Replace adjacent loss crossings with rolling event evidence: a 15-second window,
+  rounded up to whole buckets and at least two buckets, needs three excess events
+  in two event buckets. Backdate to the first event of the sustained run and expose
+  the later confirmation. A single spike/event is not a sustained onset.
+- Counter references use event count/exposure from five initial usable samples.
+  The robust rate threshold is baseline + 6 × 1.4826 × per-bucket MAD; count thresholds
+  additionally require at least three events above baseline expectation. References
+  remain fixed for counters so sparse changes are not absorbed into the baseline.
+  Latency keeps median + max(1 ms, twice clock uncertainty, 6 × 1.4826 × MAD) and two
+  consecutive crossings. Quality annotations do not reset an otherwise usable window.
+- Detect retransmission, failed-handshake, reset and zero-window changes as well.
+  Count a failed session only at its first blocked attempt, not once per SYN retry.
+  Retransmission/reset/window events are local TCP symptoms; they cannot nominate
+  a network-loss hop without segment-backed evidence. Frame refs use the first event
+  bucket's actual SYN, retransmission, RST or zero-window announcement.
 - Propagation order is temporal evidence, not proof of device causation. Tied
   buckets are unresolved; clock uncertainty may further limit ordering. Earliest
   observed segments are prime suspects, never confirmed root causes.
 - Brushing filters evidence views without refitting the baseline. Packet evidence
   may include the same packet at another point just outside the brush, preserving
   its cross-hop context. All fixtures and performance inputs are synthetic.
+
+## Review validation cost and publication
+
+Keep default pytest below two minutes with explicit `slow` markers on exhaustive
+real-tshark identity/scenario matrices. Fast checks run on every PR/manual OS/Python
+combination; the slow matrix runs once on macos-14/Python 3.12. Push checks are fast
+only. Both suites must pass locally for this review. The user requested no CI for
+these pushes, so commit-local `[skip ci]` is used; the workflow remains active.
+The user explicitly requested public visibility; capture/secret file history checks
+preceded that change. No real captures or new Part 3 features were added.

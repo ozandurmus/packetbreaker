@@ -20,6 +20,7 @@ SCENARIOS = [
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("ipv6", [False, True], ids=["IPv4", "IPv6"])
 @pytest.mark.parametrize("scenario", SCENARIOS)
+@pytest.mark.slow
 def test_every_scenario_every_ip_id_mode(scenarios, scenario, mode, ipv6):
     project, truth, topology, report = scenarios(scenario, ip_id=mode, ipv6=ipv6)
     if report["nat_suggestions"]:

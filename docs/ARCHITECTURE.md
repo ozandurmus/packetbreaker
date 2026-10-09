@@ -249,13 +249,26 @@ and transit quantiles use matched eligible packet occurrences. RTT remains local
 tshark ACK RTT, not isolated hop transit. Each metric carries its unit and exact
 meaning in the API. Coverage bounds cannot establish capture continuity.
 
-Onset detection uses five early consecutive, covered, matchable, loss-free buckets
-and a rolling median/MAD of accepted healthy buckets. Two consecutive crossings
-confirm the first crossing as onset. Thresholds, baseline bucket IDs, MAD, observed
-values, clock uncertainty and original-frame evidence are retained in the report.
-Only supported network loss and matched transit p95 are hop-attributable onset
-signals; RTT, retransmissions and volume remain contextual metrics. Capture-quality
-or coverage gaps break continuity rather than creating a network onset.
+Onset baselines use five early covered, matchable samples. Loss needs an initially
+loss-free reference; capture misses and unknown events only add quality notes.
+Count signals use a fixed reference event count/exposure and per-bucket MAD, then
+a rolling 15-second evidence window rounded up to whole buckets (minimum two).
+The window must exceed the robust baseline threshold and contain at least three
+excess events across two buckets. The reported onset is the first excess-event
+bucket; the later threshold crossing and confirmation are stored separately.
+Latency retains rolling median/MAD and two consecutive crossings.
+
+Raw loss, TCP, retransmission and failed-handshake counts persist beside displayed
+rates. Counter onsets do not reconstruct integer counts from rounded percentages.
+Rates use summed denominators over the window; count-only metrics use event counts
+per bucket. Failed handshakes count each session at its first blocked attempt; SYN
+retries remain packet-loss events but do not create additional failed connections. Covered/matchable samples with quality notes remain available. Missing
+metric values are reported per metric, not used to invalidate every other signal.
+Summary status aggregates segment results as detected/none/partial/unknown.
+
+Retransmission, reset and zero-window onsets are local capture signals with original
+frame evidence. They are excluded from network-hop prime-suspect ordering; supported
+loss, matched transit p95 and blocked handshakes retain segment attribution.
 
 The heatmap is an ECharts grid with metric selection, missing-data states and onset
 diamonds. A horizontal brush selects a half-open corrected-time interval. Flow rows
@@ -268,3 +281,7 @@ The per-bucket matchable fraction is checked independently at both endpoints. A
 brief unmatchable interval cannot inherit a healthy whole-window ratio and turn
 into a false zero-loss cell or onset. Part 2 ships as 0.1.3; old reports are
 invalidated, while current packet indexes remain reusable.
+
+Review 0.1.4 invalidates old reports while retaining packet indexes.
+Default pytest excludes registered `slow` real-tshark matrices and large repeated-analysis fixtures;
+explicit slow selection runs every matrix case. No tests were deleted.

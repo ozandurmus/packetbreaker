@@ -50,6 +50,7 @@ def test_content_filters_survive_merge_and_resave(scenarios, tshark, tmp_path, i
     assert any(frame != ref["frame"] for frame, ts in remapped if abs(ts - ref["observed_time"]) < 1e-6)
 
 
+@pytest.mark.slow
 def test_flow_filter_uses_post_nat_tuple_per_file(scenarios, tshark):
     project, truth, topology, report = scenarios("nat", rounds=25)
     topology = {
@@ -69,6 +70,7 @@ def test_flow_filter_uses_post_nat_tuple_per_file(scenarios, tshark):
     assert "198.51.100.10" in translated and "10.0.0.10" not in translated
 
 
+@pytest.mark.slow
 def test_dns_and_icmp_content_filters_use_identifiers(scenarios, tshark):
     project, truth, _, report = scenarios("realistic_capture_miss", ip_id="zero", rounds=20)
     refs = [e for f in event_page(project, "p2", "p3", "forward")["items"] for e in f["evidence"]]

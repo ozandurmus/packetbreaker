@@ -86,3 +86,21 @@ def test_unaligned_clock_coverage_is_unknown_not_not_capturing(scenarios):
     assert data["items"]
     assert all(r["coverage"] == "unknown coverage" for r in data["items"])
     assert all(r[m] is None for r in data["items"] for m in data["metrics"])
+
+
+def test_handshake_retries_do_not_count_as_new_failed_connections():
+    import duckdb
+    from packetbreaker.timeseries import event_buckets
+
+    with duckdb.connect() as db:
+        db.execute(
+            "CREATE TABLE events(point_a VARCHAR,point_b VARCHAR,direction VARCHAR,kind VARCHAR,flow VARCHAR,ts DOUBLE)"
+        )
+        db.executemany(
+            "INSERT INTO events VALUES ('a','b','forward','handshake_blocked',?,?)",
+            [("one", 8), ("one", 11), ("one", 14), ("two", 17)],
+        )
+        buckets = event_buckets(db, 0, 1, "a", "b", "forward")
+    assert sum(r["n"] for r in buckets) == 4
+    assert sum(r["flows"] for r in buckets) == 2
+    assert {r["bucket"] for r in buckets if r["flows"]} == {8, 17}

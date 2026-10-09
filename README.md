@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.1.3-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.1.4-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -119,7 +119,7 @@ hop/time ground truth, also available with `--ip-id zero|constant` and `--ipv6`.
 | Handshake halves and RTT | Same-capture SYN/SYN-ACK/ACK intervals and tshark TCP ACK RTT, with frame references |
 | Unrecovered disappearance | Covered absence is `unrecovered_loss`; a reset or observed stall makes it impactful. Policy cause stays unknown. |
 | First event time | First observed classified event; distinct from change-point onset |
-| Degradation onset | Sustained bucket-level departure from an early healthy median/MAD baseline, with threshold and frame evidence |
+| Degradation onset | Sustained rolling event-count or latency departure from a measured baseline, with threshold and frame evidence |
 
 Repeated fingerprints are matched as separate time-ordered occurrences. Only
 byte-identical full frames within the configured microsecond threshold are marked
@@ -171,15 +171,18 @@ npm ci
 npm run build
 cd ..
 ruff check src tests tools
-pytest -q
+pytest -q                 # default fast suite
+pytest -m slow -q         # exhaustive real-tshark matrices
+# pytest -m "slow or not slow" -q  # both suites in one invocation
 python -m build
 ```
 
 Wireshark/tshark is required for tests: missing tools fail the acceptance gate
 instead of silently skipping packet tests. CI builds the UI, installs tshark,
-runs real five-file ingest/API tests, and builds distributions on Windows and
-macOS (Intel/Apple Silicon), Python 3.11/3.12. CI runs require pushing this source
-to a GitHub repository; no remote repository was created by this delivery.
+runs the fast suite on Windows and macOS (Intel/Apple Silicon), Python 3.11/3.12
+for PR/manual checks. Push checks remain macos-14/Python 3.12, fast only. The slow
+real-tshark matrices run only on PR/manual macos-14/Python 3.12. The repository is
+public; this review revision was pushed with `[skip ci]` at the user's request.
 
 `tools/benchmark.py` generates a configurable, synthetic multi-file workload and
 reports measured ingest/analysis times. Example:
@@ -253,3 +256,23 @@ are suspects, not proof of device causation. Clock uncertainty still applies.
 `GET /api/timeseries` returns stored buckets and metric tooltips. Optional `start` /
 `end` parameters on `/api/flows`, `/api/findings`, `/api/events` and flow `/ladder`
 use a half-open interval in corrected Unix seconds.
+
+### Reviewed onset behavior (0.1.4)
+
+Loss and TCP event signals use a rolling window of 15 seconds, rounded up to whole
+buckets (at least two). They require at least three excess events in at least two
+event buckets. Onset is backdated to the first event bucket of that sustained run;
+the report separately records the later confirmation/threshold-crossing bucket.
+This detects intermittent losses, including the NAT-confirmed README demo, without
+calling a single event or one isolated bucket an onset. The count reference is
+kept fixed so intervening quiet buckets cannot train away a sparse change.
+
+Capture misses and unknown events are quality notes, never loss counts or reasons
+to reject otherwise covered/matchable baseline samples. Per-segment and per-metric
+status remain visible; one unknown segment does not override other valid results.
+Retransmissions, failed handshakes, RSTs and zero windows have count-floor onsets.
+Local retransmission/reset/window changes do not establish the network-loss hop;
+only segment-backed loss, delay and blocked handshakes enter prime-suspect ordering.
+
+Additional fixtures: `onset_intermittent_2` through `onset_intermittent_5` and
+`onset_random_loss` (seeded Bernoulli p=0.02; realized counts are ground truth).

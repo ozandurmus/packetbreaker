@@ -74,6 +74,20 @@ for _class in CLASSES:
     )
 
 
+def event_buckets(db, origin, width, a, b, direction):
+    # Retries of one blocked handshake are packet losses, not new failed connections.
+    return rows(
+        db,
+        """WITH tagged AS (
+        SELECT *,min(ts) FILTER(WHERE kind='handshake_blocked') OVER(PARTITION BY flow) AS first_failure
+        FROM events WHERE point_a=? AND point_b=? AND direction=?)
+        SELECT floor((ts-?)/?)::BIGINT AS bucket,kind,count(*) AS n,
+        count(DISTINCT flow) FILTER(WHERE kind<>'handshake_blocked' OR ts=first_failure) AS flows
+        FROM tagged GROUP BY bucket,kind""",
+        [a, b, direction, origin, width],
+    )
+
+
 def build_timeseries(db, topology, segments, coverage, window):
     width = topology.bucket_seconds
     valid = [c for c in coverage if c["start"] is not None and c["end"] is not None]
@@ -147,12 +161,7 @@ def build_timeseries(db, topology, segments, coverage, window):
             )
         }
         events = {}
-        for r in rows(
-            db,
-            """SELECT floor((ts-?)/?)::BIGINT AS bucket,kind,count(*) AS n,
-            count(DISTINCT flow) AS flows FROM events WHERE point_a=? AND point_b=? AND direction=? GROUP BY bucket,kind""",
-            [origin, width, a, b, d],
-        ):
+        for r in event_buckets(db, origin, width, a, b, d):
             events.setdefault(r["bucket"], {})[r["kind"]] = r
         records = []
         for i in range(count):

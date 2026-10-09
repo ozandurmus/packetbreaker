@@ -1,3 +1,3 @@
 """PacketBreaker: local, evidence-first multi-hop packet capture correlation."""
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"
