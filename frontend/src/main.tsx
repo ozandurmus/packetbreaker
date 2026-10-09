@@ -434,7 +434,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 2 / PART 4 · v0.1.6</small>
+          <small>PHASE 2 / PART 5 · v0.1.7</small>
         </div>
       </aside>
       <main>
@@ -686,7 +686,7 @@ function App() {
                   {report.onsets.items.map((o, i) => (
                     <button
                       key={i}
-                      className="finding"
+                      className={`finding ${o.scope === "capture_signal" ? "onset-symptom" : ""}`}
                       onClick={() => setEvidence(o.evidence)}
                     >
                       {o.segment} · {o.explanation}

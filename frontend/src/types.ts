@@ -170,6 +170,7 @@ export type Report = {
       bucket: number;
       time: number;
       explanation: string;
+      scope?: string;
       display_label?: string;
       related_loss_segments?: string[];
       evidence: Ref[];

@@ -209,3 +209,13 @@ def test_tcp_signal_counts_and_frame_evidence(scenarios):
             assert onset["scope"] == "capture_signal"
             assert "not evidence that this hop" in onset["explanation"]
     assert report["onsets"]["directions"]["forward"]["prime_suspects"] == ["forward:p1:p2"]
+
+
+def test_prime_suspect_precedes_sender_symptoms():
+    from packetbreaker.onset import ordered_onsets
+
+    items = [
+        dict(segment="upstream", metric="retrans_percent", time=1, scope="capture_signal"),
+        dict(segment="loss", metric="loss_percent", time=3, scope="network_segment"),
+    ]
+    assert ordered_onsets(items, {"forward": {"prime_suspects": ["loss"]}}) == items[::-1]

@@ -949,3 +949,10 @@ footer span:last-child {
     display: none;
   }
 }
+
+.finding.onset-symptom {
+  background: #f4f6f5;
+  color: #667772;
+  border-left-color: #bac7c2;
+  font-size: 0.9em;
+}

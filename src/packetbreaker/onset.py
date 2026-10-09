@@ -343,11 +343,24 @@ def add_onsets(db, topology, segments):
     return dict(
         status=overall,
         status_counts=status_counts,
-        items=detections,
+        items=ordered_onsets(detections, directions),
         directions=directions,
         summary=summary,
         baseline_buckets=5,
         confirmation_buckets=2,
         count_window_seconds=WINDOW_SECONDS,
         minimum_events=MIN_EVENTS,
+    )
+
+
+def ordered_onsets(items, directions):
+    primes = {s for d in directions.values() for s in d.get("prime_suspects", [])}
+    return sorted(
+        items,
+        key=lambda x: (
+            2 if x.get("scope") == "capture_signal" else 0 if x["segment"] in primes else 1,
+            x.get("time", 0),
+            x["segment"],
+            x["metric"],
+        ),
     )
