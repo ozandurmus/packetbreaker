@@ -36,8 +36,9 @@ React Flow edges, with an optional separately drawn return path. A point selects
 a file and optional interface plus a source CIDR filter. Reused interface IDs across multiple pcapng sections are rejected when an interface filter is requested. Several points may use
 the same file with different filters. Forward direction is explicitly defined by
 client CIDRs (including translated addresses). Never infer direction from address
-lexical order. User order is authoritative. Full proxy/sequence translation are
-recorded as unsupported boundaries in Phase 1 and stop packet-level attribution.
+lexical order. User order is authoritative. Full proxies stop packet-level
+attribution. Part 3 learns declared sequence-randomization boundaries per session;
+insufficient or contradictory translation evidence leaves that session unknown.
 
 ## Matching
 Forwarding-invariant candidates combine protocol, IPv4 ID/IPv6 flow label, TCP

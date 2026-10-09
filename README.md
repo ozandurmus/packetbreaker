@@ -3,7 +3,7 @@
 A local desktop web app for correlating packet captures along a traffic path.
 Attach captures, draw capture points, and inspect **which segment first loses an
 original packet**, how it is recovered, and the frame evidence supporting that
-conclusion. Runs offline after installation. Phase 2 / Parts 1–2: robust ingest, explainable onset detection and a path × time heatmap. Later phases remain out of scope.
+conclusion. Runs offline after installation. Phase 2 / Parts 1–3: robust ingest, explainable onset detection, a path × time heatmap and translation-aware TCP matching. Later phases remain out of scope.
 
 ## Install on macOS (Intel or Apple Silicon)
 
@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.1.4-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.1.5-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -124,7 +124,7 @@ hop/time ground truth, also available with `--ip-id zero|constant` and `--ipv6`.
 Repeated fingerprints are matched as separate time-ordered occurrences. Only
 byte-identical full frames within the configured microsecond threshold are marked
 as potential SPAN copies; unresolved timing collisions are explicitly excluded. Truncated captures compare only common payload bytes. Unsupported
-identities, fragmentation and possible large offload frames are flagged. Checksums
+identities and fragmentation are flagged. Differently segmented TCP captures use sequence byte coverage; affected points show an offload note. Checksums
 are not classified as network errors. Missing pcapng drop counters mean **unknown**,
 not zero. Observed first/last timestamps cannot prove continuous capture coverage.
 
@@ -135,11 +135,12 @@ unknown cause; insufficient coverage/clock/translation evidence remains unknown.
 and drilldown retain the full selected captures for context. The heatmap brush additionally
 filters flow membership, findings and ladder packets without refitting the baseline.
 
-Declared full proxies and sequence randomizers stop packet-level attribution.
-Automatic sequence offsets, offload byte-range matching, fragment reassembly,
+Declared full proxies stop packet-level attribution. Declared sequence randomizers
+learn session-specific offsets; inconsistent or insufficient evidence stays unknown.
+Fragment reassembly,
 tunnel decapsulation selection, vendor inspection-point adapters,
 waterfall, HTML export, MTU/security attribution, packaging as
-native executables and the AI placeholder remain deferred beyond Parts 1–2. Positive device-drop classification awaits device-stage evidence.
+native executables and the AI placeholder remain deferred beyond Parts 1–3. Positive device-drop classification awaits device-stage evidence.
 
 ## Offline JSON / API
 
@@ -276,3 +277,31 @@ only segment-backed loss, delay and blocked handshakes enter prime-suspect order
 
 Additional fixtures: `onset_intermittent_2` through `onset_intermittent_5` and
 `onset_random_loss` (seeded Bernoulli p=0.02; realized counts are ground truth).
+
+## Phase 2 / Part 3 translation-aware matching (0.1.5)
+
+For a sequence-randomizing device, add adjacent ingress and egress capture points
+with the same device name and select **Seq randomization (learn offsets)**. Confirm
+any NAT tuple mapping first. The overview shows each session's directional SEQ/ACK
+offsets and anchor evidence. Filters retain the actual headers at each capture;
+normalization never changes the source file. Insufficient anchors or inconsistent
+offsets leave the affected session unknown, with an explicit reason.
+
+TCP segmentation/coalescing is detected from large frames and overlapping sequence
+ranges in linked sessions. One source frame may cover several downstream frames,
+or the reverse. Findings expose missing byte ranges and original frame references.
+Loss counts mean affected source frames; byte counts/rates provide the comparison
+when captures have different segmentation. The tool does not invent a wire-packet
+count inside a coalesced frame. Offload checksum artifacts are not network errors.
+The bounded range index supports up to one million derived observations per analysis;
+exceeding that budget requires splitting the captures. Legacy indexes that excluded
+superframes are marked stale and must be reattached once.
+
+Upstream retransmission onsets are labeled **symptom observed here (sender
+retransmits)**. Only independently supported loss segments receive a loss-suspect
+badge; seeing the sender retry does not locate the fault at that capture point.
+
+Synthetic scenarios `sequence_randomization`, `sequence_inconsistent` and `offload`
+include ground truth. The first uses per-session offsets plus intermittent loss
+after the translating device; the offload fixture combines 64 KB sender frames,
+MSS segments, receiver coalescing, sequence wrap and a separate capture miss.

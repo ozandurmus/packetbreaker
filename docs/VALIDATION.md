@@ -415,3 +415,80 @@ PR/manual CI runs fast checks on all six OS/Python combinations. Slow checks run
 only once, on macos-14/Python 3.12, and are not repeated for push events. Push CI
 remains fast macos-14/Python 3.12 only. This policy is configured but was deliberately
 not executed for this review, per the user's instruction.
+
+## Phase 2 / Part 3 — translation-aware matching (0.1.5)
+
+PR #2 was merged before branching (`d527c19c2a11412cdb24bd11468412d40547f484`).
+This phase uses synthetic inputs only; no real capture was read, copied or added.
+
+### Correctness acceptance
+
+- Two overlapping TCP sessions with distinct per-direction random offsets,
+  including modulo-2³² wrap and IPv6 with the zero-ID fixture setting: offsets
+  learned exactly, intermittent post-device losses attributed only to `forward:p2:p3`.
+  Frame evidence contains both normalized coordinates and unchanged raw-header
+  content filters. A forward offset step and a single reverse SEQ change each
+  make only the affected session unknown in constant-ID IPv4, with an explicit
+  inconsistency reason.
+- 64,000-byte sender frames → MSS-sized firewall frames → coalesced receiver
+  frames: one 1,460-byte impactful loss and a separate 1,460-byte capture miss at
+  FW → LB, exactly matching ground truth. Sequence wrap, FIN data/FIN-only retry
+  and deliberately bad offload checksums are included. The flow totals 257,460
+  observed unique payload bytes including the retransmission, without counting
+  GSO and MSS representations twice. Original positive frame numbers are retained.
+- Mixed partial downstream coverage is unknown; complete downstream coverage is
+  a capture miss. Neither is promoted to network loss. A legacy excluded-offload
+  index is invalidated and successfully rebuilt.
+- Retransmission onsets upstream of the translated-flow loss are labeled as
+  sender symptoms and reference the independently supported downstream segment.
+  Only `forward:p2:p3` receives a loss-suspect badge.
+
+### Same-input large regression benchmark
+
+`tools/path_benchmark.py` measures fresh serial ingest and analysis separately.
+Both revisions use the same five synthetic files: **5,400,750 frames /
+1,414,852,620 bytes**, including a **5,000,150-frame / 1,310,010,524-byte** file.
+The frozen pre-Part-3 code and final code ran sequentially, without concurrent
+local tests or builds. Timing and maximum RSS come from `/usr/bin/time -l`;
+this is a serial regression check, not a new parallel-speedup claim.
+
+| Stage | Before elapsed / process wall | After elapsed / process wall | Before max RSS | After max RSS |
+|---|---:|---:|---:|---:|
+| Serial ingest | 290.30 / 290.63 s | 281.90 / 282.18 s | 1,044,594,688 B (0.973 GiB) | 1,253,982,208 B (1.168 GiB) |
+| Analysis | 87.59 / 87.96 s | 88.13 / 88.39 s | 1,839,153,152 B (1.713 GiB) | 1,837,187,072 B (1.711 GiB) |
+
+Ingest throughput: **18,604 → 19,158 frames/s**
+(-2.89% elapsed time). Analysis elapsed time increased
+**0.62%**; ingest maximum RSS increased **20.04%**
+(about 200 MiB). Analysis maximum RSS changed
+-0.11%. These are single measured runs, not a statistical
+claim of improved speed or proof of the RSS increase's cause. Maximum RSS is the
+value reported by `time -l`, not a sum of simultaneous process footprints.
+Both analyses returned **50 flows, one capture-miss finding and zero network-loss
+findings**. This ordinary-segmentation workload measures baseline-path regression;
+the bounded byte-range expansion is validated separately by the offload fixture.
+
+### Test and packaging gates
+
+Default `pytest -q`: **95 passed, 164 deselected, 101.15 s** (101.61 s
+end-to-end). All five new cases are fast; the default stays below two minutes.
+Ruff and TypeScript/Vite passed; the UI build took **3.40 s**. The complete suite
+contains **259 tests**. The unchanged slow selection runs once in the PR matrix,
+while all six OS/Python combinations run the fast suite.
+
+No capture, DuckDB, private-key, `.env` or demo files are tracked. Part 3 restores
+normal CI execution after the previous review's explicitly skipped pushes. Push
+checks remain macos-14/Python 3.12; the PR runs the full six-job matrix, with the
+slow suite only on macos-14/Python 3.12. Windows verifies the installed tshark path
+and Python auto-detection.
+
+The 0.1.5 wheel and sdist build passed. A local browser check on the synthetic
+translation/offload projects verified exact offset rows, raw/canonical frame
+evidence, upstream symptom labels, only the actual loss-segment badge, affected
+GSO/GRO point notes and the single-loss/single-capture-miss result. Long evidence
+text wraps instead of being clipped. Temporary verification servers/tabs were
+closed afterward.
+
+[Part 3 CI runs](https://github.com/ozandurmus/packetbreaker/actions?query=branch%3Aphase2-part3)
+provide the final cross-platform results; the exact green full-matrix run is
+recorded in the PR close-out. No auto-merge is enabled.

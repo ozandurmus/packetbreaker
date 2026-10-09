@@ -1,5 +1,8 @@
 # Decisions
 
+The initial numbered decisions record Phase 1.1. Later sections explicitly extend
+that scope through Phase 2 / Part 3; no later-phase work is included.
+
 1. Deliver Phase 1.1 correctness hardening only. Onset detector, vendor adapters, sequence translation,
    offload byte ranges, full proxy, export UI, security attribution and AI panel
    remain Phase 2/3. JSON analysis is available to the CLI/API and tests.
@@ -171,3 +174,13 @@ fault at the observing segment. The UI labels them "symptom observed here
 loss events for the same contributing flows and overlapping event time. Only
 segments with those loss events receive the loss-suspect badge; capture misses,
 unknown events and retransmissions alone cannot create it.
+
+## Part 3 performance acceptance
+
+Keep serial ingest as the default chosen in Part 2. The same-input 5.4M-frame
+regression check measured 2.89% less ingest time and 0.62% more analysis time.
+Ingest maximum RSS increased 20.04%; report this regression rather than claiming
+no cost. The single-run result does not isolate its cause. The ordinary packet
+path avoids constructing a byte-range table unless differing large TCP frames
+require it; range expansion has an explicit budget. No speculative parser or
+concurrency rewrite is included in this phase.
