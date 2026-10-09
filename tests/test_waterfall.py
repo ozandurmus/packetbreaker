@@ -1,10 +1,14 @@
 from copy import deepcopy
 
+import pytest
+from packetbreaker.analysis import analyze
+
 from packetbreaker.waterfall import completion, request_size, waterfall
 
 
 def test_handshake_http_and_uncertainty(scenarios):
-    project, _, topology, report = scenarios("healthy")
+    project, _, topology, _ = scenarios("healthy")
+    report = analyze(project, topology)
     with project.connect() as db:
         flow = db.execute("SELECT flow FROM flow_summary LIMIT 1").fetchone()[0]
     result = waterfall(project, flow)
@@ -15,7 +19,8 @@ def test_handshake_http_and_uncertainty(scenarios):
         for b in handshake["bars"]
     )
     processing = next(b for b in http["bars"] if b["kind"] == "server_processing")
-    assert 5 < processing["duration_ms"] < 30
+    assert processing["duration_ms"] == pytest.approx(16, abs=0.05)
+    assert sum(b["duration_ms"] for b in handshake["bars"]) == pytest.approx(44, abs=0.05)
     assert all(b["evidence"] for b in http["bars"])
     assert {b["kind"] for b in http["bars"]} >= {"link", "device_dwell", "server_processing"}
     modified = deepcopy(report)

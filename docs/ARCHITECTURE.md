@@ -365,3 +365,8 @@ Coverage gaps remain not-capturing cells, partial/unknown cells stay distinct fr
 zero, and metric tooltips/onset markers remain available offline. Summary, onset,
 findings, segments and filters are plain HTML and remain readable without scripts.
 The live per-flow waterfall is not precomputed for every flow during export.
+
+Waterfall frame refs are resolved in one batch after constructing the stages,
+then reused across bars. The flow inspector does not issue a separate metadata
+lookup for each bar. The 0.1.6 analysis version refreshes reports while retaining
+compatible packet indexes.

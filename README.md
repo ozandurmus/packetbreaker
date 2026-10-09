@@ -3,7 +3,7 @@
 A local desktop web app for correlating packet captures along a traffic path.
 Attach captures, draw capture points, and inspect **which segment first loses an
 original packet**, how it is recovered, and the frame evidence supporting that
-conclusion. Runs offline after installation. Phase 2 / Parts 1–3: robust ingest, explainable onset detection, a path × time heatmap and translation-aware TCP matching. Later phases remain out of scope.
+conclusion. Runs offline after installation. Phase 2 / Parts 1–4: robust ingest, explainable onset detection, a path × time heatmap, translation-aware TCP matching, waterfalls and offline exports. Later phases remain out of scope.
 
 ## Install on macOS (Intel or Apple Silicon)
 
@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.1.5-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.1.6-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -89,12 +89,35 @@ packetbreaker --project demo/project
    finding: the original/retransmitted frames and per-file Wireshark filters are
    shown. The maximum recovery wait is approximately **301 ms**, including the
    next segment's transit. It is not firewall processing time.
-4. **Flows:** select the conversation. Inspect per-point handshake halves and
-   local tuples, then the packet ladder. Teal lines are original observations,
-   amber lines are retransmissions, and red × marks missing appearances.
-5. **Settings:** inspect estimated clock offsets/drift, uncertainty and calibration
-   frames. Close the terminal with Ctrl+C and reopen the same project: indexed
-   captures and the saved report are reused.
+4. **Onset + heatmap:** the confirmed demo detects the first degradation at
+   **FW egress → LB ingress**, bucket **14 s** relative to the synthetic epoch.
+   Read the measured baseline, threshold and evidence. Select **Network loss (%)**
+   or **Transit p95 (ms)** in the heatmap. Brush the loss interval to filter flows,
+   findings and the ladder. Grey **NC** means not capturing, not zero loss. Clear
+   the selection before inspecting the beginning of the connection.
+5. **Flows:** select the conversation and open **Where did the time go?**. The
+   handshake has outbound SYN, server turnaround, returning SYN/ACK, client
+   turnaround and outbound ACK. Select an HTTP request to inspect transmission /
+   retry time, every link/device dwell, server processing and first-response
+   return time. Every bar shows clock uncertainty and opens its original frame
+   evidence. Unknown bars have no invented width. The ladder below provides the
+   packet-by-packet view; teal means original and amber means retransmission.
+6. **Export HTML / Export JSON:** use the header buttons. HTML opens locally as a
+   single file; its metric-selectable heatmap, onset markers and evidence filters
+   work without the running app or Internet. JSON follows
+   [findings schema v1](docs/findings-v1.schema.json). Both export the complete
+   saved analysis window, independent of the current brush. Neither embeds packet
+   payloads; addresses and filters are still sensitive investigation metadata.
+7. **Settings:** inspect clock estimates/calibration frames, then stop with Ctrl+C.
+   Reopen the project to reuse its packet index and report. For CLI exports, run:
+
+   ```sh
+   packetbreaker --project demo/project export --format html --output demo/report.html
+   packetbreaker --project demo/project export --format json --output demo/report.json
+   ```
+
+   Omit `--output` to write to stdout. Existing output files are not overwritten.
+   The live per-flow waterfall is not batch-generated into the offline report.
 
 For an already-confirmed demo use `packetbreaker demo demo --scenario demo
 --confirm-demo-nat`. This flag applies only to the generated synthetic project.
@@ -139,8 +162,8 @@ Declared full proxies stop packet-level attribution. Declared sequence randomize
 learn session-specific offsets; inconsistent or insufficient evidence stays unknown.
 Fragment reassembly,
 tunnel decapsulation selection, vendor inspection-point adapters,
-waterfall, HTML export, MTU/security attribution, packaging as
-native executables and the AI placeholder remain deferred beyond Parts 1–3. Positive device-drop classification awaits device-stage evidence.
+MTU/security attribution, packaging as native executables and the AI placeholder
+remain deferred beyond Parts 1–4. Positive device-drop classification awaits device-stage evidence.
 
 ## Offline JSON / API
 
@@ -150,11 +173,15 @@ packetbreaker --project demo/project analyze --topology demo/topology.json
 packetbreaker --project demo/project --port 8766 --no-browser
 ```
 
-JSON schema version 1 includes `window`, `clocks`, `quality`, `nat_suggestions`,
+The internal analysis report schema (version 2) includes `window`, `clocks`, `quality`, `nat_suggestions`,
 `segments`, `findings`, `flow_count` and interpretation limits. Findings include
 `type`, `severity`, `hop`, `direction`, `time_range`, `confidence`, `metrics`, and
 `evidence` with file/frame/display-filter references. Report findings are capped
 at 200; event/flow/ladder APIs are paginated. The UI shows the top five findings.
+The separate `packetbreaker.findings` export schema is version 1 and exports all
+grouped findings, with `evidence_refs`, plus saved report metadata, buckets and
+per-file flow filters. `GET /api/export?format=html|json` returns a download;
+`GET /api/flows/{flow}/waterfall` returns the on-demand timeline.
 
 The loopback API is same-origin only. Mutations require `X-PacketBreaker: local`;
 foreign Host/Origin/cross-site requests are rejected. There is no authentication,
@@ -305,3 +332,20 @@ Synthetic scenarios `sequence_randomization`, `sequence_inconsistent` and `offlo
 include ground truth. The first uses per-session offsets plus intermittent loss
 after the translating device; the offload fixture combines 64 KB sender frames,
 MSS segments, receiver coalescing, sequence wrap and a separate capture miss.
+
+## Waterfall interpretation limits
+
+HTTP/1.x must be cleartext, with a captured request line and complete header bytes
+in the stored prefixes. Content-Length request bodies are tracked by TCP sequence
+coverage, including out-of-order arrival. Missing prefixes are never reconstructed
+from guesses. If headers are incomplete, choose a larger payload prefix in Settings
+and reattach the captures to rebuild the index. Chunked requests, pipelining, TLS
+and response-body download timing are not decoded. Full-proxy boundaries explicitly
+show **unknown (full proxy, Phase 3)**. The view is bounded to 20,000 observations
+per flow, 8 KiB headers, 8 MiB request bodies and 100 request choices.
+
+Clock correction estimates contain path-asymmetry uncertainty. Even a positive
+bar duration is an estimate; invalid/unverified intervals remain unknown. Offload
+timestamps represent coalesced capture units, not precise per-wire-frame times.
+Server processing measures the interval between observed complete request receipt
+and first final response byte; it is not an application CPU profile.

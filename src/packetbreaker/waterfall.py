@@ -88,16 +88,16 @@ def waterfall(project, flow, start=None, end=None, request_index=0):
         fallback = "unknown (full proxy, Phase 3)" if full_proxy else "Missing or unmatchable endpoint frame"
         refs = {}
 
+        has_byte_ranges = db.execute("SELECT count(*) FROM byte_flows WHERE flow=?", [flow]).fetchone()[0]
+
         def frame_refs(*frames):
             result = []
             for p in frames:
-                if not p:
-                    continue
-                key = (p["point"], p["frame"])
-                if key not in refs:
-                    refs[key] = evidence(db, "o.point=? AND o.frame=?", list(key), 1, _expand_ranges=False)
-                if refs[key] and refs[key][0] not in result:
-                    result.extend(refs[key])
+                if p:
+                    key = (p["point"], p["frame"])
+                    refs[key] = p
+                    if key not in result:
+                        result.append(key)
             return result
 
         def trace(seed, first=False):
@@ -107,7 +107,7 @@ def waterfall(project, flow, start=None, end=None, request_index=0):
                 p["point"]: p for p in packets if p["packet_key"] == seed["packet_key"] and p["eligible"]
             }
             # A segmentation boundary can identify a physical parent through shared byte occurrences.
-            if db.execute("SELECT count(*) FROM byte_flows WHERE flow=?", [flow]).fetchone()[0]:
+            if has_byte_ranges:
                 peers = db.execute(
                     """SELECT DISTINCT b.point,b.source_frame FROM byte_obs a JOIN byte_obs b
                     USING(packet_key) WHERE a.point=? AND a.source_frame=? AND a.is_atom AND b.is_atom
@@ -347,6 +347,15 @@ def waterfall(project, flow, start=None, end=None, request_index=0):
                     note="Request completion and time to first response byte; not response-body download time. Up to 100 requests selectable. Chunked requests and pipelining stay unknown.",
                 )
             )
+        if refs:
+            predicate = " OR ".join("(o.point=? AND o.frame=?)" for _ in refs)
+            resolved = evidence(
+                db, predicate, [v for key in refs for v in key], len(refs), _expand_ranges=False
+            )
+            lookup = {(e["point"], e["frame"]): e for e in resolved}
+            for item in items:
+                for stage in item["bars"]:
+                    stage["evidence"] = [lookup[key] for key in stage["evidence"] if key in lookup]
         return dict(
             items=items,
             requests=choices,
