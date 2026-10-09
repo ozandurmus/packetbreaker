@@ -228,3 +228,9 @@ tests; expected field values come from a separate tshark decode. Check Point's
 UUID flag is user supplied because treating a non-UUID header as UUID changes the
 interface-name interpretation. Continuous inspection coverage is explicit; missing
 stages alone cannot prove a device drop in a filtered or incomplete monitor capture.
+
+F5 positive flow/peer identifiers permit connection pairing but do not permit
+merging proxy TCP sequence spaces. Use explicit client/server points and narrow
+client CIDRs. Preserve tshark's HTTP decode for request markers; never implement
+a proprietary trailer parser in production. Names, IDs and reset text remain
+untrusted display data and use the existing escaped evidence/export paths.

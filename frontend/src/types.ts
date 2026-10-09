@@ -145,6 +145,32 @@ export type Segment = {
   offset_uncertainty_ms: number | null;
 };
 export type Report = {
+  f5?: {
+    pairs: {
+      flowid: string;
+      peerid: string;
+      tmm: string;
+      role: string;
+      reason: string | null;
+      client_flow?: string;
+      server_flow?: string;
+    }[];
+    requests: {
+      device: string;
+      request: string;
+      request_dwell_ms: number | null;
+      clock_uncertainty_ms: number;
+      reason: string | null;
+      note: string;
+      evidence: Ref[];
+    }[];
+    resets: {
+      device: string;
+      reason: string;
+      time: number | null;
+      evidence: Ref[];
+    }[];
+  };
   offload_points?: { point: string; large_frames: number; note: string }[];
   sequence_translations?: {
     ingress: string;

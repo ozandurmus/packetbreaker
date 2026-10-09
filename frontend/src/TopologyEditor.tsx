@@ -378,14 +378,35 @@ export function TopologyEditor({
                     update({
                       vendor: e.target.value,
                       vendor_stage:
-                        e.target.value === "checkpoint" ? "i" : null,
+                        e.target.value === "checkpoint"
+                          ? "i"
+                          : e.target.value === "f5"
+                            ? "client"
+                            : null,
                     })
                   }
                 >
                   <option value="none">Generic capture</option>
                   <option value="checkpoint">Check Point fw monitor</option>
+                  <option value="f5">F5 TMM trailer</option>
                 </select>
               </label>
+              {selected.vendor === "f5" && (
+                <label>
+                  Proxy leg
+                  <select
+                    value={selected.vendor_stage || "client"}
+                    onChange={(e) => update({ vendor_stage: e.target.value })}
+                  >
+                    <option value="client">Client side</option>
+                    <option value="server">Server side</option>
+                  </select>
+                  <small>
+                    Use specific client CIDRs. Reciprocal TMM IDs pair
+                    connections; TCP legs stay separate.
+                  </small>
+                </label>
+              )}
               {selected.vendor === "checkpoint" && (
                 <>
                   <label>

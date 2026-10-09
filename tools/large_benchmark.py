@@ -249,6 +249,7 @@ def dpkt_core(path, cid):
                 icmp_type=None,
                 dns_id=None,
                 dns_response=False,
+                vendor=None,
             )
             yield [p[k] for k in PACKET_COLUMNS]
 

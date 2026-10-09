@@ -623,6 +623,50 @@ function App() {
                   ))}
                 </section>
               )}
+              {!!report?.f5?.pairs.length && (
+                <section>
+                  <h2>F5 connection pairs and request forwarding</h2>
+                  <p className="hint">
+                    Capture context. Client/server TCP legs remain separate;
+                    forwarding intervals use tshark-decoded request-bearing
+                    frames.
+                  </p>
+                  {report.f5.pairs.map((p, i) => (
+                    <p key={i}>
+                      {p.role} · flowid {p.flowid} ↔ peerid {p.peerid} ·
+                      processor {p.tmm}
+                      {p.reason && ` · unknown: ${p.reason}`}
+                      {p.client_flow && (
+                        <small>
+                          Client conversation {p.client_flow} / server
+                          conversation {p.server_flow}
+                        </small>
+                      )}
+                    </p>
+                  ))}
+                  {report.f5.requests.map((r, i) => (
+                    <button
+                      className="finding"
+                      key={i}
+                      onClick={() => setEvidence(r.evidence)}
+                    >
+                      {r.device} · {r.request}: {num(r.request_dwell_ms, " ms")}{" "}
+                      ±{num(r.clock_uncertainty_ms, " ms")}
+                      <small>{r.reason || r.note}</small>
+                    </button>
+                  ))}
+                  {report.f5.resets.map((r, i) => (
+                    <button
+                      className="finding"
+                      key={i}
+                      onClick={() => setEvidence(r.evidence)}
+                    >
+                      {r.device} · {time(r.time)} · RST origin (TMM reported):{" "}
+                      {r.reason}
+                    </button>
+                  ))}
+                </section>
+              )}
               {!!report?.offload_points?.length && (
                 <section>
                   <h2>Offload / segmentation notes</h2>

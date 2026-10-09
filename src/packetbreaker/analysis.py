@@ -10,7 +10,7 @@ from .headlines import add_headlines
 from .evidence import evidence, prepare_flow_filters
 from .store import rows
 from .topology import Topology
-from .vendors import point_selector, checkpoint_audit
+from .vendors import point_selector, checkpoint_audit, prepare_f5_connections, f5_report
 from .timeseries import build_timeseries
 from .onset import add_onsets
 from .translation import normalize_sequences, sequence_report
@@ -37,6 +37,7 @@ def prepare(db, topology):
     db.execute(
         "CREATE TABLE obs AS SELECT *, seq AS raw_seq, ack AS raw_ack, NULL::VARCHAR AS translation_reason, NULL::VARCHAR AS range_reason, NULL::VARCHAR AS point, NULL::VARCHAR AS canon FROM packets WHERE false"
     )
+    prepare_f5_connections(db, topology)
     ready = {r[0] for r in db.execute("SELECT id FROM captures WHERE state='ready'").fetchall()}
     used = set(topology.forward + (topology.reverse or list(reversed(topology.forward))))
     for point in topology.points:
@@ -178,6 +179,11 @@ def prepare(db, topology):
         t.canon AS canon,t.canon_reverse AS canon_reverse,t.direction AS direction,
         md5(t.canon || o.signature) AS packet_key,md5(least(t.canon,t.canon_reverse)) AS flow)
         FROM obs o JOIN tuple_lookup t ON o.tuple_key=t.tuple_key""")
+    if any(p.vendor == "f5" for p in topology.points):
+        db.execute("""UPDATE obs SET direction=CASE
+            WHEN (c.role='client') = (lower(json_extract_string(obs.vendor,'$."f5ethtrailer.ingress"')) IN ('true','1')) THEN 'forward'
+            ELSE 'reverse' END FROM f5_connections c WHERE obs.capture_id=c.capture_id AND obs.stream=c.stream
+            AND c.role IN ('client','server') AND json_extract_string(obs.vendor,'$."f5ethtrailer.ingress"') IS NOT NULL""")
     normalize_sequences(db, topology)
     # Compare the shared captured prefix, not the digest of different-length payloads.
     db.execute("""CREATE OR REPLACE TEMP TABLE prefix_lengths AS
@@ -732,6 +738,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         )
         report = dict(
             schema_version=2,
+            f5=f5_report(db, topology),
             vendor_device_events=checkpoint_audit(db, topology),
             sequence_translations=sequence_report(db),
             offload_points=range_notes(db) if byte_active else [],

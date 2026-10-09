@@ -38,6 +38,10 @@ class Point(BaseModel):
             "OE",
         ):
             raise ValueError("Choose a Check Point inspection stage")
+        if self.vendor == "f5":
+            if self.vendor_stage not in ("client", "server"):
+                raise ValueError("Choose the F5 client or server leg")
+            self.translation = "full_proxy"
         if self.source_cidr:
             ipaddress.ip_network(self.source_cidr, strict=False)
         if not math.isfinite(self.x) or not math.isfinite(self.y):

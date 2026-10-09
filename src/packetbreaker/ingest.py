@@ -68,7 +68,7 @@ def parse_packet(values, capture_id, prefix_bytes):
     d = dict(zip(FIELDS, values))
 
     def g(k):
-        return d.get(k, "")
+        return d.get(k, "").split(",")[0]
 
     src, dst = g("ip.src") or g("ipv6.src"), g("ip.dst") or g("ipv6.dst")
     proto = (
@@ -230,8 +230,9 @@ def ingest(
         "-E",
         "quote=d",
         "-E",
-        "occurrence=f",
+        "occurrence=a",
     ]
+    cmd += ["--enable-protocol", "f5ethtrailer"]
     if info["format"] == "snoop":
         cmd += [
             "-o",

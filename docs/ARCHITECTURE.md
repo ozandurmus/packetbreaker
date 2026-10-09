@@ -387,3 +387,17 @@ Later appearances, including O/accelerated points, contradict the disappearance.
 Unattested or incomplete capture evidence stays unknown. The separate audit feeds
 the final confirmed-device-drop integration. Ordinary tshark TCP flags can include
 repeated inspection appearances; they are not independent device-drop evidence.
+
+F5 trailer decoding is enabled with tshark's `--enable-protocol f5ethtrailer`.
+Raw flow/peer IDs, peer addresses/ports, ingress, VIP, processor and reset-cause
+fields are retained (including multiple peer-field occurrences). The adapter
+pairs reciprocal nonzero IDs within a capture and slot/TMM namespace, checking
+local TCP streams for reuse and client CIDRs for an unambiguous role. Client and
+server TCP conversations remain separate; the proxy is not packet-forwarding.
+
+Request forwarding dwell uses tshark-decoded HTTP request-bearing frames on the
+paired legs. Distinct request lines match one-to-one; repeated identical lines,
+unequal counts and reversed time order remain unknown. This is not whole-body
+completion or server processing. Same-capture timing cancels clock offset. The
+request budget is 2,000 observations per pair; reset annotations retain TMM's
+rstcausetxt verbatim as evidence, not an independently inferred policy diagnosis.
