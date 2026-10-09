@@ -6,10 +6,12 @@ from urllib.parse import urlsplit
 import uuid
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .waterfall import waterfall
+from .export import export_report
 from .analysis import analyze, event_page, flow_page, ladder, findings_page
 from .ingest import find_tshark
 from .batch_ingest import ingest_many, normalize_paths
@@ -227,6 +229,16 @@ def create_app(project_path):
         with project.connect() as db:
             return project.get(db, "report")
 
+    @app.get("/api/export")
+    def export(format: str = Query("html", pattern="^(html|json)$")):
+        idle()
+        content = export_report(project, format)
+        return Response(
+            content,
+            media_type="text/html" if format == "html" else "application/json",
+            headers={"Content-Disposition": f'attachment; filename="packetbreaker-report.{format}"'},
+        )
+
     @app.get("/api/findings")
     def findings(
         start: float | None = Query(None, allow_inf_nan=False),
@@ -259,6 +271,15 @@ def create_app(project_path):
         end: float | None = Query(None, allow_inf_nan=False),
     ):
         return ladder(project, flow, offset, limit, start, end)
+
+    @app.get("/api/flows/{flow}/waterfall")
+    def flow_waterfall(
+        flow: str,
+        request_index: int = Query(0, ge=0, le=99),
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
+    ):
+        return waterfall(project, flow, start, end, request_index)
 
     @app.get("/api/events")
     def events(

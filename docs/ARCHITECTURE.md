@@ -327,3 +327,46 @@ and related downstream loss segments. `symptoms.py` joins the onset's observed
 retransmitting sessions to independently classified loss events within its time
 window. Segment loss-suspect badges derive from loss classes, preserving the
 distinction between sender symptoms and a supported disappearance boundary.
+
+## Phase 2 / Part 4: on-demand waterfalls
+
+`waterfall.py` reads normalized observations for one TCP session when the flow
+inspector requests a timeline. It traces matched physical frames (or shared byte
+occurrences for offload) over every ordered forward/return edge, distinguishing
+links from same-device ingress/egress dwell. The three-way handshake includes
+server SYN/ACK turnaround and client final-ACK turnaround. HTTP shows the client
+transmission/retry span, request-completion traversal, server processing from all
+request bytes received to the first final response, and its return traversal.
+Each bar retains original per-file frame filters and clock uncertainty. Negative
+or unverified clock intervals, missing evidence and full proxies remain unknown.
+
+HTTP reads contiguous captured header prefixes, recognizes Content-Length and
+tracks sequence coverage including out-of-order body delivery. It does not invent
+bytes missing from prefixes. Chunked requests, overlapping/pipelined requests and
+TLS are not decoded. The on-demand budget is 20,000 observations per flow, 8 KiB
+headers, 8 MiB requests and 100 selectable request starts. These limits are visible;
+no waterfall work is added to the full-capture analysis pass.
+
+## Part 4: offline export
+
+`export.py` validates a `packetbreaker.findings` envelope (schema version 1) before
+serializing JSON or HTML. The contract is published in `findings-v1.schema.json`;
+its version is separate from the internal analysis report schema. Every finding
+has a type, hop, time range, metrics, evidence refs and confidence. The analysis
+persists the complete finding list for export, independent of the UI's 200-row
+summary cap. Export takes a locked snapshot of that report, stored buckets and
+per-file flow filters. It includes the complete saved analysis window, independent
+of the live heatmap brush, and contains no raw packet payloads.
+
+HTML embeds escaped metadata, inline CSS and a small canvas heatmap renderer; it
+has no external assets or requests. Its CSP disables network connections. Capture
+labels and evidence text are HTML-escaped; embedded JSON escapes markup delimiters.
+Coverage gaps remain not-capturing cells, partial/unknown cells stay distinct from
+zero, and metric tooltips/onset markers remain available offline. Summary, onset,
+findings, segments and filters are plain HTML and remain readable without scripts.
+The live per-flow waterfall is not precomputed for every flow during export.
+
+Waterfall frame refs are resolved in one batch after constructing the stages,
+then reused across bars. The flow inspector does not issue a separate metadata
+lookup for each bar. The 0.1.6 analysis version refreshes reports while retaining
+compatible packet indexes.

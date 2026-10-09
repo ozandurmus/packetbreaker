@@ -3,6 +3,7 @@ import type { TimeSeries, Finding } from "./types";
 import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, num, time, reverseTuple } from "./api";
+import { Waterfall } from "./Waterfall";
 import { Coverage, LadderChart } from "./Charts";
 import { TopologyEditor } from "./TopologyEditor";
 import type { State, Topology, Ref, Flow, Ladder, Segment, Job } from "./types";
@@ -306,6 +307,20 @@ function App() {
       fail(e);
     }
   }
+  async function downloadReport(format: "html" | "json") {
+    const response = await fetch(`/api/export?format=${format}`);
+    if (!response.ok)
+      throw new Error((await response.json()).detail || "Export failed");
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `packetbreaker-report.${format}`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setNotice(
+      "Exported the complete saved analysis window (independent of the heatmap brush).",
+    );
+  }
   async function saveTopology(t: Topology) {
     const saved = await api<Topology>("/topology", "PUT", t);
     setTopology(saved);
@@ -419,7 +434,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 2 / PART 3 · v0.1.5</small>
+          <small>PHASE 2 / PART 4 · v0.1.6</small>
         </div>
       </aside>
       <main>
@@ -453,6 +468,20 @@ function App() {
           </div>
           <div className="header-actions">
             <Badge kind="neutral">● OFFLINE</Badge>
+            <button
+              className="secondary"
+              disabled={busy || !report}
+              onClick={() => action(() => downloadReport("html"))}
+            >
+              Export HTML
+            </button>
+            <button
+              className="secondary"
+              disabled={busy || !report}
+              onClick={() => action(() => downloadReport("json"))}
+            >
+              Export JSON
+            </button>
             <button
               disabled={busy || ready < 2 || topology.forward.length < 2}
               onClick={() => action(analyze)}
@@ -1430,6 +1459,14 @@ function App() {
                   </button>
                 </div>
               </section>
+              {selectedFlow && (
+                <Waterfall
+                  key={selectedFlow.flow}
+                  flow={selectedFlow.flow}
+                  rangeQuery={rangeQuery}
+                  onEvidence={setEvidence}
+                />
+              )}
               {selectedFlow && ladder && (
                 <section>
                   <div className="section-head">

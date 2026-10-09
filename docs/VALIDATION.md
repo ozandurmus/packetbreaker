@@ -492,3 +492,63 @@ closed afterward.
 [Part 3 CI runs](https://github.com/ozandurmus/packetbreaker/actions?query=branch%3Aphase2-part3)
 provide the final cross-platform results; the exact green full-matrix run is
 recorded in the PR close-out. No auto-merge is enabled.
+
+## Phase 2 / Part 4 — waterfall and export (0.1.6)
+
+PR #3 was merged first; branch `phase2-part4` starts at `493956b`. All inputs
+remain synthetic. No new capture files or project databases are tracked.
+
+### Correctness and UI
+
+- Handshake: every ordered link and device dwell, server SYN/ACK turnaround,
+  reverse path and client final-ACK turnaround have frame evidence. The synthetic
+  complete handshake measures **44 ms**, including **16 ms** server turnaround.
+- HTTP: Content-Length byte coverage handles out-of-order request bodies; the
+  synthetic server-processing interval is **16 ms**. Missing header prefixes,
+  chunked request boundaries and overlapping requests cannot create an invented
+  duration. Negative or unverified clock intervals remain unknown.
+- Confirmed NAT and learned IPv6 sequence translations retain original per-file
+  filters. Explicit return-path ordering is exercised. A declared proxy produces
+  `unknown (full proxy, Phase 3)` instead of timing attribution across its boundary.
+- Export schema v1 validates type/hop/time range/metrics/evidence refs/confidence.
+  A 201-finding fixture verifies export is independent of the UI summary cap.
+  HTML has no remote asset references; markup-like capture labels cannot escape
+  inert JSON or become executable HTML. CSP forbids network connections.
+- UI and CLI HTML/JSON export work; the CLI rejects an existing destination file.
+  Exports include stored buckets, onset explanations, all grouped findings,
+  segments and original per-file filters, with no raw packet payloads.
+- Browser validation of the NAT-confirmed README demo showed 4 impactful losses,
+  5 recovered losses, 8 capture misses and the loss onset at bucket 14. The live
+  waterfall rendered its bars/uncertainties and opened the two original ingress /
+  egress frame references. The HTML button completed its download.
+
+The browser's security policy blocked direct `file://` navigation, so visual
+rendering of the downloaded offline file is **unverified** in that browser. No
+protocol workaround was used. The generated HTML's asset/CSP/escaping tests and
+the embedded heatmap JavaScript syntax check passed. Live chart rendering was
+visually verified separately.
+
+### Gates and timing
+
+The initial whole-fast run exposed a shared-fixture ordering issue: an earlier
+clock/window test had modified the cached healthy project. The waterfall test
+now explicitly reanalyzes its baseline; its timing checks assert the ground-truth
+16 ms / 44 ms intervals. Frame evidence lookups are batched per waterfall.
+All six added tests stay in the fast selection; none were moved to slow.
+
+Final default `pytest -q` selection: **101 passed, 164 deselected in 108.24 s**
+(108.73 s end-to-end). The complete suite contains **265 tests**. A preceding
+all-passing run took 121.03 s; the fixture now overlaps startup of independent tiny
+captures with the existing resource-bounded two-worker ingest option. No tests
+were deleted or moved to slow, and production serial defaults are unchanged.
+Ruff, TypeScript/Vite, and the embedded export-script syntax check passed.
+
+[Part 4 CI runs](https://github.com/ozandurmus/packetbreaker/actions?query=branch%3Aphase2-part4)
+retain the cross-platform results; the exact final green full-matrix run is
+recorded in the PR close-out. Push checks are macos-14/Python 3.12; PR/manual
+checks run all six OS/Python combinations and the slow suite once on
+macos-14/Python 3.12. No auto-merge is enabled.
+
+The 0.1.6 wheel and sdist build passed. The tracked-file check found no capture,
+DuckDB, private-key, `.env` or demo files. Temporary browser/server verification
+sessions were closed; the user's other local projects were not touched.

@@ -174,7 +174,12 @@ def generate(
     seq, ack = 1001, 9001
     for i in range(rounds):
         t = 0.1 + i * 0.4
-        payload = (f"GET /synthetic/{i:05d} HTTP/1.0\r\n\r\n".encode() + bytes([i % 256]) * 160)[:120]
+        header = f"GET /synthetic/{i:05d} HTTP/1.0\r\nContent-Length: 00\r\n\r\n".encode()
+        body_length = 120 - len(header)
+        payload = (
+            header.replace(b"Length: 00", f"Length: {body_length:02d}".encode())
+            + bytes([i % 256]) * body_length
+        )
         missing = []
         recovery = None
         if scenario in ("demo", "recovered_loss", "impactful_loss") and t >= onset and i % 7 == 0:

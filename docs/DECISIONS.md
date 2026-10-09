@@ -1,7 +1,7 @@
 # Decisions
 
 The initial numbered decisions record Phase 1.1. Later sections explicitly extend
-that scope through Phase 2 / Part 3; no later-phase work is included.
+that scope through Phase 2 / Part 4; no later-phase work is included.
 
 1. Deliver Phase 1.1 correctness hardening only. Onset detector, vendor adapters, sequence translation,
    offload byte ranges, full proxy, export UI, security attribution and AI panel
@@ -32,7 +32,7 @@ that scope through Phase 2 / Part 3; no later-phase work is included.
    supplies TCP flag semantics, not proof of cross-hop loss. Original implementation.
 
 ## Delivery validation
-See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and unverified platforms. Only the later explicitly scoped Phase 2 / Part 1 work is included.
+See [VALIDATION.md](VALIDATION.md) for passing local gates, measured scale and unverified platforms. Later sections record the explicitly scoped Phase 2 additions.
 
 ## Phase 1.1 decisions
 
@@ -184,3 +184,38 @@ no cost. The single-run result does not isolate its cause. The ordinary packet
 path avoids constructing a byte-range table unless differing large TCP frames
 require it; range expansion has an explicit budget. No speculative parser or
 concurrency rewrite is included in this phase.
+
+## Part 4 waterfall boundaries
+
+Use existing NAT/SEQ normalization and frame/byte occurrence identities; never
+correlate full-proxy legs by timing alone. Mark that boundary `unknown (full
+proxy, Phase 3)`. A supported HTTP processing interval needs complete request byte
+coverage and an identifiable final response. Cleartext request lines alone do not
+prove the request's end. Incomplete saved header prefixes, request transfer
+encoding and pipelining stay unknown; HTTP payload reassembly is deliberately
+bounded. Response-body download time is outside the first-byte waterfall.
+
+Use ECharts for the live timeline and a parallel evidence table for every bar,
+including unknown durations. Capture-point offsets cancel for same-capture
+intervals; timestamp precision and residual drift remain approximate. Cross-file
+bars carry the sum of their endpoint clock uncertainty bounds.
+
+## Part 4 export contract
+
+Use a versioned Pydantic metadata envelope and publish its generated JSON Schema.
+Keep raw payloads and source file contents out of exports; addresses and evidence
+filters remain investigation metadata and are not automatically redacted. Export
+all grouped findings, not only the UI's summary slice. Require a current analysis
+and reject export during an active job.
+
+Use a small inline canvas renderer for the offline heatmap rather than embedding
+the full application or relying on a CDN. Escape all capture-derived content;
+use textContent for tooltip labels. CLI exports to stdout or a new output file;
+an existing output file is never silently overwritten. UI downloads are explicit
+HTML/JSON buttons and always describe the complete saved analysis window.
+
+Default-test runtime is a local acceptance gate. Reuse the existing resource-
+bounded two-worker ingest path only for preparing independent small synthetic
+fixtures, overlapping tshark startup without removing tests. Keep the product's
+serial ingest default and its dedicated serial/parallel/cancel-resume tests.
+The last measured fast selection is 108.24 seconds; hosted-runner times vary.

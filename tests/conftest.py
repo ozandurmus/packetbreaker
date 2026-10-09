@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 from packetbreaker.analysis import analyze
-from packetbreaker.ingest import find_tshark, ingest
+from packetbreaker.ingest import find_tshark
+from packetbreaker.batch_ingest import ingest_many
 from packetbreaker.store import Project
 from packetbreaker.synthetic import generate, bind_capture_ids
 
@@ -24,7 +25,9 @@ def scenarios(tmp_path_factory, tshark):
             directory = tmp_path_factory.mktemp(name)
             truth, topology = generate(directory, scenario=name, **kwargs)
             project = Project(directory / "project")
-            names = {Path(path).name: ingest(project, Path(path), tshark=tshark) for path in truth["files"]}
+            # Independent tiny captures overlap tshark startup; production serial defaults have separate tests.
+            ids = ingest_many(project, truth["files"], tshark=tshark, workers=2)
+            names = {Path(path).name: cid for path, cid in zip(truth["files"], ids)}
             bind_capture_ids(topology, names)
             report = analyze(project, topology)
             cache[key] = (project, truth, topology, report)
