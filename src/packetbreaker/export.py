@@ -46,6 +46,12 @@ class Finding(BaseModel):
         "downstream_packet",
         "mss_clamping",
         "mtu_black_hole",
+        "ttl_path",
+        "dscp_remark",
+        "option_stripping",
+        "capture_duplicate",
+        "duplication",
+        "asymmetric_routing",
     ]
     tooltip: str | None = None
     device: str | None = None

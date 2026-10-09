@@ -51,7 +51,13 @@
             "payload_modified",
             "downstream_packet",
             "mss_clamping",
-            "mtu_black_hole"
+            "mtu_black_hole",
+            "ttl_path",
+            "dscp_remark",
+            "option_stripping",
+            "capture_duplicate",
+            "duplication",
+            "asymmetric_routing"
           ],
           "title": "Type",
           "type": "string"

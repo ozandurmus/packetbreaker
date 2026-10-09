@@ -385,6 +385,142 @@ class Checks:
                     severity="high",
                 )
 
+    def path_checks(self):
+        for segment in self.segments:
+            if segment.get("location") == "device_stage":
+                continue
+            a, b = self.points[segment["point_a"]], self.points[segment["point_b"]]
+            if "full_proxy" in (a.translation, b.translation):
+                continue
+            conditions = [
+                (
+                    "ttl_path",
+                    "a.ttl-b.ttl>1 OR a.ttl<b.ttl",
+                    "TTL/hop-limit path deviation",
+                    "A matched packet lost more than one TTL step or increased TTL between drawn adjacent points. Extra routing, a tunnel, TTL rewrite or a loop is possible; this alone cannot distinguish them.",
+                ),
+                (
+                    "dscp_remark",
+                    "a.dscp<>b.dscp",
+                    "DSCP remarking",
+                    "DSCP changed between matched packets. This is observed remarking, not necessarily a fault.",
+                ),
+                (
+                    "option_stripping",
+                    "a.caplen=a.wirelen AND b.caplen=b.wirelen AND ((json_extract_string(a.path_fields,'$.sack_permitted')='true' AND json_extract_string(b.path_fields,'$.sack_permitted')='false') OR (json_extract_string(a.path_fields,'$.window_scale') IS NOT NULL AND json_extract_string(b.path_fields,'$.window_scale') IS NULL) OR (json_extract_string(a.path_fields,'$.timestamp_value') IS NOT NULL AND json_extract_string(b.path_fields,'$.timestamp_value') IS NULL))",
+                    "TCP option stripping",
+                    "A decoded SACK-permitted, window-scale or timestamp option present upstream is absent downstream in a complete matched packet. Expected SYN-only option absence on later packets is never compared.",
+                ),
+            ]
+            for kind, condition, label, tooltip in conditions:
+                for pair in self.changed_pair(segment, condition):
+                    before, after = pair["before_packet"], pair["after_packet"]
+                    self.add(
+                        segment,
+                        kind,
+                        before,
+                        f"{label} at {segment.get('device') or segment['label']}",
+                        tooltip,
+                        dict(
+                            count=pair["count"],
+                            before=dict(ttl=before["ttl"], dscp=before["dscp"], options=metadata(before)),
+                            after=dict(ttl=after["ttl"], dscp=after["dscp"], options=metadata(after)),
+                        ),
+                        True,
+                        [before, after],
+                    )
+        handled = set()
+        for segment in self.segments:
+            point = segment["point_a"]
+            if point in handled:
+                continue
+            handled.add(point)
+            duplicate = rows(
+                self.db,
+                "SELECT *,count(*) OVER() AS duplicate_count FROM obs WHERE point=? AND excluded_reason='span_duplicate' ORDER BY corrected LIMIT 1",
+                [point],
+            )
+            for packet in duplicate:
+                self.add(
+                    segment,
+                    "capture_duplicate",
+                    packet,
+                    f"SPAN/double-capture pattern at {self.points[point].device}",
+                    "Byte-identical complete frames at the same capture point within the configured microsecond threshold are capture duplicates. Wire-level duplication inside that resolution cannot be distinguished.",
+                    dict(count=packet["duplicate_count"], duplicate_us=self.topology.duplicate_us),
+                    True,
+                    severity="quality",
+                )
+            repeat = rows(
+                self.db,
+                """SELECT a AS first_packet,b AS repeat_packet FROM obs a JOIN obs b
+                ON a.point=b.point AND a.signature=b.signature AND a.canon=b.canon AND a.frame<b.frame
+                WHERE a.point=? AND a.eligible AND b.eligible AND a.proto='TCP' AND a.length>0
+                AND a.ttl>b.ttl AND a.payload_hash=b.payload_hash AND b.ts-a.ts BETWEEN 0 AND 1
+                ORDER BY a.corrected LIMIT 1""",
+                [point],
+            )
+            for pair in repeat:
+                packet = pair["first_packet"]
+                self.add(
+                    segment,
+                    "duplication",
+                    packet,
+                    f"Repeated packet with falling TTL at {self.points[point].device}; loop or network duplication suspected",
+                    "Same tuple, sequence identity and payload prefix reappeared with lower TTL. It is not a byte-identical SPAN duplicate; TTL rewriting and retransmission remain alternatives, so root cause is unknown.",
+                    dict(ttl_before=packet["ttl"], ttl_after=pair["repeat_packet"]["ttl"]),
+                    False,
+                    [packet, pair["repeat_packet"]],
+                )
+            # Exact-byte repeats outside SPAN tolerance still cannot prove wire duplication vs retransmission.
+            repeat = rows(
+                self.db,
+                """SELECT a AS first_packet,b AS repeat_packet FROM obs a JOIN obs b
+                ON a.point=b.point AND a.frame_hash=b.frame_hash AND a.frame<b.frame
+                WHERE a.point=? AND a.eligible AND b.eligible AND a.caplen=a.wirelen AND b.caplen=b.wirelen
+                AND b.ts-a.ts>? AND b.ts-a.ts<0.001 ORDER BY a.corrected LIMIT 1""",
+                [point, self.topology.duplicate_us / 1e6],
+            )
+            for pair in repeat:
+                self.add(
+                    segment,
+                    "duplication",
+                    pair["first_packet"],
+                    f"Possible packet duplication at {self.points[point].device}; cause unknown",
+                    "Identical complete bytes repeat outside the SPAN tolerance but within 1 ms. Timing alone cannot distinguish network duplication, retransmission, or a slower capture mirror.",
+                    supported=False,
+                    packets=[pair["first_packet"], pair["repeat_packet"]],
+                )
+        if self.topology.reverse:
+            for point in set(self.topology.forward) - set(self.topology.reverse):
+                segment = next(
+                    (s for s in self.segments if s["point_a"] == point and s["direction"] == "forward"), None
+                )
+                if not segment:
+                    continue
+                packets = rows(
+                    self.db,
+                    """SELECT f AS forward_packet,r AS return_packet FROM obs f JOIN obs r ON f.flow=r.flow
+                    WHERE f.point=? AND f.direction='forward' AND f.eligible AND r.eligible AND r.direction='reverse'
+                    AND r.point IN (SELECT unnest(?::VARCHAR[]))
+                    AND NOT EXISTS(SELECT 1 FROM obs q WHERE q.point=f.point AND q.flow=f.flow AND q.direction='reverse')
+                    ORDER BY f.corrected,r.corrected LIMIT 1""",
+                    [point, self.topology.reverse],
+                )
+                for pair in packets:
+                    packet = pair["forward_packet"]
+                    self.add(
+                        segment,
+                        "asymmetric_routing",
+                        packet,
+                        f"Asymmetric return bypasses {self.points[point].device} in the configured path",
+                        "Forward traffic is observed here; the same flow returns at a different configured point and no return packet is captured here. This supports the declared asymmetric path, not a device fault; hidden capture loss can mimic absence.",
+                        dict(bypassed_point=point, return_point=pair["return_packet"]["point"]),
+                        True,
+                        [packet, pair["return_packet"]],
+                        severity="quality",
+                    )
+
 
 def analyze_integrity(db, topology, segments, coverage, models, start, end):
     checks = Checks(db, topology, segments, coverage, models, start, end)
@@ -392,4 +528,5 @@ def analyze_integrity(db, topology, segments, coverage, models, start, end):
     checks.payload_changes()
     checks.downstream_only()
     checks.mtu()
+    checks.path_checks()
     return checks.findings, checks.notes

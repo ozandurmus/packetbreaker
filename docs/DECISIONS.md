@@ -283,3 +283,9 @@ must be complete. Repeated ambiguous identities and offload splits are not compa
 declare proxy/ALG/SSL inspection in the path editor; these nodes are exempt from unexpected
 payload-modification findings. A downstream-only observation remains origin-unknown because
 absence alone cannot distinguish injection from capture loss.
+
+Path checks compare matched observations: DSCP remarking, MSS reduction, SACK/window-scale/
+timestamp removal and unexpected TTL steps. A falling-TTL repeat is a loop/duplication hypothesis,
+not proof. Microsecond-identical SPAN copies remain capture-quality findings; later exact repeats
+remain cause-unknown. Asymmetric routing requires an explicitly different return path and
+same-flow return evidence there; it does not blame a device for traffic it was never meant to see.
