@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-LOSS_TYPES = "('recovered_loss','impactful_loss','unrecovered_loss')"
+LOSS_TYPES = "('recovered_loss','impactful_loss','unrecovered_loss','confirmed_device_drop')"
 
 
 def time_labels(ts, zone=None):
@@ -43,7 +43,12 @@ def add_headlines(db, findings, segments, topology, end):
             else "Clock uncertainty is unverified; times depend on the supplied or unavailable clock correction."
         )
         prefix = f"{labels['local']} / {labels['utc']}"
-        if finding["type"] == "handshake_blocked":
+        if finding["type"] == "confirmed_device_drop":
+            finding["summary"] = (
+                f"{n} confirmed device drop observations at {finding['device']}; evidence stage {finding['evidence_stage']}."
+            )
+            text = f"From {prefix}, {n} device drop {'observation is' if n == 1 else 'observations are'} confirmed at {finding['device']} by {finding['evidence_stage']} evidence. The specific rule or policy cause is not inferred."
+        elif finding["type"] == "handshake_blocked":
             text = f"Handshake blocked between {s['label'].replace(' → ', ' and ')}, first observed at {prefix}; cause unknown."
         elif finding["type"] == "capture_miss":
             text = f"From {prefix} onward, {finding['metrics']['count']} capture misses were observed between {s['label'].replace(' → ', ' and ')}. These are capture-quality findings, not network loss."

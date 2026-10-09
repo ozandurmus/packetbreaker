@@ -1,7 +1,9 @@
 from pathlib import Path
 import struct
 
-from packetbreaker.analysis import analyze
+from packetbreaker.analysis import analyze, flow_page
+from packetbreaker.export import export_data, Finding
+import pytest
 from packetbreaker.ingest import ingest
 from packetbreaker.store import Project
 from packetbreaker.synthetic import tcp_packet
@@ -41,6 +43,18 @@ def test_paloalto_drop_is_positive_without_path_coverage(tmp_path, tshark):
     report = analyze(
         project, dict(points=points, forward=["receive", "firewall", "transmit"], client_cidrs=["10.0.0.0/8"])
     )
+    assert report["verdict"] == "Confirmed device drops observed"
+    assert report["confirmed_device_drop_count"] == 1
+    found = [f for f in report["findings"] if f["type"] == "confirmed_device_drop"]
+    assert len(found) == 1 and found[0]["metrics"]["count"] == 1
+    assert found[0]["device"] == "PA" and found[0]["evidence_stage"] == "drop"
+    assert not any(f["type"] in ("impactful_loss", "unrecovered_loss") for f in report["findings"])
+    assert flow_page(project, filter_by="device_drops")["total"] == 1
+    exported = export_data(project)
+    assert exported["schema_version"] == 2
+    drop = next(f for f in exported["findings"] if f["type"] == "confirmed_device_drop")
+    with pytest.raises(ValueError, match="device and evidence_stage"):
+        Finding.model_validate({**drop, "device": None})
     drops = report["vendor_device_events"]
     assert len(drops) == len(expected_drop) == 1
     assert drops[0]["status"] == "confirmed_device_drop" and drops[0]["device"] == "PA"
@@ -53,3 +67,7 @@ def test_paloalto_drop_is_positive_without_path_coverage(tmp_path, tshark):
     standalone = analyze(project, dict(points=[points[-1]], forward=[], client_cidrs=["10.0.0.0/8"]))
     assert len(standalone["vendor_device_events"]) == len(expected_drop)
     assert standalone["vendor_device_events"][0]["status"] == "confirmed_device_drop"
+
+    assert standalone["verdict"] == "Confirmed device drops observed"
+    assert standalone["confirmed_device_drop_count"] == 1
+    assert all(s["loss_percent"] is None for s in standalone["segments"])

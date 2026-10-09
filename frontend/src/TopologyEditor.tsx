@@ -72,6 +72,10 @@ export function TopologyEditor({
     [selection, setSelection] = useState<string | null>(null),
     [direction, setDirection] = useState("forward");
   useEffect(() => {
+    const deviceDrops = (device: string) =>
+      report?.confirmed_device_drops
+        ?.filter((d) => d.device === device)
+        .reduce((n, d) => n + d.count, 0) || 0;
     setNodes(
       topology.points.map((p) => ({
         id: p.id,
@@ -85,6 +89,12 @@ export function TopologyEditor({
                 {p.kind} · {p.side}
               </small>
               <strong>{p.label}</strong>
+              {!!deviceDrops(p.device) && (
+                <small className="red">
+                  {p.device}: {deviceDrops(p.device)} confirmed device drops
+                  (device total)
+                </small>
+              )}
               <span>
                 {captures.find((c) => c.id === p.capture_id)?.name ||
                   "Assign a capture"}
@@ -92,7 +102,7 @@ export function TopologyEditor({
             </div>
           ),
         },
-        className: "capture-node",
+        className: `capture-node ${deviceDrops(p.device) ? "confirmed-device" : ""}`,
       })),
     );
     setEdges(
@@ -107,7 +117,9 @@ export function TopologyEditor({
               s.direction === dir,
           );
           const color =
-            seg?.classes.impactful_loss || seg?.classes.handshake_blocked
+            seg?.classes.confirmed_device_drop ||
+            seg?.classes.impactful_loss ||
+            seg?.classes.handshake_blocked
               ? "#c44842"
               : seg?.reason
                 ? "#b48526"
@@ -433,6 +445,7 @@ export function TopologyEditor({
                     <option value="server">Server side</option>
                   </select>
                   <small>
+                    Enable F5 trailer decoding in Settings and reattach first.
                     Use specific client CIDRs. Reciprocal TMM IDs pair
                     connections; TCP legs stay separate.
                   </small>
@@ -440,6 +453,16 @@ export function TopologyEditor({
               )}
               {selected.vendor === "checkpoint" && (
                 <>
+                  <label>
+                    fw1.interface filter (optional)
+                    <input
+                      value={selected.vendor_interface || ""}
+                      onChange={(e) =>
+                        update({ vendor_interface: e.target.value || null })
+                      }
+                      placeholder="Decoded interface name"
+                    />
+                  </label>
                   <label>
                     Inspection stage
                     <select

@@ -3,7 +3,7 @@
 A local desktop web app for correlating packet captures along a traffic path.
 Attach captures, draw capture points, and inspect **which segment first loses an
 original packet**, how it is recovered, and the frame evidence supporting that
-conclusion. Runs offline after installation. Phase 2 / Parts 1–4: robust ingest, explainable onset detection, a path × time heatmap, translation-aware TCP matching, waterfalls and offline exports. Later phases remain out of scope.
+conclusion. Runs offline after installation. Phase 2 / Parts 1–5: robust ingest, explainable onset detection, a path × time heatmap, translation-aware TCP matching, waterfalls, vendor inputs and offline exports. Later phases remain out of scope.
 
 ## Install on macOS (Intel or Apple Silicon)
 
@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.1.6-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.1.7-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -105,7 +105,7 @@ packetbreaker --project demo/project
 6. **Export HTML / Export JSON:** use the header buttons. HTML opens locally as a
    single file; its metric-selectable heatmap, onset markers and evidence filters
    work without the running app or Internet. JSON follows
-   [findings schema v1](docs/findings-v1.schema.json). Both export the complete
+   [findings schema v2](docs/findings-v2.schema.json). Both export the complete
    saved analysis window, independent of the current brush. Neither embeds packet
    payloads; addresses and filters are still sensitive investigation metadata.
 7. **Settings:** inspect clock estimates/calibration frames, then stop with Ctrl+C.
@@ -161,9 +161,9 @@ filters flow membership, findings and ladder packets without refitting the basel
 Declared full proxies stop packet-level attribution. Declared sequence randomizers
 learn session-specific offsets; inconsistent or insufficient evidence stays unknown.
 Fragment reassembly,
-tunnel decapsulation selection, vendor inspection-point adapters,
+tunnel decapsulation selection, additional vendor adapters,
 MTU/security attribution, packaging as native executables and the AI placeholder
-remain deferred beyond Parts 1–4. Positive device-drop classification awaits device-stage evidence.
+remain deferred beyond Parts 1–5. Positive device-drop classification awaits device-stage evidence.
 
 ## Offline JSON / API
 
@@ -178,7 +178,7 @@ The internal analysis report schema (version 2) includes `window`, `clocks`, `qu
 `type`, `severity`, `hop`, `direction`, `time_range`, `confidence`, `metrics`, and
 `evidence` with file/frame/display-filter references. Report findings are capped
 at 200; event/flow/ladder APIs are paginated. The UI shows the top five findings.
-The separate `packetbreaker.findings` export schema is version 1 and exports all
+The separate `packetbreaker.findings` export schema is version 2 and exports all
 grouped findings, with `evidence_refs`, plus saved report metadata, buckets and
 per-file flow filters. `GET /api/export?format=html|json` returns a download;
 `GET /api/flows/{flow}/waterfall` returns the on-demand timeline.
@@ -349,3 +349,58 @@ bar duration is an estimate; invalid/unverified intervals remain unknown. Offloa
 timestamps represent coalesced capture units, not precise per-wire-frame times.
 Server processing measures the interval between observed complete request receipt
 and first final response byte; it is not an application CPU profile.
+
+## Vendor inputs (0.1.7)
+
+All packet/vendor dissection is performed by tshark. The adapters select decoder
+options, retain its fields and select capture points. Reattach older indexes once
+to obtain the new vendor fields. Do not run live device commands through this app.
+
+| Input | How to use it | Evidence boundary |
+|---|---|---|
+| Check Point fw monitor snoop | Attach `.cap`/`.snoop`; tshark's fw monitor interpretation and chain fields are enabled. In Settings select the UUID file variant only if the capture contains it. In Path, map each inspection stage to a point with the same device name; optionally filter `fw1.interface`. | An i disappearance is confirmed only with mapped I/o stages, explicit continuous-coverage attestation, sufficient trailing coverage and no capture-quality/unsupported-proxy problem. Later appearances contradict a drop. |
+| F5 BIG-IP TMM trailer | Enable **Decode F5 TMM trailer** in Settings, attach/reattach the capture, then add client/server points for one BIG-IP node, choose **F5 TMM trailer** and use precise client CIDRs. | Reciprocal flow/peer IDs and local streams pair the legs. They remain separate TCP conversations. Overview shows request-forwarding dwell and TMM-reported reset origins. |
+| Palo Alto stage files | Add receive/firewall/transmit/drop points for one device. Receive/transmit become ingress/egress. Drop can remain off the forwarding path; a drop-only project is supported. | Every usable drop-stage frame is positive device-drop evidence. The stage is a user file tag, not a decoded packet property; keep original file provenance. |
+| Fortinet verbose-6 text | In Captures, use **Import Fortinet verbose-6 text**, supply its absolute path and device name. Points are created per interface; draw the actual path afterward. | Absolute `a` timestamps are UTC. Relative timestamps require a timezone-bearing start and retain low clock confidence, including after reattach. |
+
+Inspection-stage order is not necessarily the reversed physical return path. Map
+the actual stages/interfaces and draw an explicit return path when required. VPN
+inspection stages and other transformations are not automatically treated as a
+linear forwarding chain. UUID is exported as metadata, not used alone as packet
+identity. Unattested inspection gaps remain unknown, not inferred network loss.
+
+F5 request timing is the same-capture interval between tshark-decoded HTTP request-
+bearing frames. It is not a whole-body completion or application processing metric.
+Per-packet peer IDs handle multiple peers on one server TCP stream. Reused IDs
+across ambiguous sessions, repeated identical request lines, unequal request counts
+and reversed ordering remain unknown. The overview is bounded to 100 pairs, 20
+unknown mappings, 200 requests and 200 reset annotations; full vendor metadata
+remains in the per-flow frame ladder. Capture-byte throughput can include vendor
+trailer/header overhead. No device policy cause is inferred from reset text.
+
+Fortinet CLI import is also available:
+
+```sh
+packetbreaker --project demo/fortinet import-fortinet /absolute/path/sniffer.txt
+packetbreaker --project demo/fortinet import-fortinet /absolute/path/relative.txt --start-time 2026-10-09T12:00:00Z --device FGT
+```
+
+The converter copies formatted hex bytes; it does not dissect protocols or repair
+missing bytes. CRLF, wrapped hex and console noise are tolerated. Skipped lines
+and incomplete packets are reported. Explicit cooked-link metadata is checked against tshark Ethernet/SLL/SLL2
+decodes; only an unambiguous matching link type is used without altering bytes.
+Incomplete/ambiguous cooked metadata is reported and skipped; a text dump ending cleanly at a byte
+boundary cannot reveal unseen trailing bytes. The project retains conversion
+provenance; copying a bare pcap elsewhere does not carry that clock annotation.
+No code from unlicensed FortiGate-PCAP or any other converter was copied.
+
+**Confirmed device drop** is visible in the summary, device overlay, flow filter
+and export schema v2. Each finding names its device and evidence stage. Positive
+stage evidence replaces the matching inferred disappearance, retaining recovery
+metrics without counting the same event twice. Unpaired drop-stage observations
+remain visible with an unknown rate denominator. All proof rows are persisted;
+the overview's vendor audit samples at most 200 references.
+
+The optional Wireshark sample `demo/samples/fw1_mon2018.cap` remains gitignored.
+`pytest tests/test_checkpoint.py::test_local_fw1_sample -q` runs only if it exists
+and is skipped in CI. All required adapter fixtures are generated synthetically.

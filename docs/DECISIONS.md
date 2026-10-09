@@ -1,7 +1,7 @@
 # Decisions
 
 The initial numbered decisions record Phase 1.1. Later sections explicitly extend
-that scope through Phase 2 / Part 4; no later-phase work is included.
+that scope through Phase 2 / Part 5; no later-phase work is included.
 
 1. Deliver Phase 1.1 correctness hardening only. Onset detector, vendor adapters, sequence translation,
    offload byte ranges, full proxy, export UI, security attribution and AI panel
@@ -246,5 +246,24 @@ Write the Fortinet converter from the vendor's documented text layout; no code
 from FortiGate-PCAP or other converters was copied. `a` means absolute UTC, not
 local time. A timezone-bearing anchor is mandatory for relative timestamps; it
 does not create high-confidence wall-clock evidence. Preserve shown bytes and
-skip damaged dumps instead of repairing or guessing protocol headers. Explicit
-cooked-link variants are outside this Ethernet converter and are counted as skips.
+skip damaged dumps instead of repairing or guessing protocol headers. Explicit cooked-link variants are validated by tshark under candidate link types;
+ambiguous or incomplete link metadata is counted as a skip. No link header is invented.
+
+## Part 5 classification and validation cost
+
+Device certainty is separate from knowing the device's policy/rule. A PA drop tag
+is positive stage evidence; Check Point disappearance requires explicit complete
+inspection coverage and a supported packet identity. Arbitrary missing inspection
+stages, crypto transformations and unobserved return paths must not manufacture
+network loss. A connection UUID is not an individual packet identity.
+
+Keep all device proof rows in DuckDB and bound report evidence, rather than opening
+a Python/SQL query per dropped packet. Positive proof replaces a matched inferred
+event; unmatched proof remains visible with no percentage denominator. Preserve
+observed/associated timestamp provenance when a stage clock is not aligned.
+
+Export schema v2 makes the new class and its device/stage provenance explicit.
+Normal packet dissection bypasses vendor-dictionary work when no vendor markers
+exist. F5/HTTP fields are requested only in the explicit F5 ingest mode; generic
+pcaps keep the lightweight field projection. Three-worker fixture preparation did
+not help locally, so the existing two-worker resource-bounded setting is retained; production serial defaults and the CI matrix policy are unchanged.

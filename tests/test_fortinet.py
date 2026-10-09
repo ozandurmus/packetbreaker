@@ -107,3 +107,36 @@ linux cooked capture, packet type: 0x1
     assert result["skipped_reasons"]["invalid_or_truncated_hex"] == 1
     assert result["skipped_reasons"]["unsupported_cooked_link_header"] == 1
     assert result["skipped_lines"] >= 6
+
+
+def test_cooked_variants_use_tshark_link_decode_without_changing_bytes(tmp_path, tshark):
+    ethernet = tcp_packet("10.0.0.1", "203.0.113.1", 50000, 80, 1000, 9000, 24, b"synthetic", 1)
+    mac = b"\x02\x00\x00\x00\x00\x01\x00\x00"
+    layouts = {
+        1: ethernet,
+        113: struct.pack(">HHH8sH", 1, 1, 6, mac, 0x0800) + ethernet[14:],
+        276: struct.pack(">HHIHBB8s", 0x0800, 0, 1, 1, 1, 6, mac) + ethernet[14:],
+    }
+    fields = ["frame.time_epoch", "frame.cap_len", "ip.src", "ip.dst", "tcp.seq_raw"]
+    for link, frame in layouts.items():
+        original = tmp_path / f"original-{link}.pcap"
+        original.write_bytes(
+            struct.pack("<IHHIIII", 0xA1B23C4D, 2, 4, 0, 0, 65535, link)
+            + struct.pack("<IIII", 1700000001, 123, len(frame), len(frame))
+            + frame
+        )
+        text = tmp_path / f"cooked-{link}.txt"
+        lines = [
+            "2023-11-14 22:13:21.000000123 port1 in synthetic",
+            "linux cooked capture, packet type: 0x1, link layer address type: 0x1, protocol type: 0x800",
+        ]
+        lines += [
+            f"0x{offset:04x}  " + frame[offset : offset + 16].hex(" ", 2) + "    ........"
+            for offset in range(0, len(frame), 16)
+        ]
+        text.write_text("\n".join(lines) + "\n")
+        result = convert_text(text, tmp_path / f"converted-{link}", tshark=tshark)
+        out = result["files"][0]
+        assert out["link_type"] == link and out["cooked_metadata"]
+        assert records(out["path"]) == records(original)
+        assert tshark_fields(tshark, out["path"], fields) == tshark_fields(tshark, original, fields)

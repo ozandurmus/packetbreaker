@@ -19,6 +19,7 @@ class Point(BaseModel):
     interface: int | None = Field(default=None, ge=0)
     vendor: Literal["none", "checkpoint", "f5", "paloalto", "fortinet"] = "none"
     vendor_stage: str | None = None
+    vendor_interface: str | None = Field(default=None, max_length=100)
     inspection_complete: bool = False
     source_cidr: str | None = None
     translation: Literal["none", "nat", "full_proxy", "seq_randomization"] = "none"

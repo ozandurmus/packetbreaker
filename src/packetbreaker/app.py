@@ -21,10 +21,12 @@ from .timeseries import timeseries_page
 
 
 class Attach(BaseModel):
+    f5_trailer: bool | None = None
     paths: list[str] = Field(min_length=1, max_length=100)
 
 
 class Settings(BaseModel):
+    f5_trailer: bool = False
     checkpoint_uuid: bool = False
     parallel: bool = False
     tshark: str | None = None
@@ -158,10 +160,12 @@ def create_app(project_path):
             project.set(db, "preferences", body.model_dump())
         return body
 
-    def ingest_files(paths):
+    def ingest_files(paths, f5_trailer=None):
         paths = normalize_paths(paths)
         with project.connect() as db:
             preferences = project.get(db, "preferences", {})
+        if f5_trailer is not None:
+            preferences["f5_trailer"] = f5_trailer
         with jobs.lock:
             jobs.file_cancels = {str(i): threading.Event() for i in range(len(paths))}
         ingest_many(
@@ -191,7 +195,7 @@ def create_app(project_path):
         for path in body.paths:
             if not Path(path).expanduser().is_file():
                 raise ValueError("File does not exist: " + path)
-        return jobs.start("ingest", lambda: ingest_files(body.paths))
+        return jobs.start("ingest", lambda: ingest_files(body.paths, body.f5_trailer))
 
     @app.post("/api/captures/upload")
     async def upload(request: Request, name: str = Query(min_length=1, max_length=255), defer: bool = False):

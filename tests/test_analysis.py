@@ -31,7 +31,7 @@ def test_healthy_five_file_e2e_and_reopen(scenarios):
         )
     page = flow_page(project)
     assert page["total"] == 1
-    trace = ladder(project, page["items"][0]["flow"])
+    trace = ladder(project, page["items"][0]["flow"], limit=1)
     assert trace["total"] > 300
     assert len(trace["items"][0]["evidence"]) == 5
     # JSON contract must not contain nonfinite numbers or Python-only values.

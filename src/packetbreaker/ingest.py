@@ -16,7 +16,7 @@ import uuid
 from .metadata import metadata
 from .timestamps import timestamp_reason
 from .store import PACKET_COLUMNS
-from .vendors import VENDOR_FIELDS, decoded_vendor
+from .vendors import VENDOR_FIELDS, CHECKPOINT_FIELDS, F5_FIELDS, HTTP_FIELDS, decoded_vendor
 
 FIELDS = """frame.number frame.time_epoch frame.interface_id ip.src ipv6.src ip.dst ipv6.dst
 ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstport
@@ -26,6 +26,7 @@ ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstpor
  tcp.analysis.retransmission tcp.analysis.fast_retransmission tcp.analysis.spurious_retransmission
  tcp.analysis.out_of_order tcp.analysis.ack_lost_segment tcp.analysis.zero_window tcp.analysis.ack_rtt
  ip.flags.mf ip.frag_offset ipv6.fraghdr.offset ipv6.fraghdr.more frame.protocols frame.md5_hash dns.id dns.flags.response""".split()
+BASE_FIELDS = FIELDS.copy()
 FIELDS += VENDOR_FIELDS
 CAPLEN_INDEX = list(PACKET_COLUMNS).index("caplen")
 PARSER_VERSION = 8
@@ -64,8 +65,8 @@ def packet_signature(*identity):
     return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
 
 
-def parse_packet(values, capture_id, prefix_bytes):
-    d = dict(zip(FIELDS, values))
+def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
+    d = dict(zip(fields, values))
 
     def g(k):
         return d.get(k, "").split(",")[0]
@@ -172,6 +173,7 @@ def ingest(
     profile=None,
     checkpoint_uuid=False,
     source_metadata=None,
+    f5_trailer=None,
 ):
     cancel = cancel or threading.Event()
     progress = progress or (lambda **kw: None)
@@ -185,6 +187,8 @@ def ingest(
         existing = db.execute(
             "SELECT id,identity,state,checkpoint,inventory FROM captures WHERE path=?", [str(path)]
         ).fetchone()
+        if f5_trailer is None:
+            f5_trailer = bool(existing and json.loads(existing[4]).get("f5_fields"))
         if source_metadata is None and existing:
             source_metadata = json.loads(existing[4]).get("source_metadata")
         identity = json.dumps(
@@ -196,6 +200,7 @@ def ingest(
                 prefix_bytes,
                 checkpoint_uuid,
                 source_metadata,
+                f5_trailer,
             ]
         )
         if existing and existing[1] == identity and existing[2] == "ready":
@@ -206,6 +211,7 @@ def ingest(
     info = metadata(path, cancel)
     info["source_metadata"] = source_metadata
     info["vendor_fields_version"] = 1
+    info["f5_fields"] = bool(f5_trailer)
     if info.get("frame_limit") == 0:
         raise ValueError("Capture contains zero usable frames")
     timestamp_upper = time.time() + 86400
@@ -245,8 +251,12 @@ def ingest(
         "-E",
         "occurrence=a",
     ]
-    cmd += ["--enable-protocol", "f5ethtrailer"]
+    active_fields = BASE_FIELDS.copy()
+    if f5_trailer:
+        cmd += ["--enable-protocol", "f5ethtrailer"]
+        active_fields += F5_FIELDS + HTTP_FIELDS
     if info["format"] == "snoop":
+        active_fields += CHECKPOINT_FIELDS
         cmd += [
             "-o",
             "eth.interpret_as_fw1_monitor:TRUE",
@@ -258,7 +268,7 @@ def ingest(
         info["checkpoint_uuid"] = checkpoint_uuid
     if info.get("frame_limit") is not None:
         cmd += ["-c", str(info["frame_limit"])]
-    for field in FIELDS:
+    for field in active_fields:
         cmd += ["-e", field]
     metrics = dict(csv_write_cpu_s=0.0, duckdb_cpu_s=0.0, duckdb_wait_s=0.0, duckdb_hold_s=0.0)
     batch, last, seen = [], checkpoint, 0
@@ -348,7 +358,7 @@ def ingest(
                         if len(excluded) >= batch_size:
                             flush()
                         continue
-                    packet = parse_packet(values, cid, prefix_bytes)
+                    packet = parse_packet(values, cid, prefix_bytes, active_fields)
                     seen += packet[CAPLEN_INDEX]
                     batch.append(packet)
                     if len(batch) >= batch_size:

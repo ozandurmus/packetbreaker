@@ -5,16 +5,42 @@ from html import escape
 import json
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from .store import rows
 from .onset import ordered_onsets
 
 
 class Finding(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {"properties": {"type": {"const": "confirmed_device_drop"}}, "required": ["type"]},
+                    "then": {
+                        "required": ["device", "evidence_stage"],
+                        "properties": {
+                            "device": {"type": "string", "minLength": 1},
+                            "evidence_stage": {"type": "string", "minLength": 1},
+                        },
+                    },
+                }
+            ]
+        },
+    )
     id: str
-    type: str
+    type: Literal[
+        "recovered_loss",
+        "impactful_loss",
+        "unrecovered_loss",
+        "handshake_blocked",
+        "capture_miss",
+        "unknown",
+        "confirmed_device_drop",
+    ]
+    device: str | None = None
+    evidence_stage: str | None = None
     hop: str
     direction: str
     time_range: tuple[float | None, float | None]
@@ -25,11 +51,17 @@ class Finding(BaseModel):
     summary: str
     cause: str
 
+    @model_validator(mode="after")
+    def stage_provenance(self):
+        if self.type == "confirmed_device_drop" and (not self.device or not self.evidence_stage):
+            raise ValueError("Confirmed device drops require device and evidence_stage")
+        return self
+
 
 class FindingsExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_name: Literal["packetbreaker.findings"] = "packetbreaker.findings"
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     engine_version: str
     exported_at: str
     findings: list[Finding]
@@ -71,6 +103,8 @@ def export_data(project):
                         )
                     },
                     evidence_refs=f["evidence"],
+                    device=f.get("device"),
+                    evidence_stage=f.get("evidence_stage"),
                 )
                 for f in findings
             ],
@@ -109,7 +143,7 @@ def html_report(data):
         )
 
     findings = "".join(
-        f'<article id="finding-{i}"><h3>{h(f["type"])} · {h(f["hop"])}</h3><p>{h(f["summary"])}</p><p>Confidence: {h(f["confidence"])}; severity: {h(f["severity"])}</p>{details(f["metrics"], "Metrics")}<ul>{refs(f["evidence_refs"])}</ul></article>'
+        f'<article id="finding-{i}"><h3>{h(f["type"])} · {h(f["hop"])}</h3><p>{h(f["summary"])}</p><p>{h(f.get("device") or "")} {h(f.get("evidence_stage") or "")}</p><p>Confidence: {h(f["confidence"])}; severity: {h(f["severity"])}</p>{details(f["metrics"], "Metrics")}<ul>{refs(f["evidence_refs"])}</ul></article>'
         for i, f in enumerate(data["findings"])
     )
     segments = "".join(

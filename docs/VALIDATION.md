@@ -552,3 +552,84 @@ macos-14/Python 3.12. No auto-merge is enabled.
 The 0.1.6 wheel and sdist build passed. The tracked-file check found no capture,
 DuckDB, private-key, `.env` or demo files. Temporary browser/server verification
 sessions were closed; the user's other local projects were not touched.
+
+## Phase 2 / Part 5 — vendor inputs (0.1.7)
+
+PR #4 was merged before branching; the main baseline is `3b90eb3`. The six commits
+follow requested items 0–5. tshark remains the only packet/vendor dissector.
+Synthetic fixture writers live in tests, and expected vendor fields/timestamps
+come from separate tshark decodes. No third-party capture is a required fixture.
+
+### Adapter and classification acceptance
+
+- Onset priority: prime-suspect network segment first; local retransmission
+  symptoms follow with subdued styling in the live UI and standalone HTML.
+- Check Point: generated RFC 1761 snoop, all eight mapped stage names, interface
+  selection and UUID variant. Decoded fields match tshark exactly. Complete
+  inspection evidence confirms the single intended drop; later O appearances
+  remain capture misses. Unattested/damaged coverage cannot confirm a device drop.
+  A delayed, unpaired later-stage appearance with the same signature remains
+  unknown instead of turning two unmatched appearances into two confirmed drops.
+  Unconfirmed NAT and unsupported proxy boundaries do not license negative proof.
+- Optional local format check: Wireshark's `fw1_mon2018.cap` was downloaded only
+  to gitignored `demo/samples/`, size **3,476 bytes**. Its fw1 fields match a direct
+  tshark decode. The test is skipped in CI or when the local file does not exist.
+- F5: generated legacy TMM low/medium/high trailers, peer IPv4/IPv6 aliases,
+  reciprocal flow/peer IDs, slot/TMM namespace, ingress/VIP and reset causes. All
+  requested field values match tshark. Separate proxy conversations produce
+  **240 ms / 100 ms** request-bearing-frame forwarding intervals. Multiple client
+  peers on one server stream remain separate and correctly paired. Ambiguous
+  client CIDRs remain unknown. Reset origin is the decoded TMM text.
+- Palo Alto: synthetic receive/firewall/transmit/drop files, raw fields compared
+  with tshark. The one positive drop upgrades the inferred event without counting
+  it twice; it also works as standalone stage evidence without a path denominator.
+  Every finding includes device/stage, and the flow filter finds the affected flow.
+- Fortinet: original converter, CRLF/wrapped hex/noise, exact byte and nanosecond
+  timestamp round trip (`pcap → text → pcap`) and equal tshark fields. Interface
+  split, missing-anchor rejection and persistent low confidence after relative
+  import/reattach pass. Ethernet/SLL/SLL2 cooked variants are also selected from tshark decode and
+  round-trip byte-for-byte. Malformed hex or ambiguous cooked metadata is reported
+  as skipped, never repaired into invented bytes.
+- Export v2 requires device/stage for `confirmed_device_drop`; v1 remains documented.
+  All vendor proof rows are persisted; only display evidence is capped. Raw packet
+  payloads are not exported, while addresses, request URIs and reset text remain
+  investigation metadata and are not automatically redacted.
+
+### Local UI and packaging
+
+Browser checks on synthetic projects verified confirmed-drop summary/flow filter/
+node overlay, F5 pair IDs and both frame references for the 240 ms interval,
+TMM reset explanation, and prime-suspect ordering with visibly muted symptoms.
+The Fortinet form imported **4 packets across 2 interfaces**, reported **3 skipped
+console lines** and marked both interface clocks **low**. Temporary servers and
+the verification tab were closed afterward. No user's real capture was opened.
+
+The existing browser policy still prevents direct `file://` preview; offline HTML
+visual rendering is not claimed. Structural asset/CSP/escaping and onset-order
+export tests cover the standalone file. Live UI rendering was visually checked.
+
+### Runtime and gates
+
+An initial all-passing fast run took 121.78 s. Three-worker fixture preparation did
+not help (126.47 s) and was reverted. F5/HTTP fields are now requested only for the
+explicit F5 ingest option; ordinary PCAPs use the original lightweight projection,
+and snoop selects its fw1 fields automatically. The existing IPv4/IPv6 merge-and-resave real-tshark matrix runs in the slow
+selection; all new vendor cases remain fast. Tests that inspect ladder totals
+request one evidence row rather than generating unused full pages. No tests were
+deleted, and production serial ingest defaults remain unchanged.
+
+Final default selection: **110 passed, 166 deselected in 118.36 s** (118.93 s
+end-to-end), including the optional local Wireshark sample. There are **276 tests**
+in total. CI fast selection has 109 mandatory cases plus the one intentional
+sample skip; the 166 slow cases run once on macos-14/Python 3.12. All added vendor
+cases remain fast. The reused-server-flow F5 and three cooked-link decode cases
+are synthetic and remain byte/field checked against tshark.
+
+Ruff, TypeScript/Vite and wheel/sdist packaging passed. The tracked-file checks
+found no capture, DuckDB, secret-key, `.env` or demo files. The public sample is
+explicitly gitignored. No live capture or real-device commands were executed.
+
+[Part 5 CI runs](https://github.com/ozandurmus/packetbreaker/actions?query=branch%3Aphase2-part5)
+retain the authoritative cross-platform results; the exact final full-matrix run
+is recorded in the PR close-out. The push/PR/manual matrix policy is unchanged,
+and auto-merge remains disabled.

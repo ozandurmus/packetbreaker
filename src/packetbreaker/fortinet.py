@@ -11,6 +11,8 @@ from pathlib import Path
 import re
 import shutil
 import struct
+import subprocess
+import tempfile
 import threading
 import uuid
 
@@ -33,7 +35,67 @@ def absolute_ns(value, require_zone=False):
     )
 
 
-def convert_text(source, output_dir, start_time=None, cancel=None, progress=None):
+def cooked_link_type(frame, description, tshark=None):
+    """Ask tshark which container link type agrees with explicit sniffer metadata."""
+    from .ingest import find_tshark
+
+    proto = re.search(r"protocol type:\s*(0x[0-9a-fA-F]+|[0-9]+)", description)
+    packet_type = re.search(r"packet type:\s*(0x[0-9a-fA-F]+|[0-9]+)", description)
+    hardware = re.search(r"address type:\s*(0x[0-9a-fA-F]+|[0-9]+)", description)
+    if not proto:
+        return None
+    expected = int(proto[1], 0)
+    candidates = []
+    with tempfile.TemporaryDirectory(prefix="fortinet-link-") as directory:
+        probe = Path(directory) / "probe.pcap"
+        for link in (1, 113, 276):
+            probe.write_bytes(
+                struct.pack("<IHHIIII", 0xA1B2C3D4, 2, 4, 0, 0, 16777216, link)
+                + struct.pack("<IIII", 1700000000, 0, len(frame), len(frame))
+                + frame
+            )
+            decoded = (
+                subprocess.run(
+                    [
+                        find_tshark(tshark),
+                        "-n",
+                        "-r",
+                        str(probe),
+                        "-T",
+                        "fields",
+                        "-E",
+                        "occurrence=f",
+                        "-e",
+                        "eth.type",
+                        "-e",
+                        "sll.etype",
+                        "-e",
+                        "sll.pkttype",
+                        "-e",
+                        "sll.hatype",
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                .stdout.rstrip("\r\n")
+                .split("\t")
+            )
+            decoded += [""] * (4 - len(decoded))
+            field = decoded[0] if link == 1 else decoded[1]
+            if not field or int(field, 0) != expected:
+                continue
+            if link != 1 and (
+                (packet_type and (not decoded[2] or int(decoded[2], 0) != int(packet_type[1], 0)))
+                or (hardware and (not decoded[3] or int(decoded[3], 0) != int(hardware[1], 0)))
+            ):
+                continue
+            candidates.append(link)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def convert_text(source, output_dir, start_time=None, cancel=None, progress=None, tshark=None):
     source, output = Path(source), Path(output_dir)
     cancel = cancel or threading.Event()
     progress = progress or (lambda **_: None)
@@ -52,15 +114,32 @@ def convert_text(source, output_dir, start_time=None, cancel=None, progress=None
             counters["skipped_packets"] += 1
         else:
             name = current["interface"]
+            previous = files.get(name)
+            link = previous["link_type"] if previous else 1
+            if current.get("cooked") and not (previous and previous["cooked_checked"]):
+                link = cooked_link_type(current["bytes"], current["cooked"], tshark)
+                if link is None or (previous and previous["link_type"] != link):
+                    counters["skipped_packets"] += 1
+                    skipped["unsupported_cooked_link_header"] += 1
+                    current = None
+                    return
             if name not in files:
                 if len(files) >= 64:
                     raise ValueError("More than 64 interfaces; split the source text")
                 safe = re.sub(r"[^A-Za-z0-9_.-]", "_", name)[:64]
                 path = output / f"interface-{len(files):02d}-{safe}.pcap"
                 handle = path.open("xb")
-                handle.write(struct.pack("<IHHIIII", 0xA1B23C4D, 2, 4, 0, 0, 16777216, 1))
-                files[name] = dict(path=str(path.resolve()), handle=handle, packets=0, relative=False)
+                handle.write(struct.pack("<IHHIIII", 0xA1B23C4D, 2, 4, 0, 0, 16777216, link))
+                files[name] = dict(
+                    path=str(path.resolve()),
+                    handle=handle,
+                    packets=0,
+                    relative=False,
+                    link_type=link,
+                    cooked_checked=False,
+                )
             item = files[name]
+            item["cooked_checked"] |= bool(current.get("cooked"))
             sec, nano = divmod(current["time_ns"], 10**9)
             if not 0 <= sec <= 0xFFFFFFFF:
                 counters["skipped_packets"] += 1
@@ -114,10 +193,10 @@ def convert_text(source, output_dir, start_time=None, cancel=None, progress=None
                     )
                     continue
                 if "linux cooked capture" in line.lower():
-                    # Do not relabel cooked/pseudo-link bytes as Ethernet or invent a header.
                     if current:
-                        current["bad"] = True
-                    skipped["unsupported_cooked_link_header"] += 1
+                        current["cooked"] = line
+                    else:
+                        skipped["cooked_metadata_without_header"] += 1
                     continue
                 match = HEX.match(line)
                 continuation = bool(
@@ -143,7 +222,9 @@ def convert_text(source, output_dir, start_time=None, cancel=None, progress=None
                     skipped["console_noise" if not match else "hex_without_packet_header"] += 1
             finish()
         if not counters["packets"]:
-            raise ValueError("No complete Ethernet packets found in Fortinet text")
+            raise ValueError(
+                f"No complete packets found in Fortinet text; {sum(skipped.values())} skipped lines, {counters['skipped_packets']} skipped packets: {dict(skipped)}"
+            )
         result = dict(
             source=source.name,
             packets=counters["packets"],
@@ -161,6 +242,8 @@ def convert_text(source, output_dir, start_time=None, cancel=None, progress=None
                     interface=interface,
                     packets=item["packets"],
                     adapter="fortinet",
+                    link_type=item["link_type"],
+                    cooked_metadata=item["cooked_checked"],
                     clock_group=output.name,
                     clock_confidence="low" if item["relative"] else "source",
                     relative_timestamps=item["relative"],
@@ -180,9 +263,10 @@ def import_text(project, path, start_time=None, device="FortiGate", cancel=None,
     from .topology import Topology
 
     destination = project.path / "captures" / ("fortinet-" + uuid.uuid4().hex)
-    result = convert_text(path, destination, start_time, cancel, progress)
     with project.connect() as db:
         preferences = project.get(db, "preferences", {})
+    result = convert_text(path, destination, start_time, cancel, progress, preferences.get("tshark"))
+    with project.connect() as db:
         topology = project.get(db, "topology", Topology().model_dump())
     added = []
     for item in result["files"]:

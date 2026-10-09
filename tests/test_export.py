@@ -26,7 +26,7 @@ class Assets(HTMLParser):
 def test_offline_export_schema_escape_and_all_findings(scenarios):
     project, _, _, report = scenarios("capture_miss")
     data = export_data(project)
-    assert FindingsExport.model_validate(data).schema_version == 1
+    assert FindingsExport.model_validate(data).schema_version == 2
     assert {"type", "hop", "time_range", "metrics", "evidence_refs", "confidence"} <= data["findings"][
         0
     ].keys()
@@ -84,7 +84,7 @@ def test_cli_exports_and_missing_analysis(scenarios, tmp_path, monkeypatch, caps
         ["packetbreaker", "--project", str(project.path), "export", "--format", "json", "-o", str(output)],
     )
     main()
-    assert json.loads(output.read_text())["schema_version"] == 1
+    assert json.loads(output.read_text())["schema_version"] == 2
     before = output.read_bytes()
     with pytest.raises(SystemExit):
         main()  # Existing output is not overwritten.

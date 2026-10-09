@@ -203,6 +203,7 @@ function App() {
   } | null>(null);
   const [parallelIngest, setParallelIngest] = useState(false);
   const [checkpointUuid, setCheckpointUuid] = useState(false);
+  const [f5Trailer, setF5Trailer] = useState(false);
   const [fortiPath, setFortiPath] = useState("");
   const [fortiStart, setFortiStart] = useState("");
   const [fortiDevice, setFortiDevice] = useState("FortiGate");
@@ -245,6 +246,7 @@ function App() {
     setPrefix(s.settings.prefix_bytes || 64);
     setParallelIngest(s.settings.parallel ?? false);
     setCheckpointUuid(s.settings.checkpoint_uuid ?? false);
+    setF5Trailer(s.settings.f5_trailer ?? false);
   }
   const fail = (e: unknown) =>
     setError(e instanceof Error ? e.message : String(e));
@@ -633,9 +635,29 @@ function App() {
                   ))}
                 </section>
               )}
+              {!!report?.vendor_device_events?.some(
+                (e) => e.status === "unknown",
+              ) && (
+                <section>
+                  <h2>Inspection evidence limitations</h2>
+                  {report.vendor_device_events
+                    .filter((e) => e.status === "unknown")
+                    .slice(0, 10)
+                    .map((e, i) => (
+                      <button
+                        className="finding onset-symptom"
+                        key={i}
+                        onClick={() => setEvidence(e.evidence)}
+                      >
+                        {e.device} · {e.stage}: {e.reason}
+                      </button>
+                    ))}
+                </section>
+              )}
               {!!report?.f5?.pairs.length && (
                 <section>
                   <h2>F5 connection pairs and request forwarding</h2>
+                  <p className="hint">{report.f5.note}</p>
                   <p className="hint">
                     Capture context. Client/server TCP legs remain separate;
                     forwarding intervals use tshark-decoded request-bearing
@@ -788,6 +810,18 @@ function App() {
                   </Tip>
                   <strong className={kinds.impactful_loss ? "red" : ""}>
                     {report ? num(kinds.impactful_loss || 0, "", 0) : "—"}
+                  </strong>
+                </div>
+                <div>
+                  <Tip text="Positive vendor-stage evidence, not an inferred device cause. Each finding names its device and inspection/drop stage.">
+                    Confirmed device drops
+                  </Tip>
+                  <strong
+                    className={report?.confirmed_device_drop_count ? "red" : ""}
+                  >
+                    {report
+                      ? num(report.confirmed_device_drop_count || 0, "", 0)
+                      : "—"}
                   </strong>
                 </div>
                 <div>
@@ -986,7 +1020,9 @@ function App() {
                                 <strong>{s.label}</strong>
                                 {s.loss_suspect && (
                                   <small className="red">
-                                    Loss suspect — supported disappearance here
+                                    {s.classes.confirmed_device_drop
+                                      ? "Confirmed device drop — stage evidence"
+                                      : "Loss suspect — supported disappearance here"}
                                   </small>
                                 )}
                                 {s.symptom_note && (
@@ -997,13 +1033,24 @@ function App() {
                               <td>{s.direction}</td>
                               <td>{num(s.loss_percent, "%")}</td>
                               <td>{num(s.p95_ms, " ms", 3)}</td>
-                              <td>{num(s.matched, "", 0)}</td>
+                              <td>
+                                {s.location === "device_stage"
+                                  ? "not applicable"
+                                  : num(s.matched, "", 0)}
+                              </td>
                               <td
                                 title={Object.entries(s.excluded_counts || {})
                                   .map(([k, v]) => `${k}: ${v}`)
                                   .join(", ")}
                               >
-                                {num(s.eligible_ratio * 100, "%")}
+                                {s.location === "device_stage"
+                                  ? "not applicable"
+                                  : num(
+                                      s.eligible_ratio == null
+                                        ? null
+                                        : s.eligible_ratio * 100,
+                                      "%",
+                                    )}
                               </td>
                               <td>
                                 {s.reason ||
@@ -1467,6 +1514,7 @@ function App() {
                     }}
                   >
                     <option value="">All conversations</option>
+                    <option value="device_drops">Confirmed device drops</option>
                     <option value="impactful">Impactful loss</option>
                     <option value="handshakes">Incomplete handshakes</option>
                     <option value="resets">Resets observed</option>
@@ -1507,6 +1555,7 @@ function App() {
                             Retrans observations
                           </Tip>
                         </th>
+                        <th>Confirmed device drops</th>
                         <th>
                           <Tip text="Impactful / recovered / unrecovered / capture miss / blocked handshake / unknown events. A capture miss is not network loss.">
                             Loss classes
@@ -1553,6 +1602,9 @@ function App() {
                             )}
                           </td>
                           <td>{f.retrans_observations}</td>
+                          <td className={f.confirmed_device_drop ? "red" : ""}>
+                            {f.confirmed_device_drop || 0}
+                          </td>
                           <td>
                             {f.impactful_loss} / {f.recovered_loss} /{" "}
                             {f.unrecovered_loss} / {f.capture_miss} /{" "}
@@ -1814,6 +1866,15 @@ function App() {
                   fw monitor file includes UUID (-u); reattach after changing
                 </label>
                 <label>
+                  <input
+                    type="checkbox"
+                    checked={f5Trailer}
+                    onChange={(e) => setF5Trailer(e.target.checked)}
+                  />
+                  Decode F5 TMM trailer and request metadata; reattach after
+                  changing
+                </label>
+                <label>
                   tshark override (blank = auto-detect)
                   <input
                     value={tsharkPath}
@@ -1842,6 +1903,7 @@ function App() {
                         prefix_bytes: prefix,
                         parallel: parallelIngest,
                         checkpoint_uuid: checkpointUuid,
+                        f5_trailer: f5Trailer,
                       });
                       setNotice(
                         "Settings saved. Reattach files to apply a changed payload prefix.",

@@ -18,13 +18,15 @@ def tshark_fields(tshark, path, fields, options=()):
     return [dict(zip(fields, r)) for r in csv.reader(io.StringIO(out), delimiter="\t")]
 
 
-def snoop(path):
+def snoop(path, delayed=False):
     data = bytearray(b"snoop\0\0\0" + struct.pack(">II", 2, 4))
     for index, sec in enumerate((0, 5, 10, 20)):
         frame = tcp_packet(
             "10.0.0.1", "203.0.113.1", 50000, 443, 1000 + 20 * index, 9000, 24, b"x" * 20, index
         )
         stages = ["i"] if index == 1 else ["i", "I", "o", "O", "e", "E", "oe", "OE"]
+        if index == 1 and delayed:
+            stages = ["i", "i", "I", "o", "O"]
         if index == 2:
             stages = ["i", "O"]  # A later appearance contradicts an intermediate capture miss.
         for step, stage in enumerate(stages):
@@ -32,19 +34,23 @@ def snoop(path):
                 stage[0].encode()
                 + (stage[1:2] or " ").encode()
                 + b"eth0\0\0"
-                + struct.pack(">I", index + 42)
+                + struct.pack(">I", 42)
                 + frame[12:]
             )
             padding = (-len(wire)) % 4
+            ts = 1700000000 + (
+                5 + [0, 0.5, 3, 3.001, 3.002][step] if index == 1 and delayed else sec + step / 1000
+            )
+            whole = int(ts)
             data += struct.pack(
-                ">6I", len(wire), len(wire), 24 + len(wire) + padding, 0, 1700000000 + sec, step * 1000
+                ">6I", len(wire), len(wire), 24 + len(wire) + padding, 0, whole, round((ts - whole) * 1000000)
             )
             data += wire + b"\0" * padding
     Path(path).write_bytes(data)
     return path
 
 
-def f5_capture(path):
+def f5_capture(path, peer_reuse=False):
     import ipaddress
 
     def trailer(flow, peer, incoming, reason=""):
@@ -64,9 +70,11 @@ def f5_capture(path):
         high = (
             bytes([3, 40, 0, 6])
             + struct.pack(">H", 100)
-            + addr("203.0.113.2")
-            + addr("198.51.100.2")
-            + struct.pack(">HH", 80, 41000)
+            + addr("203.0.113.2" if flow != 200 else "10.0.0.1" if peer == 100 else "10.0.0.2")
+            + addr("198.51.100.2" if flow != 200 else "198.51.100.1")
+            + struct.pack(
+                ">HH", 80 if flow != 200 else 50000 if peer == 100 else 50001, 41000 if flow != 200 else 80
+            )
         )
         return low + medium + high
 
@@ -74,7 +82,11 @@ def f5_capture(path):
 
     def emit(t, leg, reverse, seq, ack, flags, payload=b"", reason=""):
         a, b, port = (
-            ("10.0.0.1", "198.51.100.1", 50000) if leg == "client" else ("198.51.100.2", "203.0.113.2", 41000)
+            ("10.0.0.2", "198.51.100.1", 50001)
+            if leg == "client_b"
+            else ("10.0.0.1", "198.51.100.1", 50000)
+            if leg == "client"
+            else ("198.51.100.2", "203.0.113.2", 41000)
         )
         frame = tcp_packet(
             b if reverse else a,
@@ -87,27 +99,43 @@ def f5_capture(path):
             payload,
             len(frames),
         )
-        flow, peer = (100, 200) if leg == "client" else (200, 100)
+        flow, peer = (
+            (300, 200)
+            if leg == "client_b"
+            else (200, 300)
+            if leg == "server_b"
+            else (100, 200)
+            if leg == "client"
+            else (200, 100)
+        )
         frames.append(
-            (1700000000 + t, frame + trailer(flow, peer, int((leg == "client") != reverse), reason))
+            (1700000000 + t, frame + trailer(flow, peer, int(leg.startswith("client") != reverse), reason))
         )
 
     for leg, seq in [("client", 1000), ("server", 8000)]:
         emit(0, leg, False, seq, 0, 2)
         emit(0.01, leg, True, 9000, seq + 1, 18)
         emit(0.02, leg, False, seq + 1, 9001, 16)
+    if peer_reuse:
+        emit(2.8, "client_b", False, 1000, 0, 2)
+        emit(2.81, "client_b", True, 9000, 1001, 18)
+        emit(2.82, "client_b", False, 1001, 9001, 16)
     for i, (at, delay) in enumerate([(1, 0.24), (3, 0.1)]):
         request = f"GET /synthetic/{i} HTTP/1.1\r\nHost: test\r\nContent-Length: 0\r\n\r\n".encode()
         for leg, seq, when in [
-            ("client", 1001 + i * len(request), at),
-            ("server", 8001 + i * len(request), at + delay),
+            (
+                "client_b" if peer_reuse and i else "client",
+                1001 if peer_reuse and i else 1001 + i * len(request),
+                at,
+            ),
+            ("server_b" if peer_reuse and i else "server", 8001 + i * len(request), at + delay),
         ]:
             emit(when, leg, False, seq, 9001, 24, request)
             emit(
-                (at + delay + 0.02) if leg == "client" else when + 0.01,
+                (at + delay + 0.02) if leg.startswith("client") else when + 0.01,
                 leg,
                 True,
-                9001 + i * 38,
+                9001 if leg == "client_b" else 9001 + i * 38,
                 seq + len(request),
                 24,
                 b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",

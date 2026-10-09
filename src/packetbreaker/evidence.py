@@ -172,5 +172,25 @@ def evidence(db, predicate, params, limit=128, _expand_ranges=True):
             if item["content_filter"]
             else "No supported IP/L4 tuple is available for a content filter."
         )
+        vendor = item.get("vendor") or {}
+        if vendor.get("adapter") == "checkpoint" and vendor.get("fw1.direction") in (
+            "i",
+            "I",
+            "o",
+            "O",
+            "e",
+            "E",
+        ):
+            if item["content_filter"]:
+                item["content_filter"] += " && fw1.direction == " + json.dumps(vendor["fw1.direction"])
+                if vendor.get("stage") in ("oe", "OE"):
+                    item["content_filter"] += " && fw1.chain == " + json.dumps(vendor["fw1.chain"])
+            item["filter_note"] += (
+                " Enable Ethernet fw monitor interpretation in Wireshark; chain/UUID settings must match the source."
+            )
+        if vendor.get("adapter") == "paloalto":
+            item["filter_note"] += (
+                " The stage is an external file tag; preserve the original file provenance when merging."
+            )
         result.append(item)
     return result

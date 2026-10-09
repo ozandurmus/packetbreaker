@@ -32,6 +32,7 @@ export type Point = {
   interface: number | null;
   vendor?: string;
   vendor_stage?: string | null;
+  vendor_interface?: string | null;
   inspection_complete?: boolean;
   source_cidr: string | null;
   translation: string;
@@ -139,13 +140,25 @@ export type Segment = {
   max_ms: number | null;
   loss_percent: number | null;
   eligible_packets: number;
-  eligible_ratio: number;
+  eligible_ratio: number | null;
   excluded_counts: Record<string, number>;
   classes: Record<string, number>;
   offset_uncertainty_ms: number | null;
 };
 export type Report = {
+  confirmed_device_drop_count?: number;
+  confirmed_device_drops?: { device: string; stage: string; count: number }[];
+  vendor_device_event_count?: number;
+  vendor_device_events?: {
+    device: string;
+    stage: string;
+    status: string;
+    reason: string;
+    evidence: Ref[];
+  }[];
   f5?: {
+    note?: string;
+    connection_count?: number;
     pairs: {
       flowid: string;
       peerid: string;
@@ -281,6 +294,7 @@ export type State = {
   };
   settings: {
     checkpoint_uuid?: boolean;
+    f5_trailer?: boolean;
     tshark?: string;
     prefix_bytes?: number;
     parallel?: boolean;
@@ -296,6 +310,7 @@ export type Flow = {
   end: number | null;
   bytes: number;
   points: number;
+  confirmed_device_drop: number;
   impactful_loss: number;
   recovered_loss: number;
   unrecovered_loss: number;

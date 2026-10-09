@@ -59,7 +59,7 @@ def test_api_ingest_analysis_report(tmp_path):
         report = client.get("/api/report").json()
         assert report["findings"] and all(f["type"] == "capture_miss" for f in report["findings"])
         flows = client.get("/api/flows").json()
-        trace = client.get("/api/flows/" + flows["items"][0]["flow"] + "/ladder").json()
+        trace = client.get("/api/flows/" + flows["items"][0]["flow"] + "/ladder?limit=1").json()
         assert len(trace["items"][0]["evidence"]) == 5
         timeline = client.get("/api/flows/" + flows["items"][0]["flow"] + "/waterfall").json()
         assert {item["kind"] for item in timeline["items"]} == {"handshake", "http"}

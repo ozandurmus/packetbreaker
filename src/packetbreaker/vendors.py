@@ -31,6 +31,18 @@ VENDOR_FIELDS = CHECKPOINT_FIELDS + F5_FIELDS + HTTP_FIELDS
 
 
 def decoded_vendor(fields):
+    if not any(
+        fields.get(k)
+        for k in (
+            "fw1.direction",
+            "f5ethtrailer.flowid",
+            "f5ethtrailer.ingress",
+            "f5ethtrailer.peeraddr",
+            "f5ethtrailer.peeraddr6",
+            "f5ethtrailer.rstcausetxt",
+        )
+    ):
+        return None
     decoded = {key: fields.get(key) for key in VENDOR_FIELDS if fields.get(key)}
     if not any(k in decoded for k in CHECKPOINT_FIELDS + F5_FIELDS):
         return None
@@ -38,83 +50,24 @@ def decoded_vendor(fields):
         direction, chain = decoded["fw1.direction"], decoded.get("fw1.chain", "")
         decoded["adapter"] = "checkpoint"
         decoded["stage"] = direction + chain if direction + chain in ("oe", "OE") else direction
-    elif decoded.get("f5ethtrailer.flowid"):
+    else:
         decoded["adapter"] = "f5"
     return json.dumps(decoded)
 
 
 def point_selector(point):
     if point.vendor == "checkpoint":
-        return " AND json_extract_string(vendor,'$.stage')=?", [point.vendor_stage]
+        clause, values = " AND json_extract_string(vendor,'$.stage')=?", [point.vendor_stage]
+        if point.vendor_interface:
+            clause += " AND json_extract_string(vendor,'$.\"fw1.interface\"')=?"
+            values.append(point.vendor_interface)
+        return clause, values
     if point.vendor == "f5":
         return (
             " AND EXISTS(SELECT 1 FROM f5_connections c WHERE c.capture_id=packets.capture_id AND c.stream=packets.stream AND c.role=?)",
             [point.vendor_stage],
         )
     return "", []
-
-
-def checkpoint_audit(db, topology):
-    """Upgrade only complete, explicitly attested inspection paths; reuse packet identities."""
-    from .store import rows
-    from .evidence import evidence
-
-    result = []
-    used = set(topology.forward + topology.reverse)
-    for point in topology.points:
-        if point.vendor != "checkpoint" or point.vendor_stage != "i" or point.id not in used:
-            continue
-        downstream = [
-            p
-            for p in topology.points
-            if p.vendor == "checkpoint"
-            and p.device == point.device
-            and p.capture_id == point.capture_id
-            and p.id in used
-            and p.vendor_stage != "i"
-        ]
-        stages = {p.vendor_stage for p in downstream}
-        inv = json.loads(
-            db.execute("SELECT inventory FROM captures WHERE id=?", [point.capture_id]).fetchone()[0]
-        )
-        complete = (
-            point.inspection_complete
-            and {"I", "o"} <= stages
-            and not (
-                inv.get("damaged_tail")
-                or inv.get("zero_tail_bytes")
-                or inv.get("timestamp_excluded_counts")
-                or inv.get("ifdrop")
-                or inv.get("osdrop")
-            )
-        )
-        end = inv.get("end")
-        missing = rows(
-            db,
-            """SELECT o.* FROM obs o WHERE point=? AND eligible AND NOT EXISTS(
-            SELECT 1 FROM obs b WHERE b.packet_key=o.packet_key AND b.point IN (SELECT unnest(?::VARCHAR[])))""",
-            [point.id, [p.id for p in downstream]],
-        )
-        for obs in missing:
-            covered = complete and end is not None and obs["ts"] + topology.match_window_ms / 1000 <= end
-            result.append(
-                dict(
-                    point=point.id,
-                    device=point.device,
-                    stage="i → no I/o",
-                    flow=obs["flow"],
-                    packet_key=obs["packet_key"],
-                    frame=obs["frame"],
-                    capture_id=point.capture_id,
-                    time=obs["corrected"],
-                    status="confirmed_device_drop" if covered else "unknown",
-                    reason="Packet absent after pre-inbound inspection in a complete mapped stage capture"
-                    if covered
-                    else "Inspection coverage incomplete or not attested; cannot confirm a device drop",
-                    evidence=evidence(db, "o.point=? AND o.frame=?", [point.id, obs["frame"]], 1),
-                )
-            )
-    return result
 
 
 def prepare_f5_connections(db, topology):
@@ -127,6 +80,13 @@ def prepare_f5_connections(db, topology):
         flowid VARCHAR,peerid VARCHAR,tmm VARCHAR,role VARCHAR,reason VARCHAR)""")
     if not ids:
         return
+    for cid, name, inventory in db.execute(
+        "SELECT id,name,inventory FROM captures WHERE id IN (SELECT unnest(?::VARCHAR[]))", [ids]
+    ).fetchall():
+        if not json.loads(inventory).get("f5_fields"):
+            raise ValueError(
+                f"{name}: enable F5 trailer decoding in Settings and reattach to index TMM fields"
+            )
     networks = [ipaddress.ip_network(c) for c in topology.client_cidrs]
     tuples = rows(
         db,
@@ -149,11 +109,20 @@ def prepare_f5_connections(db, topology):
     records = []
     for key, is_client in grouped.items():
         cid, stream, fid, peer, tmm = key
-        peers = ids_to_keys.get((cid, tmm, peer), [])
+        peers = [k for k in ids_to_keys.get((cid, tmm, peer), []) if k[3] == fid]
         reason = None
-        if not fid or not peer or fid.strip("0x0") == "" or peer.strip("0x0") == "" or tmm == ":":
+        if (
+            not fid
+            or not peer
+            or fid.strip("0x0") == ""
+            or peer.strip("0x0") == ""
+            or "," in fid
+            or "," in peer
+            or tmm.startswith(":")
+            or tmm.endswith(":")
+        ):
             reason = "Missing/zero F5 flow, peer or processor identity"
-        elif len(ids_to_keys[(cid, tmm, fid)]) != 1 or len(peers) != 1:
+        elif len({k[1] for k in ids_to_keys[(cid, tmm, fid)]}) != 1 or len(peers) != 1:
             reason = "Missing or reused F5 flow/peer ID; session correspondence unknown"
         elif peers[0][3] != fid or grouped[peers[0]] == is_client:
             reason = "Non-reciprocal F5 IDs or ambiguous client networks; narrow the client CIDRs"
@@ -170,11 +139,24 @@ def f5_report(db, topology):
 
     if not any(p.vendor == "f5" for p in topology.points):
         return dict(pairs=[], requests=[], resets=[])
-    connections = rows(db, "SELECT * FROM f5_connections")
-    result = dict(pairs=connections, requests=[], resets=[])
+    connections = rows(
+        db,
+        """WITH clients AS (
+        SELECT * FROM f5_connections WHERE role='client' ORDER BY capture_id,stream,peerid LIMIT 100)
+        SELECT * FROM clients UNION SELECT p.* FROM f5_connections p JOIN clients c
+        ON p.capture_id=c.capture_id AND p.tmm=c.tmm AND p.flowid=c.peerid AND p.peerid=c.flowid
+        UNION (SELECT * FROM f5_connections WHERE role='unknown' ORDER BY capture_id,stream LIMIT 20)""",
+    )
+    result = dict(
+        pairs=connections,
+        requests=[],
+        resets=[],
+        connection_count=db.execute("SELECT count(*) FROM f5_connections").fetchone()[0],
+        note="Overview shows up to 100 connection pairs, 20 unknown mappings, 200 requests and 200 reset annotations. Full frame metadata remains in the flow ladder.",
+    )
     points = {p.id: p for p in topology.points}
     for c in connections:
-        if c["role"] != "client":
+        if c["role"] != "client" or len(result["requests"]) >= 200:
             continue
         peer = next(
             (
@@ -183,6 +165,7 @@ def f5_report(db, topology):
                 if x["capture_id"] == c["capture_id"]
                 and x["tmm"] == c["tmm"]
                 and x["flowid"] == c["peerid"]
+                and x["peerid"] == c["flowid"]
                 and x["role"] == "server"
             ),
             None,
@@ -192,8 +175,19 @@ def f5_report(db, topology):
         packets = rows(
             db,
             """SELECT * FROM obs WHERE capture_id=? AND stream IN (?,?)
-            AND json_extract_string(vendor,'$."http.request.method"') IS NOT NULL ORDER BY ts,frame LIMIT 2001""",
-            [c["capture_id"], c["stream"], peer["stream"]],
+            AND json_extract_string(vendor,'$."http.request.method"') IS NOT NULL
+            AND ((json_extract_string(vendor,'$."f5ethtrailer.flowid"')=? AND json_extract_string(vendor,'$."f5ethtrailer.peerid"')=?)
+              OR (json_extract_string(vendor,'$."f5ethtrailer.flowid"')=? AND json_extract_string(vendor,'$."f5ethtrailer.peerid"')=?))
+            ORDER BY ts,frame LIMIT 2001""",
+            [
+                c["capture_id"],
+                c["stream"],
+                peer["stream"],
+                c["flowid"],
+                c["peerid"],
+                c["peerid"],
+                c["flowid"],
+            ],
         )
         c["client_flow"] = db.execute(
             "SELECT min(flow) FROM obs WHERE capture_id=? AND stream=?", [c["capture_id"], c["stream"]]
@@ -216,6 +210,8 @@ def f5_report(db, topology):
             requests[key][0 if p["stream"] == c["stream"] else 1].append(p)
         for key, (left, right) in requests.items():
             for i, a in enumerate(left):
+                if len(result["requests"]) >= 200:
+                    break
                 b = right[i] if len(left) == len(right) else None
                 reason = None if b else "Request counts differ across proxy legs; correspondence unknown"
                 # Repeated indistinguishable requests can be pipelined/reordered by a proxy.
@@ -259,33 +255,4 @@ def f5_report(db, topology):
                 evidence=evidence(db, "o.point=? AND o.frame=?", [r["point"], r["frame"]], 1),
             )
         )
-    return result
-
-
-def paloalto_audit(db, topology):
-    from .store import rows
-    from .evidence import evidence
-
-    result = []
-    for point in topology.points:
-        if point.vendor != "paloalto" or point.vendor_stage != "drop":
-            continue
-        observations = rows(db, "SELECT * FROM obs WHERE point=? ORDER BY ts,frame", [point.id])
-        for o in observations:
-            result.append(
-                dict(
-                    point=point.id,
-                    device=point.device,
-                    stage="drop",
-                    flow=o["flow"],
-                    packet_key=o["packet_key"],
-                    frame=o["frame"],
-                    capture_id=point.capture_id,
-                    time=o["corrected"] if o["corrected"] is not None else o["ts"],
-                    time_source="corrected" if o["corrected"] is not None else "observed; clock unaligned",
-                    status="confirmed_device_drop",
-                    reason="Positive Palo Alto drop-stage capture (user file tag)",
-                    evidence=evidence(db, "o.point=? AND o.frame=?", [point.id, o["frame"]], 1),
-                )
-            )
     return result

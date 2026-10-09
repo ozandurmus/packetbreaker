@@ -204,6 +204,19 @@ def status_summary(segments):
 def add_onsets(db, topology, segments):
     detections = []
     for s in segments:
+        if s.get("location") == "device_stage":
+            s.update(
+                onset_status="unknown",
+                onsets=[],
+                onset_reasons=[
+                    dict(
+                        metric="loss_percent",
+                        reason="Standalone drop-stage evidence has no healthy path baseline",
+                    )
+                ],
+                onset_quality_notes=dict(capture_misses=0, unknown_events=0, reasons=[]),
+            )
+            continue
         values = rows(db, "SELECT * FROM segment_buckets WHERE segment=? ORDER BY bucket", [s["id"]])
         quality_notes = dict(
             capture_misses=sum(v["capture_misses"] for v in values),
@@ -246,7 +259,7 @@ def add_onsets(db, topology, segments):
                 kinds = (
                     "('handshake_blocked')"
                     if metric == "failed_handshakes"
-                    else "('recovered_loss','impactful_loss','unrecovered_loss','handshake_blocked')"
+                    else "('recovered_loss','impactful_loss','unrecovered_loss','handshake_blocked','confirmed_device_drop')"
                 )
                 event = db.execute(
                     f"""SELECT packet_key,recovery_key,support_key FROM events WHERE point_a=? AND point_b=? AND direction=?
