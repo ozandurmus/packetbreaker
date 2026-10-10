@@ -601,3 +601,20 @@ partial/missing behavior. Counters/decoded fields do not count as implemented di
 Transport gaps include RTP quality, DNS response-time metrics, receive-window causality,
 microbursts and flood/fan-out/session-pressure heuristics. Existing HTTP waterfalls are bounded
 visible HTTP/1.x measurements. No missing feature is implemented as part of this report.
+
+## Phase 4 / Part 1 — transport evidence
+
+Transport profiles are prepared lazily from the analyzed `obs` index and cached against the
+report generation. DuckDB joins SYN/SYN-ACK/ACK anchors, negotiated scale, reverse-direction
+advertisements, sequence coverage/flight, cumulative ACK arrival and corrected matched transit.
+All calculations stay within a logical TCP leg/session. Unknown handshake scale is never replaced
+with a guessed factor. Per-point ACK delay is distinct from end-to-end ACK RTT.
+
+A flow/direction limitation requires window/demand evidence plus independent timing/path signals.
+A zero-window on an idle flow or high RTT alone produces unknown. Competing supported causes
+remain unknown. Sender pacing describes observed idle gaps with available window and healthy
+monitored path; it does not measure the sender's physical bandwidth cap. Existing clock-aware
+HTTP byte-completion waterfall bars supply visible service-time evidence. `/api/flows/{flow}/diagnosis`
+returns metrics, reasons, tooltips and original frame/content/flow filters; stream UI and bounded
+offline exports expose the same profiles. Schema-6 packet storage remains compatible; parser 11
+adds tshark transport fields in `path_fields`. Old indexes require reattachment for these fields.

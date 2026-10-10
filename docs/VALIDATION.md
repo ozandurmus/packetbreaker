@@ -826,3 +826,11 @@ holding `server.log` (WinError 32). Windows smoke now terminates that process tr
 asserts the loopback port is closed; it does not ignore cleanup failures. Failed server readiness
 also prints its log before temporary files are removed. The subsequent final-head checks above
 include this fix and the dynamic UI version badge.
+
+## Phase 4 / Part 1 — working checkpoints
+
+Baseline: green PR #9 merged at `a74b34f`; work on `phase4-part1`. Negative limitation tests were
+written first (initial collection failed because the new module did not exist). Single-counter,
+missing-handshake/index/sender, untrusted TCP state, receiver ACK delay and competing-cause cases
+reject a naive diagnosis. Initial limitation guards plus real five-file healthy profile: 3 passed
+in 2.13 s. Final wire fixture assertions, complete fast suite and CI are recorded at close-out.

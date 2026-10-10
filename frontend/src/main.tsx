@@ -6,6 +6,7 @@ import { api, num, time, reverseTuple } from "./api";
 import { FieldDiff, type FieldDiffData } from "./FieldDiff";
 import { ProxyEvidence } from "./ProxyEvidence";
 import { Assistant } from "./Assistant";
+import { Diagnosis } from "./Diagnosis";
 import { Waterfall } from "./Waterfall";
 import { Coverage, LadderChart } from "./Charts";
 import { TopologyEditor } from "./TopologyEditor";
@@ -1662,6 +1663,13 @@ function App() {
                   </button>
                 </div>
               </section>
+              {selectedFlow && (
+                <Diagnosis
+                  key={selectedFlow.flow + "-diagnosis"}
+                  flow={selectedFlow.flow}
+                  onEvidence={setEvidence}
+                />
+              )}
               {selectedFlow && (
                 <Waterfall
                   key={selectedFlow.flow}

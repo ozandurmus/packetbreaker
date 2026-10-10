@@ -129,6 +129,12 @@ def create_app(project_path):
     def health():
         return {"status": "ok", "version": __version__}
 
+    @app.get("/api/flows/{flow}/diagnosis")
+    def flow_diagnosis(flow: str):
+        from .transport import profiles
+
+        return profiles(project, flow)
+
     @app.get("/api/state")
     def state():
         with project.connect() as db:

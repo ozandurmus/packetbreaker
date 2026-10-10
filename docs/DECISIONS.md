@@ -382,3 +382,16 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   from phase completion. Record partial UI brush/table/graph and transport/security semantics.
 - Keep audit gaps report-only. The owner chooses the next independent objective from
   `BRIEF_COVERAGE.md`; no next phase, signing service, provider or detector is started here.
+
+## Phase 4 / Part 1
+
+- Diagnose each flow/direction independently using multiple signals. Do not promote an idle
+  zero window, isolated high RTT or pacing gap into a cause. Keep competing limitations unknown.
+- Require captured handshake negotiation for scaled windows; retain SYN windows unscaled.
+  Derive flight from local canonical sequence/ACK coverage, not a congestion-window guess.
+- Use receiver-side local ACK timing to separate it from matched path transit and sender RTT.
+  Reuse existing validated HTTP waterfall completion/clock bounds for service time.
+- Per-point TCP state must be isolated. A multi-point file without a successful isolated tshark
+  cache has unknown transport classification rather than contaminated analysis flags.
+- Keep profiles/series lazy and generation-cached, so ordinary packet analysis need not build
+  every flow chart. Bound offline profile samples and keep complete selected-flow evidence local.
