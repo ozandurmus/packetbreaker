@@ -69,6 +69,12 @@ def waterfall(project, flow, start=None, end=None, request_index=0):
         topology = project.get(db, "topology")
         if not report or not topology:
             return dict(items=[], requests=[], reason="Run analysis first")
+        if report.get("proxies", {}).get("transactions") and any(
+            p["translation"] == "full_proxy" and p.get("vendor") != "f5" for p in topology["points"]
+        ):
+            from .proxy_waterfall import waterfall as proxy_waterfall
+
+            return proxy_waterfall(db, report, topology, flow, start, end, request_index)
         packets = rows(
             db,
             """SELECT * FROM obs WHERE flow=? AND proto='TCP'

@@ -93,3 +93,72 @@ def test_tshark_original_frame_mapping(proxy_capture):
         assert all(r["complete"] >= r["start"] for r in requests)
         chains = rows(db, "SELECT metadata FROM app_protocol WHERE kind='tls_certificate'")
         assert chains and all("fingerprint" in r["metadata"] and "2.5.4.3=" in r["metadata"] for r in chains)
+
+
+def test_exact_request_dwell_and_waterfall(proxy_capture):
+    from packetbreaker.waterfall import waterfall
+
+    project, _, truth, report = proxy_capture
+    with project.connect() as db:
+        lookup = {r["id"]: r for r in rows(db, "SELECT * FROM proxy_requests")}
+        for device, expect in truth["pool"].items():
+            pairs = sorted(
+                [
+                    p
+                    for p in report["proxies"]["transactions"]
+                    if p["device"] == device and p["status"] == "matched" and p["kind"] == "http"
+                ],
+                key=lambda p: p["time"],
+            )[:2]
+            for p in pairs:
+                client = lookup[p["client_id"]]
+                forward, back = expect[client["origin_ip"]]
+                assert p["request_dwell"]["duration_ms"] == pytest.approx(forward, abs=0.001)
+                assert p["response_dwell"]["duration_ms"] == pytest.approx(back, abs=0.001)
+                assert p["request_dwell"]["uncertainty_ms"] == 0
+                assert p["response_dwell"]["reason"] is None
+        flow = next(
+            r["flow"]
+            for r in lookup.values()
+            if r["point"] == "client" and r["line"] == "POST /shared HTTP/1.1"
+        )
+    w = waterfall(project, flow)
+    assert len([i for i in w["items"] if i["kind"].startswith("handshake:")]) == 3
+    http = next(i for i in w["items"] if i["kind"] == "http")
+    assert len(http["bars"]) == 15
+    assert all(b["duration_ms"] is not None and b["evidence"] for b in http["bars"])
+    assert {b["point_a"] for b in http["bars"] if b["kind"] == "proxy_dwell"} == {
+        "a_in",
+        "a_out",
+        "b_in",
+        "b_out",
+    }
+
+
+def test_dwell_never_invents_missing_clock_or_streaming_duration():
+    from packetbreaker.proxy_waterfall import interval
+
+    for a, b, u in [(1, 2, None), (None, 2, 0), (2, 1, 0)]:
+        value = interval(a, b, u)
+        assert value["duration_ms"] is None and value["reason"]
+
+
+def test_missing_pooled_response_never_shifts_request_pairing(proxy_capture):
+    from packetbreaker.proxy_analysis import prepare_requests
+
+    project, _, _, _ = proxy_capture
+    with project.connect() as db:
+        db.execute("BEGIN TRANSACTION")
+        try:
+            db.execute(
+                "DELETE FROM app_protocol WHERE point='a_out' AND kind='http_response' AND frame=(SELECT min(frame) FROM app_protocol WHERE point='a_out' AND kind='http_response')"
+            )
+            prepare_requests(db)
+            assert (
+                db.execute(
+                    "SELECT count(*) FROM proxy_requests WHERE point='a_out' AND line LIKE 'POST%' AND response IS NOT NULL"
+                ).fetchone()[0]
+                == 0
+            )
+        finally:
+            db.execute("ROLLBACK")

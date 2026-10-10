@@ -15,7 +15,7 @@ from .ingest import find_tshark
 from .metadata import metadata as capture_metadata
 from .store import rows
 
-VERSION = 2
+VERSION = 3
 MAX_EVENTS = 10000
 MAX_JSON = 4 * 1024 * 1024
 
@@ -165,6 +165,12 @@ def event_rows(packet):
             }
         )
     if first(http, "http.response.code"):
+        content = integer(first(http, "http.content_length"), 0)
+        body = first(http, "http.file_data", "")
+        response_ready = len(values(http, "http.response.code")) == 1 and not first(
+            http, "http.transfer_encoding"
+        )
+        response_ready = response_ready and (not content or len(body.replace(":", "")) // 2 == content)
         result.append(
             {
                 **common,
@@ -172,6 +178,7 @@ def event_rows(packet):
                 "metadata": dict(
                     request_in=integer(first(http, "http.request_in"), None),
                     code=integer(first(http, "http.response.code")),
+                    ready=response_ready,
                 ),
             }
         )

@@ -85,6 +85,30 @@ def prepare_requests(db):
     FROM app a JOIN obs e ON e.point=a.point AND e.frame=a.frame
     JOIN components c ON c.id=a.id JOIN obs s ON s.point=a.point AND s.frame=c.first_frame
     LEFT JOIN response_start r ON r.id=a.id LEFT JOIN obs ro ON ro.point=a.point AND ro.frame=r.response_frame""")
+    # HTTP/1.x responses preserve request order. tshark's request_in is not reliable for
+    # pipelining. Require both handshakes and continuous decoded request/response byte ranges.
+    db.execute("""CREATE OR REPLACE TEMP TABLE http_pdus AS
+        WITH data AS (SELECT a.*,e.canon,e.seq+e.length AS end_seq,e.corrected AS completion,
+            arg_max(o.frame,(e.seq-o.seq+4294967296)%4294967296) AS first_frame,
+            bool_and(o.eligible AND coalesce(try_cast(json_extract_string(a.metadata,'$.ready') AS BOOLEAN),false)) AS ready
+            FROM app_protocol a JOIN obs e ON e.point=a.point AND e.frame=a.frame
+            JOIN obs o ON o.point=a.point AND o.frame IN (SELECT unnest(from_json(a.components,'["BIGINT"]')))
+            WHERE a.kind='http_request' OR (a.kind='http_response' AND try_cast(json_extract_string(a.metadata,'$.code') AS INTEGER)>=200)
+            GROUP BY ALL), ordered AS (SELECT d.*,s.seq AS start_seq,s.corrected AS first_time,
+            row_number() OVER w AS ordinal,lag(end_seq) OVER w AS previous_end
+            FROM data d JOIN obs s ON s.point=d.point AND s.frame=d.first_frame
+            WINDOW w AS (PARTITION BY d.point,d.protocol_stream,d.kind ORDER BY d.frame))
+        SELECT *,ready AND CASE WHEN ordinal=1 THEN EXISTS(SELECT 1 FROM obs h WHERE h.point=ordered.point
+            AND h.canon=ordered.canon AND (h.flags&2)=2 AND (h.seq+1)%4294967296=start_seq)
+            ELSE previous_end%4294967296=start_seq END AS contiguous FROM ordered""")
+    db.execute("UPDATE proxy_requests SET response=NULL,response_frame=NULL WHERE kind='http'")
+    db.execute("""UPDATE proxy_requests SET response=p.first_time,response_frame=p.first_frame
+        FROM http_pdus q JOIN http_pdus p ON q.point=p.point AND q.protocol_stream=p.protocol_stream AND q.ordinal=p.ordinal
+        WHERE proxy_requests.point=q.point AND proxy_requests.last_frame=q.frame AND proxy_requests.kind='http'
+        AND q.kind='http_request' AND p.kind='http_response' AND p.first_time>=q.completion
+        AND NOT EXISTS(SELECT 1 FROM http_pdus x WHERE x.point=q.point AND x.protocol_stream=q.protocol_stream AND NOT x.contiguous)
+        AND (SELECT count(*) FROM http_pdus x WHERE x.point=q.point AND x.protocol_stream=q.protocol_stream AND x.kind='http_response')
+            <=(SELECT count(*) FROM http_pdus x WHERE x.point=q.point AND x.protocol_stream=q.protocol_stream AND x.kind='http_request')""")
 
 
 def correlate(db, topology, models, statuses):

@@ -14,6 +14,7 @@ from .matching import (
 )
 from .application_index import index_applications
 from .proxy_analysis import correlate
+from .proxy_waterfall import add_dwell
 from .ingest import tuple_id
 from .headlines import add_headlines
 from .integrity import analyze_integrity, link_modified_payloads
@@ -352,6 +353,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         byte_active = prepare_byte_ranges(db, topology)
         prepare_flow_filters(db)
         proxies = correlate(db, topology, models, application_status)
+        add_dwell(db, topology, models, proxies)
         for suggestion in suggestions:
             suggestion["evidence"] = evidence(
                 db,
