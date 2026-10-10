@@ -489,7 +489,8 @@ Schema-v3 integrity types are `reset_origin`, `icmp_origin`, `payload_modified`,
 `option_stripping`, `asymmetric_routing`, `capture_duplicate`, and `duplication`.
 Normal endpoint-origin reset observations are quality annotations; only a bracketed device-origin
 hypothesis gets high severity. Findings include their rule tooltip and portable frame references.
-Window filtering includes integrity findings. Generic full-proxy correlation remains unsupported.
+Window filtering includes integrity findings. Generic full-proxy correlation was unsupported in
+the Part 1 snapshot; the Part 2 request graph below supersedes that limitation.
 
 ### PR #6 review — multi-device attribution (0.1.9)
 
@@ -509,3 +510,60 @@ Asymmetry groups a completely bypassed device into one observation, and separate
 a return-path detour between two otherwise-present points. Both bounding return points and an
 alternate-path observation of the same flow are required. A detoured link is never assigned to
 either adjacent device. Existing report-version invalidation clears pre-fix reports on upgrade.
+
+## Phase 3 / Part 2 — request correlation (0.2.0)
+
+Generic `full_proxy` boundaries partition TCP observation/session namespaces. Packet and byte-range
+matches do not cross them. Each leg retains its own loss events, retransmissions and resets. Disconnected
+clock components get local reference domains; these support intra-leg analysis, but cannot establish
+proxy dwell or a cross-domain onset order. Capture interfaces in one file retain the existing shared-clock
+assumption. Configure requester CIDRs for both original clients and the proxy's backend source addresses;
+unknown direction remains an exclusion, rather than an inferred role.
+
+`application_index.py` physically selects each capture point into private temporary pcapng, then runs
+an isolated two-pass tshark decode with TCP/HTTP reassembly and out-of-order reassembly enabled. This
+prevents traveling tap copies from contaminating HTTP/TLS state and retransmission flags. Filtered
+ordinals, reassembly components and response references map back to the original file/frame index;
+frame count, address, raw sequence, length and timestamp must agree. The epoch bounds have one
+microsecond rounding padding, followed by exact index validation. Successful isolated decodes replace
+only the three retransmission analysis flags in `obs`; tshark remains their source.
+
+The cached `app_protocol` events contain decoded HTTP request line/Host/XFF, response markers, SNI,
+negotiated TLS version and server certificate subject/issuer/SHA-256 DER fingerprint. Production does
+not parse HTTP or ASN.1 bytes. Limits are 10,000 application/analysis events per point, 4 MiB per JSON
+record, 50,000 candidate edges and 100 graph resolution rounds. Cancellation terminates the active
+reader; changed source captures require reattachment. Cache identity includes the source identity,
+point selection, decoder version and tshark path. Legacy indexes without the TLS hint receive a
+supplemental scan; ordinary new indexes without TLS/proxy traffic skip it.
+
+DuckDB builds `proxy_requests` from decoded reassembly components and normalized TCP sequence
+ranges. A SYN anchor identifies the logical first byte even when a later byte arrived first. HTTP/1.x
+response pairing uses request order only when both directions have SYN-anchored, continuous decoded
+PDU byte ranges. This avoids tshark's ambiguous `http.request_in` association for pipelining. Missing
+responses, unsupported encodings and multiple messages in one frame leave the response boundary unknown.
+
+`proxy_pairs` stores one-to-one request hypotheses per declared device. The mutual unique-best graph
+ranks HTTP request line+Host, XFF containing the originating client, then SNI. Timing only breaks ties
+inside the configured match window; ties inside clock uncertainty remain unknown. Equal raw tuple/SYN
+socket identities cannot establish independent legs merely because a namespace was partitioned.
+Visible HTTP contradictions cannot be overridden by lower-priority identity hints. Backend connection
+pooling is represented by several request pairs referencing one backend TCP flow, never by merging flows.
+
+HTTP request dwell is ingress completion to backend first byte; response dwell is backend first response
+byte to frontend first response byte. Negative streaming intervals and unavailable clocks remain unknown.
+The waterfall follows request aliases within legs and explicit pairs across proxies, with separate TCP
+handshake timelines and local handshake handling intervals. Every bar carries uncertainty and original
+frame/content filters. SNI-only pairs describe visible TLS setup, not encrypted HTTP requests or their dwell.
+
+Reset propagation requires a unique request context, a bounded opposite-leg trigger and adequate
+coverage. A proxy-emitted reset without an observed trigger is a conditional origin observation; its cause
+stays unknown. Missing input resets at the proxy, ambiguous pooled contexts and unavailable clocks produce
+quality notes. TLS comparison first checks chain consistency within each leg, then compares paired proxy
+handshakes. A router/link change cannot be reassigned to an upstream proxy. Client-authentication chains
+are excluded; encrypted TLS 1.3, absent/truncated chains and uncertain associations remain unknown.
+Declared SSL inspection produces a quality observation instead of an undeclared interception alarm.
+
+The UI exposes proxy pair/dwell evidence, independent leg counters, decoder limitations and TLS status.
+JSON findings schema **4** adds `proxy_reset_originated`, `proxy_reset_propagated` and `tls_interception`.
+Offline HTML includes the same metadata and filters without external assets. Version 0.2.0 invalidates
+cached analysis reports; existing packet indexes can be reused and supplemented.
