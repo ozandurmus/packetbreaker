@@ -58,6 +58,15 @@ def test_independent_leg_clocks_never_imply_cross_proxy_timing(monkeypatch):
             assert uncertainty(models, pts[leg[0]], pts[leg[-1]]) is not None
         assert uncertainty(models, pts["a_in"], pts["a_out"]) is None
         assert uncertainty(models, pts["b_in"], pts["b_out"]) is None
+        from packetbreaker.topology import Override
+
+        corrected = topology.model_copy(update={"clock_overrides": {"r_in": Override(offset_ms=2000)}})
+        models = align(db, corrected)
+        assert models["r_in"].domain == models["client"].domain
+        assert models["r_in"].uncertainty is None
+        assert models["r_out"].uncertainty is None
+        assert models["r_out"].domain == models["client"].domain
+        assert uncertainty(models, pts["a_in"], pts["a_out"]) is None
     finally:
         db.close()
 

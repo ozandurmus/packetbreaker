@@ -252,6 +252,7 @@ def align(db, topology):
             None,
             "override",
             "User-supplied clock correction; uncertainty unverified",
+            domain=ref,
         )
     # Multiple passes permit an asymmetric return-path point to calibrate against any known point.
     for _ in range(len(order)):

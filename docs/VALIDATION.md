@@ -761,3 +761,17 @@ Python wheel/sdist builds pass. CI expects 356 passes plus the optional sample s
 Full PR matrix evidence: [PR #8 checks](https://github.com/ozandurmus/packetbreaker/pull/8/checks).
 This stable link tracks the final head's six-job matrix; the exact completed run URL is added to
 the PR validation section. Pushes retain the single macos-14/Python 3.12 job. No auto-merge is enabled.
+
+Initial PR run [38053124527](https://github.com/ozandurmus/packetbreaker/actions/runs/38053124527)
+passed all six fast suites and five complete jobs; its macos-14/Python 3.12 slow stage failed 13 of
+166 cases (153 passed, 391.68 s). All failures were the existing asymmetric realistic corpus:
+clock overrides for one-way points had no domain label, so otherwise matchable loss/SYN events were
+incorrectly classified unknown. User corrections now explicitly belong to the reference domain,
+while their uncertainty remains unverified and propagates as unverified. No assertion was weakened.
+A fast clock regression verifies both domain membership and that child fits do not invent verified
+uncertainty. The unchanged affected matrix passes locally: **17 passed in 70.51 s**. Final-head PR
+checks above contain the subsequent full six-job matrix.
+
+After the clock-override regression fix, the final local default run is **357 passed, 166 deselected
+in 109.03 s** (109.53 s wall, 107.40 s user, 41.55 s system), with no warnings. The final package
+build also succeeds. Test selection and all ground-truth assertions are unchanged.
