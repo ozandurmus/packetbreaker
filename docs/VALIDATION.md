@@ -775,3 +775,54 @@ checks above contain the subsequent full six-job matrix.
 After the clock-override regression fix, the final local default run is **357 passed, 166 deselected
 in 109.03 s** (109.53 s wall, 107.40 s user, 41.55 s system), with no warnings. The final package
 build also succeeds. Test selection and all ground-truth assertions are unchanged.
+
+## Phase 3 / Part 3 — packaging checkpoint
+
+Baseline: PR #8 merged at `82d3d94`; branch `phase3-part3`. Native build uses PyInstaller
+6.22.3, Python 3.12 and bundled frontend. The local arm64 executable is approximately 33 MiB;
+Windows/x86_64 validation belongs to the native CI jobs. `tests/test_api.py`: 3 passed in 2.88 s,
+including the health endpoint's loopback guard. Exact final binary smoke, complete fast suite
+and full nine-job PR run are recorded below after the remaining items.
+
+The first local packaging attempt could not write PyInstaller's user cache; the build helper
+now uses ignored `build/pyinstaller-cache`. The first smoke workload used only 30 rounds and
+therefore ended before the generator's loss onset; the workload now uses its standard 100 rounds.
+No detector assertion or synthetic ground truth was weakened.
+
+### Assistant checkpoint
+
+`tests/test_assistant.py` rejects preview access when disabled and rejects absent analyses.
+It checks canonical IPv6/case-insensitive hostname identity, IPv4/mapped IPv6, CIDR and URL/filter
+strings, dictionary keys, certificate CNs, single-label hostnames, immutable source input and
+unchanged metrics/schema. A TestClient guard prohibits socket connect/connect_ex, connection
+creation, DNS lookup and urllib requests while enabling, previewing and disabling the setting;
+foreign origins remain rejected. The ordinary API ingest test enables the setting before attach
+and proves UI-only preferences do not reach ingest. Assistant/API/export focused run: **8 passed
+in 9.46 s**. TypeScript and Vite build pass. No new test is marked slow.
+
+### Final local acceptance
+
+Default `pytest -q`: **360 passed, 166 deselected in 108.53 s** (109.00 s wall,
+109.69 s user, 40.66 s system), with no warnings. **526 total tests**, three new fast cases;
+none moved to slow. Ruff and TypeScript/Vite pass. The final arm64 one-file build succeeds.
+Its smoke verifies 10 recovered losses at `forward:p2:p3`, five captures, health/version,
+auto-detected external tshark, both bundled UI assets and local findings-only assistant preview.
+The separate wheel/sdist build and native Windows/x86_64 smokes are required gates below.
+
+The audit in `BRIEF_COVERAGE.md` is source/test evidence, not a claim that every original brief
+item is implemented. No RTP/DNS/window/microburst/flood/session-pressure feature was added.
+
+Wheel/sdist build succeeds with the installed build requirements (`--no-isolation` locally;
+CI uses an isolated build). Native UI manual check confirms disabled-by-default state, saved
+setting activation and rendered tokenized JSON. That check found a stale hardcoded version
+badge; the badge now reads the app state's version. The following stable link follows the
+final head's complete gate: [PR #9 acceptance and packaging checks](https://github.com/ozandurmus/packetbreaker/pull/9/checks).
+The exact completed Actions run is also linked in the PR close-out after all nine jobs succeed.
+
+The initial PR run [38076159014](https://github.com/ozandurmus/packetbreaker/actions/runs/38076159014)
+passed the Intel native smoke. Windows also completed the exact-loss/health/UI/assistant checks,
+but failed smoke cleanup: terminating only PyInstaller's bootloader parent left its server child
+holding `server.log` (WinError 32). Windows smoke now terminates that process tree, waits and
+asserts the loopback port is closed; it does not ignore cleanup failures. Failed server readiness
+also prints its log before temporary files are removed. The subsequent final-head checks above
+include this fix and the dynamic UI version badge.

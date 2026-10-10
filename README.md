@@ -3,7 +3,7 @@
 A local desktop web app for correlating packet captures along a traffic path.
 Attach captures, draw capture points, and inspect **which segment first loses an
 original packet**, how it is recovered, and the frame evidence supporting that
-conclusion. Runs offline after installation. Phase 2 / Parts 1–5: robust ingest, explainable onset detection, a path × time heatmap, translation-aware TCP matching, waterfalls, vendor inputs and offline exports. Later phases remain out of scope.
+conclusion. Runs offline after installation. Phase 2 / Parts 1–5: robust ingest, explainable onset detection, a path × time heatmap, translation-aware TCP matching, waterfalls, vendor inputs and offline exports. Phase 3 adds conservative path/security checks, request-level full-proxy correlation, TLS-chain comparison, native executables and a local AI placeholder. Remaining brief gaps are listed in [BRIEF_COVERAGE.md](docs/BRIEF_COVERAGE.md).
 
 ## Install on macOS (Intel or Apple Silicon)
 
@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.1.9-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.2.1-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -39,6 +39,44 @@ Use `py -3.11` instead if that is the installed version. Alternatively install t
 wheel using the virtual environment's Python. Activation and administrator
 privileges are not required to run PacketBreaker. It does not capture live traffic.
 Windows and Intel macOS are CI targets; local validation was on Apple Silicon.
+
+## Native executable (no Python or Node required)
+
+Download the `packetbreaker-native-macos-arm64`, `packetbreaker-native-macos-x86_64`
+or `packetbreaker-native-windows-x64` artifact from a successful PR/manual
+[Actions run](https://github.com/ozandurmus/packetbreaker/actions). Extract the
+artifact ZIP and then its contained `.tar.gz` or `.zip`. Each native archive
+contains one `packetbreaker` executable (Windows: `packetbreaker.exe`). Install
+Wireshark separately; tshark discovery and the Settings override are identical
+to the pip installation. Start the executable to open the local browser, or run:
+
+```sh
+./packetbreaker --project /path/to/case --no-browser
+./packetbreaker demo demo --confirm-demo-nat
+```
+
+On Windows use `.\packetbreaker.exe` in PowerShell. Stop the server with Ctrl+C.
+The one-file executable extracts its bundled runtime/UI into a temporary directory
+on launch; allow startup time and temporary disk space. It is a console executable,
+not a macOS `.app`, installer, service or updater.
+
+These builds have no Developer ID/notarization or Windows publisher signature.
+On macOS, try launching once, then use **System Settings → Privacy & Security →
+Open Anyway** for that executable if Gatekeeper blocks it, and confirm **Open**.
+The tar archive preserves execute permission; if needed run `chmod +x packetbreaker`.
+See [Apple's first-run instructions](https://support.apple.com/en-us/102445).
+On Windows, a SmartScreen **Windows protected your PC** prompt may offer **More
+info → Run anyway** after verifying the download source. If that option is
+unavailable under organization policy or Smart App Control, use the pip install
+or ask the administrator; do not disable those protections. See
+[Microsoft's unsigned-app guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
+PyInstaller's required local ad-hoc macOS signature does not identify a publisher.
+
+Build on each target OS/architecture (no cross-compilation): build the frontend,
+install `.[packaging]`, run `python tools/build_binary.py`, then
+`python tools/smoke_binary.py dist/binary/packetbreaker` (append `.exe` on Windows).
+The smoke test runs outside the checkout and checks health, bundled UI assets,
+auto-detected tshark and the five-file zero-ID synthetic loss analysis.
 
 ## First run
 
@@ -105,7 +143,7 @@ packetbreaker --project demo/project
 6. **Export HTML / Export JSON:** use the header buttons. HTML opens locally as a
    single file; its metric-selectable heatmap, onset markers and evidence filters
    work without the running app or Internet. JSON follows
-   [findings schema v3](docs/findings-v3.schema.json). Both export the complete
+   [findings schema v4](docs/findings-v4.schema.json). Both export the complete
    saved analysis window, independent of the current brush. Neither embeds packet
    payloads; addresses and filters are still sensitive investigation metadata.
 7. **Settings:** inspect clock estimates/calibration frames, then stop with Ctrl+C.
@@ -160,10 +198,9 @@ filters flow membership, findings and ladder packets without refitting the basel
 
 Declared full proxies stop packet-level attribution. Declared sequence randomizers
 learn session-specific offsets; inconsistent or insufficient evidence stays unknown.
-Fragment reassembly,
-tunnel decapsulation selection, additional vendor adapters,
-MTU/security attribution, packaging as native executables and the AI placeholder
-remain deferred beyond Parts 1–5. Positive device-drop classification awaits device-stage evidence.
+Fragment reassembly and selectable tunnel decapsulation remain unsupported. Vendor stage evidence,
+MTU/security observations, full-proxy request correlation, native packaging and the AI placeholder
+are described below. See the brief coverage audit for transport, security and UI gaps.
 
 ## Offline JSON / API
 
@@ -178,7 +215,7 @@ The internal analysis report schema (version 2) includes `window`, `clocks`, `qu
 `type`, `severity`, `hop`, `direction`, `time_range`, `confidence`, `metrics`, and
 `evidence` with file/frame/display-filter references. Report findings are capped
 at 200; event/flow/ladder APIs are paginated. The UI shows the top five findings.
-The separate `packetbreaker.findings` export schema is version 3 and exports all
+The separate `packetbreaker.findings` export schema is version 4 and exports all
 grouped findings, with `evidence_refs`, plus saved report metadata, buckets and
 per-file flow filters. `GET /api/export?format=html|json` returns a download;
 `GET /api/flows/{flow}/waterfall` returns the on-demand timeline.
@@ -210,7 +247,7 @@ instead of silently skipping packet tests. CI builds the UI, installs tshark,
 runs the fast suite on Windows and macOS (Intel/Apple Silicon), Python 3.11/3.12
 for PR/manual checks. Push checks remain macos-14/Python 3.12, fast only. The slow
 real-tshark matrices run only on PR/manual macos-14/Python 3.12. The repository is
-public; this review revision was pushed with `[skip ci]` at the user's request.
+public. PR/manual runs also build and smoke all three native packaging targets.
 
 `tools/benchmark.py` generates a configurable, synthetic multi-file workload and
 reports measured ingest/analysis times. Example:
@@ -457,3 +494,17 @@ TLS 1.3 certificates and encrypted HTTP request boundaries remain unknown. SNI-o
 labelled TLS setup and do not pretend to measure encrypted application requests. Export HTML/JSON from
 the existing buttons or `packetbreaker export --format html|json`; findings schema 4 includes proxy resets,
 TLS evidence, clock caveats and original/portable frame filters.
+
+## Ask an assistant (local placeholder)
+
+In **Settings**, enable **Ask an assistant placeholder**, then **Save settings**.
+In **Overview → Ask an assistant**, click **Preview redacted findings** after analysis.
+The setting is off by default and stored per project. This shows only versioned findings JSON;
+there is no provider, prompt submission, API key, telemetry or outbound connection.
+
+IP addresses, DNS hostnames and hostname/CN fields use consistent tokens per preview, including
+values inside evidence filters. Tokens reset for each preview; raw-to-token mappings are not
+returned or persisted. Metrics and finding structure remain visible. The preview is a snapshot;
+refresh it after analysis changes. It is not a complete anonymization of other metadata (such as
+local paths, device labels or organization names), and tokenized filters cannot be pasted into
+Wireshark. Original filters remain in the ordinary report. Nothing is sent or copied automatically.

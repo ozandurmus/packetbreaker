@@ -88,7 +88,7 @@ class FindingsExport(BaseModel):
     flow_filters: list[dict[str, Any]]
 
 
-def export_data(project):
+def export_data(project, *, findings_only=False):
     with project.connect() as db:
         report = project.get(db, "report")
         if not report:
@@ -98,36 +98,46 @@ def export_data(project):
             if report["finding_count"] > len(report["findings"]):
                 raise ValueError("Re-run analysis to export all findings from this older report")
             findings = report["findings"]
+        exported_findings = [
+            Finding(
+                **{
+                    k: f[k]
+                    for k in (
+                        "id",
+                        "type",
+                        "hop",
+                        "direction",
+                        "time_range",
+                        "metrics",
+                        "confidence",
+                        "severity",
+                        "summary",
+                        "cause",
+                    )
+                },
+                evidence_refs=f["evidence"],
+                tooltip=f.get("tooltip"),
+                device=f.get("device"),
+                evidence_stage=f.get("evidence_stage"),
+            )
+            for f in findings
+        ]
+        if findings_only:
+            return FindingsExport(
+                engine_version=report["engine_version"],
+                exported_at=datetime.now(timezone.utc).isoformat(),
+                findings=exported_findings,
+                report={},
+                timeseries={},
+                flow_filters=[],
+            ).model_dump(mode="json", include={"schema_name", "schema_version", "engine_version", "findings"})
         snapshot = dict(report)
         snapshot.pop("findings", None)
         snapshot["field_diffs"] = field_diffs(db, Topology.model_validate(project.get(db, "topology")))
         return FindingsExport(
             engine_version=report["engine_version"],
             exported_at=datetime.now(timezone.utc).isoformat(),
-            findings=[
-                Finding(
-                    **{
-                        k: f[k]
-                        for k in (
-                            "id",
-                            "type",
-                            "hop",
-                            "direction",
-                            "time_range",
-                            "metrics",
-                            "confidence",
-                            "severity",
-                            "summary",
-                            "cause",
-                        )
-                    },
-                    evidence_refs=f["evidence"],
-                    tooltip=f.get("tooltip"),
-                    device=f.get("device"),
-                    evidence_stage=f.get("evidence_stage"),
-                )
-                for f in findings
-            ],
+            findings=exported_findings,
             report=snapshot,
             timeseries={
                 **report["timeseries"],

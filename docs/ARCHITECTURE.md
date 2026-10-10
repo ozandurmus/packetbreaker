@@ -567,3 +567,37 @@ The UI exposes proxy pair/dwell evidence, independent leg counters, decoder limi
 JSON findings schema **4** adds `proxy_reset_originated`, `proxy_reset_propagated` and `tls_interception`.
 Offline HTML includes the same metadata and filters without external assets. Version 0.2.0 invalidates
 cached analysis reports; existing packet indexes can be reused and supplemented.
+
+## Phase 3 / Part 3 — native packaging
+
+`tools/build_binary.py` invokes pinned PyInstaller in one-file console mode on each native
+Windows x64 / macOS arm64 / macOS x86_64 runner. Package data includes the prebuilt UI and
+`tzdata`; uvicorn's dynamic backends are explicit. The frozen entry delegates to the ordinary
+CLI and clears bootloader library paths before starting external tshark. Wireshark remains an
+external installation with the same discovery/override logic as pip. There is no installer,
+updater, Developer ID, notarization or Windows publisher signing. macOS archives preserve mode bits.
+
+`GET /api/health` returns status/version under the existing loopback middleware. The binary
+smoke runs outside the checkout, generates five synthetic zero-ID loss captures, checks exact
+loss count/hop, starts with `--no-browser`, queries health/state/report and fetches every bundled
+UI asset, then terminates the server. Packaging runs on PR/manual events on all three native
+runners; the existing push and six-job acceptance policies remain intact.
+
+### Local assistant placeholder
+
+A per-project `assistant_enabled` preference defaults to false. The UI displays a disabled
+Ask an assistant panel; enabling the setting permits only `GET /api/assistant/preview` under
+loopback/same-origin checks. The UI-only preference is removed before ingest keyword dispatch.
+The existing versioned export builder's `findings_only` mode avoids loading report snapshots,
+field diffs, time series or raw packets. `assistant.py` recursively tokenizes IPs and DNS names,
+plus contextual single-label hostnames/CNs, with one ephemeral dictionary for the whole preview.
+Addresses are canonicalized, hostname tokens are case-insensitive, and evidence-filter identifiers
+are preserved. Neither a provider client nor credentials nor outbound connections exist.
+
+### Brief audit boundary
+
+`BRIEF_COVERAGE.md` maps the original brief item by item to source/test evidence and explicit
+partial/missing behavior. Counters/decoded fields do not count as implemented diagnoses.
+Transport gaps include RTP quality, DNS response-time metrics, receive-window causality,
+microbursts and flood/fan-out/session-pressure heuristics. Existing HTTP waterfalls are bounded
+visible HTTP/1.x measurements. No missing feature is implemented as part of this report.

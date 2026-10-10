@@ -11,6 +11,8 @@ HEADERS = {"X-PacketBreaker": "local"}
 def test_local_security_and_project_roundtrip(tmp_path):
     app = create_app(tmp_path / "project")
     with TestClient(app, base_url="http://127.0.0.1") as client:
+        assert client.get("/api/health").json()["status"] == "ok"
+        assert client.get("/api/health", headers={"Host": "evil.example"}).status_code == 403
         assert client.get("/api/state").status_code == 200
         assert client.get("/api/state", headers={"Host": "evil.example"}).status_code == 403
         assert client.get("/api/state", headers={"Origin": "https://evil.example"}).status_code == 403
@@ -43,6 +45,9 @@ def test_api_ingest_analysis_report(tmp_path):
                 time.sleep(0.1)
             raise AssertionError("Job did not complete")
 
+        assert (
+            client.post("/api/settings", headers=HEADERS, json={"assistant_enabled": True}).status_code == 200
+        )
         assert (
             client.post("/api/captures/attach", headers=HEADERS, json={"paths": truth["files"]}).status_code
             == 200

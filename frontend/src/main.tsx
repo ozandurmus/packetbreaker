@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { api, num, time, reverseTuple } from "./api";
 import { FieldDiff, type FieldDiffData } from "./FieldDiff";
 import { ProxyEvidence } from "./ProxyEvidence";
+import { Assistant } from "./Assistant";
 import { Waterfall } from "./Waterfall";
 import { Coverage, LadderChart } from "./Charts";
 import { TopologyEditor } from "./TopologyEditor";
@@ -207,6 +208,7 @@ function App() {
   const [parallelIngest, setParallelIngest] = useState(false);
   const [checkpointUuid, setCheckpointUuid] = useState(false);
   const [f5Trailer, setF5Trailer] = useState(false);
+  const [assistantEnabled, setAssistantEnabled] = useState(false);
   const [fortiPath, setFortiPath] = useState("");
   const [fortiStart, setFortiStart] = useState("");
   const [fortiDevice, setFortiDevice] = useState("FortiGate");
@@ -250,6 +252,7 @@ function App() {
     setParallelIngest(s.settings.parallel ?? false);
     setCheckpointUuid(s.settings.checkpoint_uuid ?? false);
     setF5Trailer(s.settings.f5_trailer ?? false);
+    setAssistantEnabled(s.settings.assistant_enabled ?? false);
   }
   const fail = (e: unknown) =>
     setError(e instanceof Error ? e.message : String(e));
@@ -451,7 +454,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 3 / PART 1 · v0.1.9</small>
+          <small>PHASE 3 / PART 3 · v{state.version}</small>
         </div>
       </aside>
       <main>
@@ -621,6 +624,11 @@ function App() {
           )}
           {tab === "Overview" && (
             <>
+              <Assistant
+                enabled={state.settings.assistant_enabled ?? false}
+                ready={!!report}
+                project={state.project}
+              />
               {!!report?.sequence_translations?.length && (
                 <section>
                   <h2>Sequence translations</h2>
@@ -1940,6 +1948,7 @@ function App() {
                         parallel: parallelIngest,
                         checkpoint_uuid: checkpointUuid,
                         f5_trailer: f5Trailer,
+                        assistant_enabled: assistantEnabled,
                       });
                       setNotice(
                         "Settings saved. Reattach files to apply a changed payload prefix.",
@@ -1950,6 +1959,14 @@ function App() {
                 >
                   Save settings
                 </button>
+                <label title="Enable a local redaction preview only; no assistant connection is implemented.">
+                  <input
+                    type="checkbox"
+                    checked={assistantEnabled}
+                    onChange={(e) => setAssistantEnabled(e.target.checked)}
+                  />
+                  Enable Ask an assistant placeholder (off by default)
+                </label>
               </section>
               <section>
                 <h2>Analysis window and thresholds</h2>
