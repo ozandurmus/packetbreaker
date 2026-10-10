@@ -495,3 +495,17 @@ TLS 1.3 certificates and encrypted HTTP request boundaries remain unknown. SNI-o
 labelled TLS setup and do not pretend to measure encrypted application requests. Export HTML/JSON from
 the existing buttons or `packetbreaker export --format html|json`; findings schema 4 includes proxy resets,
 TLS evidence, clock caveats and original/portable frame filters.
+
+## Ask an assistant (local placeholder)
+
+In **Settings**, enable **Ask an assistant placeholder**, then **Save settings**.
+In **Overview → Ask an assistant**, click **Preview redacted findings** after analysis.
+The setting is off by default and stored per project. This shows only versioned findings JSON;
+there is no provider, prompt submission, API key, telemetry or outbound connection.
+
+IP addresses, DNS hostnames and hostname/CN fields use consistent tokens per preview, including
+values inside evidence filters. Tokens reset for each preview; raw-to-token mappings are not
+returned or persisted. Metrics and finding structure remain visible. The preview is a snapshot;
+refresh it after analysis changes. It is not a complete anonymization of other metadata (such as
+local paths, device labels or organization names), and tokenized filters cannot be pasted into
+Wireshark. Original filters remain in the ordinary report. Nothing is sent or copied automatically.

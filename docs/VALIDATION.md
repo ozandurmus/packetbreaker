@@ -788,3 +788,14 @@ The first local packaging attempt could not write PyInstaller's user cache; the 
 now uses ignored `build/pyinstaller-cache`. The first smoke workload used only 30 rounds and
 therefore ended before the generator's loss onset; the workload now uses its standard 100 rounds.
 No detector assertion or synthetic ground truth was weakened.
+
+### Assistant checkpoint
+
+`tests/test_assistant.py` rejects preview access when disabled and rejects absent analyses.
+It checks canonical IPv6/case-insensitive hostname identity, IPv4/mapped IPv6, CIDR and URL/filter
+strings, dictionary keys, certificate CNs, single-label hostnames, immutable source input and
+unchanged metrics/schema. A TestClient guard prohibits socket connect/connect_ex, connection
+creation, DNS lookup and urllib requests while enabling, previewing and disabling the setting;
+foreign origins remain rejected. The ordinary API ingest test enables the setting before attach
+and proves UI-only preferences do not reach ingest. Assistant/API/export focused run: **8 passed
+in 9.46 s**. TypeScript and Vite build pass. No new test is marked slow.

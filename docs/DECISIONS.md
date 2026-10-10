@@ -365,3 +365,13 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   and smoke all native targets; archive before artifact upload to preserve macOS execute bits.
 - Unsigned first-run instructions are per executable. Do not disable Gatekeeper/SmartScreen or
   bypass organization policy. PyInstaller's ad-hoc macOS signature is not publisher signing.
+
+### Assistant placeholder
+
+- Keep the setting off by default and per project. Enabling it only unlocks a local preview;
+  no network/provider SDK, prompt execution, API keys or persisted identity dictionary.
+- Reuse findings schema 4 and the existing export validation. Do not include packets, report
+  snapshots, topology, field diffs or time series in the preview. Preserve metrics and tokenize
+  sensitive address/hostname occurrences in nested fields and filter strings consistently.
+- This preview is not complete anonymization. Local paths, organizations and arbitrary free-text
+  single-label names can remain identifying. Do not offer a send action or automatically copy it.

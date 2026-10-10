@@ -346,6 +346,7 @@ export type State = {
     files: { interface: string; packets: number; clock_confidence: string }[];
   };
   settings: {
+    assistant_enabled?: boolean;
     checkpoint_uuid?: boolean;
     f5_trailer?: boolean;
     tshark?: string;

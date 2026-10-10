@@ -28,6 +28,7 @@ class Attach(BaseModel):
 
 
 class Settings(BaseModel):
+    assistant_enabled: bool = False
     f5_trailer: bool = False
     checkpoint_uuid: bool = False
     parallel: bool = False
@@ -166,10 +167,21 @@ def create_app(project_path):
             project.set(db, "preferences", body.model_dump())
         return body
 
+    @app.get("/api/assistant/preview")
+    def assistant_preview():
+        with project.connect() as db:
+            enabled = project.get(db, "preferences", {}).get("assistant_enabled", False)
+        if not enabled:
+            raise HTTPException(403, "Assistant placeholder is disabled in Settings")
+        from .assistant import preview
+
+        return preview(project)
+
     def ingest_files(paths, f5_trailer=None):
         paths = normalize_paths(paths)
         with project.connect() as db:
             preferences = project.get(db, "preferences", {})
+        preferences.pop("assistant_enabled", None)
         if f5_trailer is not None:
             preferences["f5_trailer"] = f5_trailer
         with jobs.lock:

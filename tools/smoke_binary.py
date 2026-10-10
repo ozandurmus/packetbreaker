@@ -8,7 +8,7 @@ import socket
 import subprocess
 import tempfile
 import time
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 
 def main():
@@ -78,6 +78,20 @@ def main():
                         assert response.status == 200 and len(response.read()) > 100
                 with urlopen(base + "/api/report", timeout=10) as response:
                     assert json.load(response)["verdict"] == report["verdict"]
+                with urlopen(
+                    Request(
+                        base + "/api/settings",
+                        data=b'{"assistant_enabled":true}',
+                        headers={"Content-Type": "application/json", "X-PacketBreaker": "local"},
+                        method="POST",
+                    ),
+                    timeout=10,
+                ) as response:
+                    assert json.load(response)["assistant_enabled"]
+                with urlopen(base + "/api/assistant/preview", timeout=10) as response:
+                    preview = json.load(response)
+                assert preview["schema_name"] == "packetbreaker.findings" and preview["findings"]
+                assert set(preview) == {"schema_name", "schema_version", "engine_version", "findings"}
             finally:
                 process.terminate()
                 try:

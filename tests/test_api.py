@@ -46,6 +46,9 @@ def test_api_ingest_analysis_report(tmp_path):
             raise AssertionError("Job did not complete")
 
         assert (
+            client.post("/api/settings", headers=HEADERS, json={"assistant_enabled": True}).status_code == 200
+        )
+        assert (
             client.post("/api/captures/attach", headers=HEADERS, json={"paths": truth["files"]}).status_code
             == 200
         )

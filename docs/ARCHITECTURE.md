@@ -582,3 +582,14 @@ smoke runs outside the checkout, generates five synthetic zero-ID loss captures,
 loss count/hop, starts with `--no-browser`, queries health/state/report and fetches every bundled
 UI asset, then terminates the server. Packaging runs on PR/manual events on all three native
 runners; the existing push and six-job acceptance policies remain intact.
+
+### Local assistant placeholder
+
+A per-project `assistant_enabled` preference defaults to false. The UI displays a disabled
+Ask an assistant panel; enabling the setting permits only `GET /api/assistant/preview` under
+loopback/same-origin checks. The UI-only preference is removed before ingest keyword dispatch.
+The existing versioned export builder's `findings_only` mode avoids loading report snapshots,
+field diffs, time series or raw packets. `assistant.py` recursively tokenizes IPs and DNS names,
+plus contextual single-label hostnames/CNs, with one ephemeral dictionary for the whole preview.
+Addresses are canonicalized, hostname tokens are case-insensitive, and evidence-filter identifiers
+are preserved. Neither a provider client nor credentials nor outbound connections exist.

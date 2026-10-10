@@ -961,3 +961,9 @@ footer span:last-child {
   border: 2px solid #b64c45;
   background: #fff3ef;
 }
+:root .assistant-preview {
+  max-height: 28rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
