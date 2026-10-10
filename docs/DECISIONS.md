@@ -354,3 +354,14 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 - Keep every new fixture in the fast suite. Reuse the original tiny multi-interface corpus across test
   cases and overlap independent synthetic preparations; this changes neither production ingest defaults
   nor test selection. Do not add a test runner dependency or move these tests into the slow matrix.
+
+## Phase 3 / Part 3 — packaging
+
+- Reuse the CLI, app and tshark discovery in a single-file console executable. Bundle the UI
+  and timezone database; do not redistribute Wireshark or create a second ingest implementation.
+- Build natively on three runners rather than cross-compile or require universal native wheels.
+  Pin PyInstaller 6.22.3; keep its cache in the ignored build directory.
+- Keep packaging off push events to preserve the single cheap push check. PR/manual jobs build
+  and smoke all native targets; archive before artifact upload to preserve macOS execute bits.
+- Unsigned first-run instructions are per executable. Do not disable Gatekeeper/SmartScreen or
+  bypass organization policy. PyInstaller's ad-hoc macOS signature is not publisher signing.

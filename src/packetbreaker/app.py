@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import __version__
 from .field_diff import packet_diff
 from .waterfall import waterfall
 from .export import export_report
@@ -122,6 +123,10 @@ def create_app(project_path):
     def idle():
         if jobs.status.get("busy"):
             raise HTTPException(409, "A job is running; wait or cancel ingestion first")
+
+    @app.get("/api/health")
+    def health():
+        return {"status": "ok", "version": __version__}
 
     @app.get("/api/state")
     def state():

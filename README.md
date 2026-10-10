@@ -40,6 +40,44 @@ wheel using the virtual environment's Python. Activation and administrator
 privileges are not required to run PacketBreaker. It does not capture live traffic.
 Windows and Intel macOS are CI targets; local validation was on Apple Silicon.
 
+## Native executable (no Python or Node required)
+
+Download the `packetbreaker-native-macos-arm64`, `packetbreaker-native-macos-x86_64`
+or `packetbreaker-native-windows-x64` artifact from a successful PR/manual
+[Actions run](https://github.com/ozandurmus/packetbreaker/actions). Extract the
+artifact ZIP and then its contained `.tar.gz` or `.zip`. Each native archive
+contains one `packetbreaker` executable (Windows: `packetbreaker.exe`). Install
+Wireshark separately; tshark discovery and the Settings override are identical
+to the pip installation. Start the executable to open the local browser, or run:
+
+```sh
+./packetbreaker --project /path/to/case --no-browser
+./packetbreaker demo demo --confirm-demo-nat
+```
+
+On Windows use `.\packetbreaker.exe` in PowerShell. Stop the server with Ctrl+C.
+The one-file executable extracts its bundled runtime/UI into a temporary directory
+on launch; allow startup time and temporary disk space. It is a console executable,
+not a macOS `.app`, installer, service or updater.
+
+These builds have no Developer ID/notarization or Windows publisher signature.
+On macOS, try launching once, then use **System Settings → Privacy & Security →
+Open Anyway** for that executable if Gatekeeper blocks it, and confirm **Open**.
+The tar archive preserves execute permission; if needed run `chmod +x packetbreaker`.
+See [Apple's first-run instructions](https://support.apple.com/en-us/102445).
+On Windows, a SmartScreen **Windows protected your PC** prompt may offer **More
+info → Run anyway** after verifying the download source. If that option is
+unavailable under organization policy or Smart App Control, use the pip install
+or ask the administrator; do not disable those protections. See
+[Microsoft's unsigned-app guidance](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
+PyInstaller's required local ad-hoc macOS signature does not identify a publisher.
+
+Build on each target OS/architecture (no cross-compilation): build the frontend,
+install `.[packaging]`, run `python tools/build_binary.py`, then
+`python tools/smoke_binary.py dist/binary/packetbreaker` (append `.exe` on Windows).
+The smoke test runs outside the checkout and checks health, bundled UI assets,
+auto-detected tshark and the five-file zero-ID synthetic loss analysis.
+
 ## First run
 
 `packetbreaker` opens `http://127.0.0.1:8765` and uses `~/PacketBreaker/default`.

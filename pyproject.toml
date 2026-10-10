@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "packetbreaker"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local, evidence-first multi-hop packet capture correlation"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["duckdb>=1.2,<2", "psutil>=7,<8", "tzdata>=2025.2", "fastapi>=0.143,<1", "uvicorn>=0.34,<1", "python-multipart>=0.0.20,<1"]
 
 [project.optional-dependencies]
+packaging = ["pyinstaller==6.22.3"]
 benchmark = ["dpkt==1.9.8"]
 test = ["pytest>=8,<10", "httpx2>=2.13,<3", "starlette>=1.7,<2", "build>=1.2,<2", "ruff>=0.11,<1"]
 

@@ -775,3 +775,16 @@ checks above contain the subsequent full six-job matrix.
 After the clock-override regression fix, the final local default run is **357 passed, 166 deselected
 in 109.03 s** (109.53 s wall, 107.40 s user, 41.55 s system), with no warnings. The final package
 build also succeeds. Test selection and all ground-truth assertions are unchanged.
+
+## Phase 3 / Part 3 — packaging checkpoint
+
+Baseline: PR #8 merged at `82d3d94`; branch `phase3-part3`. Native build uses PyInstaller
+6.22.3, Python 3.12 and bundled frontend. The local arm64 executable is approximately 33 MiB;
+Windows/x86_64 validation belongs to the native CI jobs. `tests/test_api.py`: 3 passed in 2.88 s,
+including the health endpoint's loopback guard. Exact final binary smoke, complete fast suite
+and full nine-job PR run are recorded below after the remaining items.
+
+The first local packaging attempt could not write PyInstaller's user cache; the build helper
+now uses ignored `build/pyinstaller-cache`. The first smoke workload used only 30 rounds and
+therefore ended before the generator's loss onset; the workload now uses its standard 100 rounds.
+No detector assertion or synthetic ground truth was weakened.

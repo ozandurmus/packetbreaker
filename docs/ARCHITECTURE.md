@@ -567,3 +567,18 @@ The UI exposes proxy pair/dwell evidence, independent leg counters, decoder limi
 JSON findings schema **4** adds `proxy_reset_originated`, `proxy_reset_propagated` and `tls_interception`.
 Offline HTML includes the same metadata and filters without external assets. Version 0.2.0 invalidates
 cached analysis reports; existing packet indexes can be reused and supplemented.
+
+## Phase 3 / Part 3 — native packaging
+
+`tools/build_binary.py` invokes pinned PyInstaller in one-file console mode on each native
+Windows x64 / macOS arm64 / macOS x86_64 runner. Package data includes the prebuilt UI and
+`tzdata`; uvicorn's dynamic backends are explicit. The frozen entry delegates to the ordinary
+CLI and clears bootloader library paths before starting external tshark. Wireshark remains an
+external installation with the same discovery/override logic as pip. There is no installer,
+updater, Developer ID, notarization or Windows publisher signing. macOS archives preserve mode bits.
+
+`GET /api/health` returns status/version under the existing loopback middleware. The binary
+smoke runs outside the checkout, generates five synthetic zero-ID loss captures, checks exact
+loss count/hop, starts with `--no-browser`, queries health/state/report and fetches every bundled
+UI asset, then terminates the server. Packaging runs on PR/manual events on all three native
+runners; the existing push and six-job acceptance policies remain intact.
