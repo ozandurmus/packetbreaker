@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import socket
@@ -92,13 +93,33 @@ def main():
                     preview = json.load(response)
                 assert preview["schema_name"] == "packetbreaker.findings" and preview["findings"]
                 assert set(preview) == {"schema_name", "schema_version", "engine_version", "findings"}
+            except BaseException:
+                log.flush()
+                print((scratch / "server.log").read_text(encoding="utf-8", errors="replace"))
+                raise
             finally:
-                process.terminate()
+                if os.name == "nt" and process.poll() is None:
+                    # One-file Windows has a bootloader parent and a server child.
+                    # Terminating only the parent leaves the child holding the project/log.
+                    subprocess.run(
+                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                        check=True,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.STDOUT,
+                        timeout=15,
+                    )
+                elif process.poll() is None:
+                    process.terminate()
                 try:
                     process.wait(timeout=15)
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=10)
+                with socket.socket() as sock:
+                    sock.settimeout(1)
+                    assert sock.connect_ex(("127.0.0.1", port)) != 0, (
+                        "Frozen server still listening after exit"
+                    )
         print(
             json.dumps(
                 {

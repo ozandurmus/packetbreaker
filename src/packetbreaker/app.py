@@ -141,6 +141,7 @@ def create_app(project_path):
         except ValueError as exc:
             tshark = dict(path=None, error=str(exc))
         return dict(
+            version=__version__,
             project=str(project.path),
             captures=project.inventory(),
             topology=topology,

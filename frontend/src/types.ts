@@ -335,6 +335,7 @@ export type Job = {
   error?: string;
 };
 export type State = {
+  version: string;
   project: string;
   captures: Capture[];
   topology: Topology;

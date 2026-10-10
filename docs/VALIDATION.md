@@ -811,3 +811,18 @@ The separate wheel/sdist build and native Windows/x86_64 smokes are required gat
 
 The audit in `BRIEF_COVERAGE.md` is source/test evidence, not a claim that every original brief
 item is implemented. No RTP/DNS/window/microburst/flood/session-pressure feature was added.
+
+Wheel/sdist build succeeds with the installed build requirements (`--no-isolation` locally;
+CI uses an isolated build). Native UI manual check confirms disabled-by-default state, saved
+setting activation and rendered tokenized JSON. That check found a stale hardcoded version
+badge; the badge now reads the app state's version. The following stable link follows the
+final head's complete gate: [PR #9 acceptance and packaging checks](https://github.com/ozandurmus/packetbreaker/pull/9/checks).
+The exact completed Actions run is also linked in the PR close-out after all nine jobs succeed.
+
+The initial PR run [38076159014](https://github.com/ozandurmus/packetbreaker/actions/runs/38076159014)
+passed the Intel native smoke. Windows also completed the exact-loss/health/UI/assistant checks,
+but failed smoke cleanup: terminating only PyInstaller's bootloader parent left its server child
+holding `server.log` (WinError 32). Windows smoke now terminates that process tree, waits and
+asserts the loopback port is closed; it does not ignore cleanup failures. Failed server readiness
+also prints its log before temporary files are removed. The subsequent final-head checks above
+include this fix and the dynamic UI version badge.
