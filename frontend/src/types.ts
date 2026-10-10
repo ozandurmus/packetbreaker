@@ -35,6 +35,7 @@ export type Point = {
   vendor_interface?: string | null;
   inspection_complete?: boolean;
   source_cidr: string | null;
+  payload_transform?: "none" | "proxy" | "alg" | "ssl_inspection";
   translation: string;
   x: number;
   y: number;
@@ -109,6 +110,7 @@ export type Finding = {
   summary: string;
   evidence: Ref[];
   evidence_note: string;
+  tooltip?: string;
   metrics: Record<string, number>;
 };
 export type Segment = {

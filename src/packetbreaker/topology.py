@@ -23,6 +23,7 @@ class Point(BaseModel):
     inspection_complete: bool = False
     source_cidr: str | None = None
     translation: Literal["none", "nat", "full_proxy", "seq_randomization"] = "none"
+    payload_transform: Literal["none", "proxy", "alg", "ssl_inspection"] = "none"
     x: float = 0
     y: float = 0
 

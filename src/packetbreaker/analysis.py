@@ -8,6 +8,7 @@ from .device_drops import prepare_proofs, upgrade_events, finding_context, add_u
 from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions, propagate_translation_unknown
 from .ingest import tuple_id
 from .headlines import add_headlines
+from .integrity import analyze_integrity, link_modified_payloads
 from .evidence import evidence, prepare_flow_filters
 from .store import rows
 from .topology import Topology
@@ -335,6 +336,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         progress(state="aligning clocks")
         models = align(db, topology)
         match_occurrences(db, topology)
+        link_modified_payloads(db, topology, models)
         link_tcp_sessions(db, topology)
         propagate_translation_unknown(db)
         byte_active = prepare_byte_ranges(db, topology)
@@ -809,6 +811,11 @@ def analyze(project, topology: Topology | dict, progress=None):
         time_window = dict(start=start, end=end, common_start=common_start, common_end=common_end)
         timeseries = build_timeseries(db, topology, segments, coverage, time_window)
         onsets = add_onsets(db, topology, segments)
+        integrity_findings, integrity_notes = analyze_integrity(
+            db, topology, segments, coverage, models, start, end
+        )
+        findings.extend(integrity_findings)
+        findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         total_findings = len(findings)
         order_scores = rows(
             db,
@@ -827,6 +834,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         )
         report = dict(
             schema_version=2,
+            integrity_notes=integrity_notes,
             f5=f5_report(db, topology),
             **device_report(db),
             sequence_translations=sequence_report(db),
@@ -835,7 +843,9 @@ def analyze(project, topology: Topology | dict, progress=None):
             onsets=onsets,
             engine_version=__version__,
             generated_at=datetime.now(timezone.utc).isoformat(),
-            verdict="Confirmed device drops observed"
+            verdict="Path integrity findings observed"
+            if any(f["confidence"] == "supported" and f["severity"] != "quality" for f in integrity_findings)
+            else "Confirmed device drops observed"
             if any(f["type"] == "confirmed_device_drop" for f in findings)
             else "Impactful loss observed"
             if any(f["type"] == "impactful_loss" for f in findings)
@@ -848,7 +858,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 2 / Part 5; vendor-stage evidence, translation-aware matching, onset, waterfall and offline export",
+            scope="Phase 3 / Part 1; path integrity, security evidence, translation-aware matching and export",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,
@@ -1023,4 +1033,11 @@ def findings_page(project, start=None, end=None):
                     "evidence": evidence(db, "o.packet_key IN (?,?,?)", list(event)),
                 }
             )
+        items.extend(
+            f
+            for f in (project.get(db, "export_findings") or [])
+            if f["id"].startswith("integrity:")
+            and (start is None or f["time_range"][1] >= start)
+            and (end is None or f["time_range"][0] < end)
+        )
         return dict(items=items)

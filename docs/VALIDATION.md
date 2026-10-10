@@ -633,3 +633,76 @@ explicitly gitignored. No live capture or real-device commands were executed.
 retain the authoritative cross-platform results; the exact final full-matrix run
 is recorded in the PR close-out. The push/PR/manual matrix policy is unchanged,
 and auto-merge remains disabled.
+
+## Phase 3 / Part 1 — path integrity (0.1.8)
+
+Item 1: field-diff and export focused tests: 4 passed (6.63 s). UI TypeScript/Vite build passes.
+The hash test changes bytes beyond the retained matching prefix and checks truncation uncertainty.
+
+
+Local default run before the adjacent-repeat stress addition: **120 passed, 166 deselected in 98.19 s** (98.71 s wall),
+below the two-minute gate. Final collection: **287 tests**, 11 more than Part 5;
+all new tests are fast. CI omits the optional local Check Point sample: 120 fast
+passes plus one skip are expected per job. The existing 166-test real-tshark slow
+matrix remains exclusive to macos-14 / Python 3.12 on PR/manual events.
+
+Ground-truth fixtures identify the Firewall for injected RST, MTU black hole,
+MSS clamping, option stripping, DSCP remark, payload change and TTL deviation;
+asymmetric return and pure capture-miss fixtures pass. Zero IPv4 ID and
+constant-flow-label IPv6 mutations pass. Declared ALG and uncertain-clock tests
+prevent unsupported modification/injection claims. A changed-but-observed payload
+is explicitly checked not to become network loss. Existing matrix assertions
+continue to compare loss ground truth separately from new quality annotations.
+
+Ruff, TypeScript/Vite and wheel/sdist builds pass. A local browser check opened a
+modified packet in the flow ladder: only the Firewall comparison changed its full
+payload hash, with evidence controls. Offline exports retain the no-external-assets
+and escaping tests. No real capture was copied or tracked.
+
+Performance: an initial 118-test run took 126.15 s. Profiling isolated repeated
+optional-pandas import probes during bucket cell insertion; typed JSON bulk writes
+reduced the same healthy analysis from 2.925 s to 0.731 s. A subsequent 118-test run
+took 88.87 s; the 120-test result above includes zero-ID/IPv6 coverage and the
+normal endpoint-origin annotation tests. No tests were moved to slow to meet the gate.
+
+[Part 1 CI runs](https://github.com/ozandurmus/packetbreaker/actions?query=branch%3Aphase3-part1)
+are authoritative for the full matrix; the exact final run is recorded in the PR
+close-out. Push remains macos-14 / Python 3.12 only. PR/manual remain all three OSes
+by both Python versions. Auto-merge remains disabled.
+
+
+Final scale review replaced all-pairs duplicate scans with adjacent-observation windows and
+reduced asymmetry evidence to one representative per flow before joining. The 20,000-observation
+stress test verifies adjacent duplicate evidence, falling-TTL evidence and the SPAN threshold.
+Focused integrity plus legacy SPAN checks: 9 passed in 9.91 s. This adds one fast test; the final
+full-head default duration and exact CI run are recorded in the PR close-out.
+
+## PR #6 review fixes — 0.1.9
+
+The pre-fix detector module from `f30f710` was loaded in an isolated test process against the
+new generated fixtures and assertions (without editing the checkout's production module):
+**48 failed, 60 passed**. The same 108 parametrized attribution/guard cases pass after the fix.
+
+| New case that failed before the fix | Failures (four address/ID variants) | Correction |
+|---|---:|---|
+| RST, MTU, MSS, option stripping and DSCP at the FW–LB link | 20 | Explicit link location; never substitute the upstream device name |
+| Payload change at the FW–LB link | 4 | Correlate and report unique payload changes across links |
+| Asymmetric return at FW, LB or the link | 12 | Consolidate device bypasses and identify edge-only detours |
+| Legitimate server RST missing at server and LB server-side point | 4 | Compare endpoint TTL at the first-observation point; capture miss remains possible |
+| No server-side endpoint capture | 4 | First middlebox is not an endpoint; `no endpoint-side capture` |
+| Equal-TTL middlebox RST without endpoint-side capture | 4 | Withhold injection attribution despite TTL/first-observation appearance |
+
+The single server-point RST capture miss, equal-raw-TTL injection with sufficient first-appearance
+evidence, and MTU-sized packets reappearing downstream already passed; these remain mandatory
+regression guards. The positive FW/LB cases also already passed, while the old single-device
+fixtures could not establish that fact.
+
+Local default: **225 passed, 166 deselected in 106.03 s** (106.56 s wall). Total collection:
+**391 tests**. The matrix adds 108 fast cases and replaces four weaker standalone cases.
+An initial full run took 139.73 s; indexing payload pairs once and isolating altered-topology
+views with synthetic database snapshots removed duplicate computation and unnecessary restores.
+All new cases remain in the default suite. CI expects 224 fast passes plus one optional local
+sample skip on each job, and all 166 slow cases on macos-14 / Python 3.12 only.
+
+No real captures were added. Full final-head CI results and the exact run URL are recorded in
+PR #6's review-fix close-out; the existing push/PR/manual matrix policy is unchanged.

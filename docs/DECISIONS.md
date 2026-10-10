@@ -267,3 +267,64 @@ Normal packet dissection bypasses vendor-dictionary work when no vendor markers
 exist. F5/HTTP fields are requested only in the explicit F5 ingest mode; generic
 pcaps keep the lightweight field projection. Three-worker fixture preparation did
 not help locally, so the existing two-worker resource-bounded setting is retained; production serial defaults and the CI matrix policy are unchanged.
+
+## Phase 3 origin attribution
+
+First appearance is ordered by the configured path, not raw timestamps. Device-origin findings
+require an ingress/egress pair of the same node and bracketed coverage, reliable clocks and
+endpoint references. TTL and IP ID are corroborating observations, never authentication.
+Constant/zero IDs and IPv6 have no usable IP-ID fingerprint. Missing references remain unknown;
+policy/IPS intent is unknown unless vendor evidence explains the reset. Findings schema v3 adds
+path-integrity classes and tooltips without putting them in loss-rate numerators.
+
+Payload modification uses unique canonical tuple/SEQ/ACK/flags/length pairs inside the matching
+window, including candidates whose changed prefix prevented ordinary matching. Both payloads
+must be complete. Repeated ambiguous identities and offload splits are not compared. Users can
+declare proxy/ALG/SSL inspection in the path editor; these nodes are exempt from unexpected
+payload-modification findings. A downstream-only observation remains origin-unknown because
+absence alone cannot distinguish injection from capture loss.
+
+Path checks compare matched observations: DSCP remarking, MSS reduction, SACK/window-scale/
+timestamp removal and unexpected TTL steps. A falling-TTL repeat is a loop/duplication hypothesis,
+not proof. Microsecond-identical SPAN copies remain capture-quality findings; later exact repeats
+remain cause-unknown. Asymmetric routing requires an explicitly different return path and
+same-flow return evidence there; it does not blame a device for traffic it was never meant to see.
+
+The integrity extension initially pushed the fast suite beyond two minutes. Candidate and field
+change queries are now grouped across path edges, and checks with no relevant observed fields
+are skipped using a single aggregate. Existing tests remain in their fast/slow suites; no new
+integrity test is marked slow. Synthetic fixtures share one multi-flow capture set for the
+independent mutation cases. Payload re-linking is explicitly tested not to create false loss.
+
+Profiling identified a pre-existing bucket-write cost: DuckDB repeatedly probes the absent
+optional pandas module during Python cell binding (23,338 probes in one healthy analysis).
+Typed JSON bulk insertion replaces `executemany` for bucket records without adding pandas or
+changing metric/null types. The same saved synthetic healthy analysis fell from 2.925 s to
+0.731 s in the local probe. Coverage, bucket metrics and onset tests remain the acceptance gate.
+
+
+Duplicate/loop candidates use window `lag` over each identity and compare adjacent observations;
+they never form all pairs of a long constant-ID stream. Asymmetry selects the first observed
+forward/return frame per flow before pairing, avoiding a many-to-many evidence join. These bounds
+are independent of the number of identical retransmissions and do not turn repeats into losses.
+
+### PR #6 review: adversarial attribution fixtures
+
+A one-middlebox fixture cannot reject a detector that always names that middlebox. The new
+fixtures contain Client -> FW ingress/egress -> LB ingress/egress -> Server, with a distinct
+pcapng interface for each point and a separate alternate return interface where needed.
+Each case/location uses a distinct TCP tuple. Assertions identify the case by its evidence
+filters, require the exact hop/device (or explicit link with no device), and reject supported
+attribution to any other device for that same case. Sharing indexed fixtures avoids redundant
+tshark launches; it does not share expected answers with the detector. The common synthetic
+clock is exact; independent-clock behavior remains covered by the existing tests.
+
+All seven requested cases run at FW, LB and their connecting link, under IPv4/IPv6 with
+zero/constant IDs. Negative controls include a server capture miss, an additional server+LB-side
+capture gap that fooled the old detector, no endpoint-side capture, equal raw TTL with and without
+sufficient first-appearance evidence, and a pure MTU-sized capture miss. Four weaker standalone
+acceptance cases were replaced by this matrix; no new test was marked slow.
+
+Reset attribution remains conservative: consistent endpoint TTL at the candidate's observation
+point is compatible with a missed endpoint packet. Unknown endpoint identity/coverage cannot
+become a device claim merely because a RST first appears on a device-adjacent capture.

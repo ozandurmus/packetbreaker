@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.1.7-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.1.9-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -105,7 +105,7 @@ packetbreaker --project demo/project
 6. **Export HTML / Export JSON:** use the header buttons. HTML opens locally as a
    single file; its metric-selectable heatmap, onset markers and evidence filters
    work without the running app or Internet. JSON follows
-   [findings schema v2](docs/findings-v2.schema.json). Both export the complete
+   [findings schema v3](docs/findings-v3.schema.json). Both export the complete
    saved analysis window, independent of the current brush. Neither embeds packet
    payloads; addresses and filters are still sensitive investigation metadata.
 7. **Settings:** inspect clock estimates/calibration frames, then stop with Ctrl+C.
@@ -178,7 +178,7 @@ The internal analysis report schema (version 2) includes `window`, `clocks`, `qu
 `type`, `severity`, `hop`, `direction`, `time_range`, `confidence`, `metrics`, and
 `evidence` with file/frame/display-filter references. Report findings are capped
 at 200; event/flow/ladder APIs are paginated. The UI shows the top five findings.
-The separate `packetbreaker.findings` export schema is version 2 and exports all
+The separate `packetbreaker.findings` export schema is version 3 and exports all
 grouped findings, with `evidence_refs`, plus saved report metadata, buckets and
 per-file flow filters. `GET /api/export?format=html|json` returns a download;
 `GET /api/flows/{flow}/waterfall` returns the on-demand timeline.
@@ -404,3 +404,34 @@ the overview's vendor audit samples at most 200 references.
 The optional Wireshark sample `demo/samples/fw1_mon2018.cap` remains gitignored.
 `pytest tests/test_checkpoint.py::test_local_fw1_sample -q` runs only if it exists
 and is skipped in CI. All required adapter fixtures are generated synthetically.
+
+
+## Path integrity (0.1.8)
+
+In **Flows**, select a stream and click **Field diff** beside a packet. The table compares raw
+addresses/ports, TTL or hop limit, DSCP, MSS, window scale, SACK/timestamps, sequence offset,
+payload SHA-256 and IPv4 ID across matched points. Each comparison opens its frame/content/flow
+filters. IPv6 has no IPv4 ID; unavailable fields and incomplete payloads remain unknown.
+HTML and JSON exports include a bounded sample distributed across segments with the same tables
+and filters. The stream API can inspect another selected occurrence on demand.
+
+The overview adds reset/ICMP origin evidence, downstream-only observations, unexpected payload
+changes, size-selective MTU/PMTUD patterns, MSS clamping, TTL deviations, option stripping,
+DSCP remarking, asymmetric return paths and capture/duplication observations. Hover a finding
+for its rule and limitations, then open its evidence. A first appearance is conditional on
+capture coverage; TTL/IP ID patterns never authenticate a sender. MTU is a hypothesis unless
+additional device evidence establishes the cause. Unreported capture loss can mimic disappearance
+or injection. These checks do not inflate loss percentages or nominate a device from TTL alone.
+
+Declare **Payload transformation** (proxy, ALG or SSL inspection) in the path editor when
+expected. Full proxies still have no end-to-end packet identity; their field comparisons remain
+unknown. This part does not implement TLS decryption or general full-proxy request correlation.
+Reattach older capture indexes once to populate schema-6 path fields. Real captures remain local.
+
+
+PR #6 attribution hardening (0.1.9): identify capture endpoints as **Client** / **Server**
+in the path editor. A middlebox at the beginning of a path is not an endpoint capture;
+reset origin stays unknown with `no endpoint-side capture`. A server-compatible TTL pattern
+at the first observation also leaves capture miss unresolved. Links are explicitly named
+(e.g. `link between FW egress and LB ingress`) with no device assignment. Updating from
+0.1.8 invalidates the old analysis report; run **Analyze path** again.

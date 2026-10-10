@@ -43,6 +43,8 @@ def content_filter(packet):
         for field, key in (("icmp.type", "icmp_type"), ("icmp.ident", "icmp_id"), ("icmp.seq", "icmp_seq")):
             if packet[key] is not None:
                 result += f" && {field} == {packet[key]}"
+    elif packet["proto"] == "ICMPv6" and packet["icmp_type"] is not None:
+        result += f" && icmpv6.type == {packet['icmp_type']}"
     return result
 
 

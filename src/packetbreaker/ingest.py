@@ -26,10 +26,14 @@ ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstpor
  tcp.analysis.retransmission tcp.analysis.fast_retransmission tcp.analysis.spurious_retransmission
  tcp.analysis.out_of_order tcp.analysis.ack_lost_segment tcp.analysis.zero_window tcp.analysis.ack_rtt
  ip.flags.mf ip.frag_offset ipv6.fraghdr.offset ipv6.fraghdr.more frame.protocols frame.md5_hash dns.id dns.flags.response""".split()
+PATH_FIELDS = """ipv6.tclass.dscp tcp.options tcp.options.wscale.shift tcp.options.sack_perm
+ tcp.options.timestamp.tsval tcp.options.timestamp.tsecr ip.flags.df icmp.code icmp.mtu
+ icmpv6.code icmpv6.mtu""".split()
+FIELDS += PATH_FIELDS
 BASE_FIELDS = FIELDS.copy()
 FIELDS += VENDOR_FIELDS
 CAPLEN_INDEX = list(PACKET_COLUMNS).index("caplen")
-PARSER_VERSION = 8
+PARSER_VERSION = 9
 csv.field_size_limit(16 * 1024 * 1024)
 
 
@@ -79,6 +83,23 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         if g("udp.srcport")
         else ("ICMP" if g("icmp.type") else "ICMPv6" if g("icmpv6.type") else "OTHER")
     )
+    quoted = {"src": None, "dst": None, "sport": None, "dport": None, "seq": None}
+    if (g("ip.proto") or g("ipv6.nxt")) in ("1", "58"):
+        for name in ("src", "dst"):
+            addresses = (d.get("ip." + name) or d.get("ipv6." + name) or "").split(",")
+            quoted[name] = addresses[1] if len(addresses) > 1 else None
+        quoted.update(
+            sport=number(g("tcp.srcport"), None),
+            dport=number(g("tcp.dstport"), None),
+            seq=number(g("tcp.seq_raw"), None),
+        )
+    outer_proto = g("ip.proto") or g("ipv6.nxt")
+    if outer_proto in ("1", "58"):
+        proto = "ICMP" if outer_proto == "1" else "ICMPv6"
+        # tshark also decodes the quoted transport inside ICMP errors. Keep it out of outer identity.
+        for field in list(d):
+            if field.startswith(("tcp.", "udp.")):
+                d[field] = ""
     sport, dport = number(g("tcp.srcport") or g("udp.srcport")), number(g("tcp.dstport") or g("udp.dstport"))
     seq, ack, flags = number(g("tcp.seq_raw")), number(g("tcp.ack_raw")), number(g("tcp.flags"))
     length = (
@@ -104,7 +125,7 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
     ]
     wirelen, caplen = number(g("frame.len")), number(g("frame.cap_len"))
     unsupported = ""
-    if proto not in ("TCP", "UDP", "ICMP"):
+    if proto not in ("TCP", "UDP", "ICMP", "ICMPv6"):
         unsupported = "Transport identity unsupported in Phase 1"
     if any(
         number(g(x)) for x in ("ip.flags.mf", "ip.frag_offset", "ipv6.fraghdr.offset", "ipv6.fraghdr.more")
@@ -140,7 +161,7 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         reverse_tuple=tuple_id(proto, dst, dport, src, sport),
         stream=number(g("tcp.stream"), -1),
         ttl=number(g("ip.ttl") or g("ipv6.hlim")),
-        dscp=number(g("ip.dsfield.dscp")),
+        dscp=number(g("ip.dsfield.dscp") or g("ipv6.tclass.dscp")),
         mss=number(g("tcp.options.mss_val")),
         window=number(g("tcp.window_size_value")),
         retrans=bool(g("tcp.analysis.retransmission") or g("tcp.analysis.fast_retransmission")),
@@ -154,10 +175,32 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         frame_hash=g("frame.md5_hash"),
         icmp_id=number(g("icmp.ident"), None),
         icmp_seq=number(g("icmp.seq"), None),
-        icmp_type=number(g("icmp.type"), None),
+        icmp_type=number(g("icmp.type") or g("icmpv6.type"), None),
         dns_id=number(g("dns.id"), None),
         dns_response=bool(number(g("dns.flags.response"))),
         vendor=decoded_vendor(d),
+        path_fields=json.dumps(
+            {
+                "quoted": quoted,
+                "window_scale": number(g("tcp.options.wscale.shift"), None),
+                "tcp_options": g("tcp.options") if caplen == wirelen else None,
+                "sack_permitted": bool(g("tcp.options.sack_perm")) if caplen == wirelen else None,
+                "timestamp_value": number(g("tcp.options.timestamp.tsval"), None),
+                "timestamp_echo": number(g("tcp.options.timestamp.tsecr"), None),
+                "df": bool(number(g("ip.flags.df"))) if g("ip.src") else None,
+                "icmp_type": number(g("icmp.type") or g("icmpv6.type"), None),
+                "icmp_code": number(g("icmp.code") or g("icmpv6.code"), None),
+                "icmp_mtu": number(g("icmp.mtu") or g("icmpv6.mtu"), None),
+                "payload_sha256": hashlib.sha256(
+                    bytes.fromhex((g("tcp.payload") or g("udp.payload")).replace(":", ""))
+                ).hexdigest()
+                if length and proto in ("TCP", "UDP")
+                else None,
+                "payload_complete": caplen == wirelen
+                and len((g("tcp.payload") or g("udp.payload")).replace(":", "")) == length * 2,
+            },
+            separators=(",", ":"),
+        ),
     )
     return [p[k] for k in PACKET_COLUMNS]
 

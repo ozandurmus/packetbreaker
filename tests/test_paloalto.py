@@ -51,7 +51,7 @@ def test_paloalto_drop_is_positive_without_path_coverage(tmp_path, tshark):
     assert not any(f["type"] in ("impactful_loss", "unrecovered_loss") for f in report["findings"])
     assert flow_page(project, filter_by="device_drops")["total"] == 1
     exported = export_data(project)
-    assert exported["schema_version"] == 2
+    assert exported["schema_version"] == 3
     drop = next(f for f in exported["findings"] if f["type"] == "confirmed_device_drop")
     with pytest.raises(ValueError, match="device and evidence_stage"):
         Finding.model_validate({**drop, "device": None})

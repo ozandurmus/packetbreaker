@@ -16,20 +16,29 @@ def checksum(data):
     return (~value) & 0xFFFF
 
 
-def tcp_packet(src, dst, sport, dport, seq, ack, flags, payload, ipid, ttl=64, window=65535):
+def tcp_packet(
+    src, dst, sport, dport, seq, ack, flags, payload, ipid, ttl=64, window=65535, options=b"", dscp=0
+):
     ipv6 = ":" in src
     a, b = (
         (socket.inet_pton(socket.AF_INET6, src), socket.inet_pton(socket.AF_INET6, dst))
         if ipv6
         else (socket.inet_aton(src), socket.inet_aton(dst))
     )
-    tcp = struct.pack("!HHIIBBHHH", sport, dport, seq, ack, 5 << 4, flags, window, 0, 0) + payload
+    options += b"\0" * (-len(options) % 4)
+    tcp = (
+        struct.pack("!HHIIBBHHH", sport, dport, seq, ack, (5 + len(options) // 4) << 4, flags, window, 0, 0)
+        + options
+        + payload
+    )
     pseudo = a + b + (struct.pack("!I3xB", len(tcp), 6) if ipv6 else struct.pack("!BBH", 0, 6, len(tcp)))
     tcp = tcp[:16] + struct.pack("!H", checksum(pseudo + tcp)) + tcp[18:]
     if ipv6:
-        ip = struct.pack("!IHBB16s16s", 0x60012345, len(tcp), 6, ttl, a, b)
+        ip = struct.pack("!IHBB16s16s", 0x60012345 | (dscp << 22), len(tcp), 6, ttl, a, b)
     else:
-        ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + len(tcp), ipid % 65536, 0x4000, ttl, 6, 0, a, b)
+        ip = struct.pack(
+            "!BBHHHBBH4s4s", 0x45, dscp << 2, 20 + len(tcp), ipid % 65536, 0x4000, ttl, 6, 0, a, b
+        )
         ip = ip[:10] + struct.pack("!H", checksum(ip)) + ip[12:]
     return (
         b"\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb"
@@ -66,7 +75,16 @@ def generate(
     capture_miss_hop=1,
     ip_id="increment",
     ipv6=False,
+    fault_location="FW",
 ):
+    if scenario in ("integrity_multi", "integrity_multi_asym"):
+        from .attribution_synthetic import generate_attribution
+
+        return generate_attribution(directory, scenario.endswith("_asym"), fault_location, ip_id, ipv6)
+    if scenario.startswith("integrity_"):
+        from .integrity_synthetic import generate_integrity
+
+        return generate_integrity(directory, scenario, ipv6=ipv6, ip_id=ip_id)
     if scenario == "offload":
         from .offload_synthetic import generate_offload
 

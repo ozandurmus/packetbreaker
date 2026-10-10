@@ -8,6 +8,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from .store import rows
+from .field_diff import field_diffs
+from .topology import Topology
 from .onset import ordered_onsets
 
 
@@ -38,7 +40,20 @@ class Finding(BaseModel):
         "capture_miss",
         "unknown",
         "confirmed_device_drop",
+        "reset_origin",
+        "icmp_origin",
+        "payload_modified",
+        "downstream_packet",
+        "mss_clamping",
+        "mtu_black_hole",
+        "ttl_path",
+        "dscp_remark",
+        "option_stripping",
+        "capture_duplicate",
+        "duplication",
+        "asymmetric_routing",
     ]
+    tooltip: str | None = None
     device: str | None = None
     evidence_stage: str | None = None
     hop: str
@@ -61,7 +76,7 @@ class Finding(BaseModel):
 class FindingsExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_name: Literal["packetbreaker.findings"] = "packetbreaker.findings"
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     engine_version: str
     exported_at: str
     findings: list[Finding]
@@ -82,6 +97,7 @@ def export_data(project):
             findings = report["findings"]
         snapshot = dict(report)
         snapshot.pop("findings", None)
+        snapshot["field_diffs"] = field_diffs(db, Topology.model_validate(project.get(db, "topology")))
         return FindingsExport(
             engine_version=report["engine_version"],
             exported_at=datetime.now(timezone.utc).isoformat(),
@@ -103,6 +119,7 @@ def export_data(project):
                         )
                     },
                     evidence_refs=f["evidence"],
+                    tooltip=f.get("tooltip"),
                     device=f.get("device"),
                     evidence_stage=f.get("evidence_stage"),
                 )
@@ -143,7 +160,7 @@ def html_report(data):
         )
 
     findings = "".join(
-        f'<article id="finding-{i}"><h3>{h(f["type"])} · {h(f["hop"])}</h3><p>{h(f["summary"])}</p><p>{h(f.get("device") or "")} {h(f.get("evidence_stage") or "")}</p><p>Confidence: {h(f["confidence"])}; severity: {h(f["severity"])}</p>{details(f["metrics"], "Metrics")}<ul>{refs(f["evidence_refs"])}</ul></article>'
+        f'<article id="finding-{i}"><h3>{h(f["type"])} · {h(f["hop"])}</h3><p title="{h(f.get("tooltip"))}">{h(f["summary"])}</p><p>{h(f.get("device") or "")} {h(f.get("evidence_stage") or "")}</p><p>Confidence: {h(f["confidence"])}; severity: {h(f["severity"])}</p>{details(f["metrics"], "Metrics")}<ul>{refs(f["evidence_refs"])}</ul></article>'
         for i, f in enumerate(data["findings"])
     )
     segments = "".join(
@@ -154,6 +171,15 @@ def html_report(data):
     onsets = "".join(
         f"<article class='{'symptom' if o.get('scope') == 'capture_signal' else 'primary'}'><h3>{h(o['segment'])} · {h(o['metric'])}</h3><p>{h(o['explanation'])}</p>{details(o.get('time_labels'), 'Onset time')}<ul>{refs(o.get('evidence', []))}</ul></article>"
         for o in ordered_onsets(onset.get("items", []), onset.get("directions", {}))
+    )
+    differences = "".join(
+        f"<article><h3>{h(item['location'])}</h3><p>{h(item['tooltip'])}</p><table><thead><tr><th>Field</th><th>Before</th><th>After</th><th>Status</th></tr></thead><tbody>"
+        + "".join(
+            f"<tr><th>{h(name)}</th><td>{h(field['before'])}</td><td>{h(field['after'])}</td><td>{h(field['status'])}</td></tr>"
+            for name, field in item["fields"].items()
+        )
+        + f"</tbody></table><ul>{refs(item['evidence'])}</ul></article>"
+        for item in report.get("field_diffs", {}).get("items", [])
     )
     # JSON is data, not executable markup. Escape '<' even inside arbitrary capture labels.
     encoded = (
@@ -176,6 +202,7 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <section id="heatmap"><h2>Path × time</h2><label>Metric <select id="metric"></select></label><p id="metric-note"></p><p>Grey = not capturing; amber = unknown/partial. Black markers = detected onsets. Hover for time, value and coverage.</p><div class="scroll"><canvas id="map" aria-label="Path by time heatmap"></canvas></div><p id="tip" role="status"></p><noscript>Enable JavaScript for the offline heatmap; summary, findings and evidence remain readable.</noscript></section>
 <section id="findings"><h2>Findings ({len(data["findings"])})</h2>{findings or "<p>No findings.</p>"}</section>
 <section id="segments"><h2>Segments</h2>{segments}</section>
+<section id="field-diffs"><h2>Matched packet field differences</h2>{h(report.get("field_diffs", {}).get("note"))}{differences}</section>
 <section id="filters"><h2>Per-file flow filters</h2>{details(data["flow_filters"], "Copy filters for original or re-saved files")}</section>
 <script id="report-data" type="application/json">{encoded}</script><script>{HEATMAP_SCRIPT}</script></body></html>"""
 

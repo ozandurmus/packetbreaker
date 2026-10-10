@@ -3,6 +3,7 @@ import type { TimeSeries, Finding } from "./types";
 import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, num, time, reverseTuple } from "./api";
+import { FieldDiff, type FieldDiffData } from "./FieldDiff";
 import { Waterfall } from "./Waterfall";
 import { Coverage, LadderChart } from "./Charts";
 import { TopologyEditor } from "./TopologyEditor";
@@ -187,6 +188,7 @@ function App() {
     [selectedFlow, setSelectedFlow] = useState<Flow | null>(null),
     [ladder, setLadder] = useState<Ladder | null>(null),
     [ladderOffset, setLadderOffset] = useState(0);
+  const [fieldDiff, setFieldDiff] = useState<FieldDiffData | null>(null);
   const [events, setEvents] = useState<{
     label: string;
     items: {
@@ -311,6 +313,7 @@ function App() {
       active = false;
     };
   }, [selectedFlow, ladderOffset, rangeQuery]);
+  useEffect(() => setFieldDiff(null), [selectedFlow, rangeQuery]);
   async function action(fn: () => Promise<unknown>) {
     setError("");
     setNotice("");
@@ -447,7 +450,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 2 / PART 5 · v0.1.7</small>
+          <small>PHASE 3 / PART 1 · v0.1.9</small>
         </div>
       </aside>
       <main>
@@ -624,6 +627,7 @@ function App() {
                     <button
                       key={i}
                       className="finding"
+
                       onClick={() => setEvidence(m.evidence)}
                     >
                       {m.ingress} → {m.egress} · flow{" "}
@@ -679,6 +683,7 @@ function App() {
                   {report.f5.requests.map((r, i) => (
                     <button
                       className="finding"
+
                       key={i}
                       onClick={() => setEvidence(r.evidence)}
                     >
@@ -690,6 +695,7 @@ function App() {
                   {report.f5.resets.map((r, i) => (
                     <button
                       className="finding"
+
                       key={i}
                       onClick={() => setEvidence(r.evidence)}
                     >
@@ -945,7 +951,9 @@ function App() {
                                 .map((f) => (
                                   <button
                                     key={f.id}
+                                    title={f.tooltip || f.evidence_note}
                                     className="finding"
+
                                     onClick={() => setEvidence(f.evidence)}
                                   >
                                     <Badge kind={f.severity}>
@@ -1076,6 +1084,7 @@ function App() {
                       {events.items.map((e) => (
                         <button
                           className="finding"
+
                           key={e.id}
                           onClick={() => setEvidence(e.evidence)}
                         >
@@ -1745,6 +1754,9 @@ function App() {
                       </p>
                     </details>
                   )}
+                  {fieldDiff && (
+                    <FieldDiff data={fieldDiff} onEvidence={setEvidence} />
+                  )}
                   <LadderChart
                     data={ladder}
                     points={topology.forward.map((id) =>
@@ -1760,7 +1772,7 @@ function App() {
                           <th>Direction</th>
                           <th>Sequence / ACK</th>
                           <th>Length</th>
-                          <th>Appearances</th>
+                          <th>Appearances / field differences</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1783,6 +1795,26 @@ function App() {
                               {p.evidence
                                 .map((e) => `${e.point} #${e.frame}`)
                                 .join(" · ")}
+                              <button
+                                title="Compare raw fields across matched capture points, with evidence and unknowns"
+                                onClick={async (event) => {
+                                  event.stopPropagation();
+                                  try {
+                                    setFieldDiff(
+                                      await api(
+                                        `/packets/${p.packet_key}/field-diff`,
+                                      ),
+                                    );
+                                  } catch (error) {
+                                    setFieldDiff({
+                                      items: [],
+                                      note: String(error),
+                                    });
+                                  }
+                                }}
+                              >
+                                Field diff
+                              </button>
                             </td>
                           </tr>
                         ))}

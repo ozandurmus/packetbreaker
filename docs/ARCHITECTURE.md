@@ -457,3 +457,55 @@ old consumers. F5 forwarding/reset metadata is also inspectable in offline HTML.
 Wire-layout references inform only synthetic test construction. Production vendor
 fields and expected test values come from tshark; no third-party captures are
 embedded in tests or tracked.
+
+## Phase 3 / Part 1 — path integrity
+
+Matched-packet field differences use raw headers beside the normalized occurrence identity.
+The index adds tshark-decoded TCP options, IPv6 DSCP, DF/ICMP metadata and a complete-captured-payload
+SHA-256 (separate from the existing matching prefix). Schema 6 / parser 9 require reattaching older
+captures. `/api/packets/{packet_key}/field-diff` supplies stream drill-down comparisons and evidence.
+Offline HTML and JSON include a labelled, bounded 200-comparison sample. Truncated payloads,
+missing fields, unsupported boundaries and offload segmentation are unknown, not modifications.
+
+PMTUD checks require three distinct disappearing large sequence ranges plus three passing small
+payload segments of the same flow. They report a size-selective black-hole pattern, not a proven
+MTU cause. IPv4 DF, IPv6, MSS clamping and ICMP feedback are separate evidence. Quoted ICMP TCP
+headers are retained as quoted metadata and never mistaken for the outer packet's transport.
+Feedback association requires the quoted tuple and raw sequence to match an observed flow.
+Protocol references: [RFC 1191](https://www.rfc-editor.org/info/rfc1191/),
+[RFC 8201](https://www.rfc-editor.org/info/rfc8201/), and
+[Wireshark ICMP fields](https://www.wireshark.org/docs/dfref/i/icmp.html).
+
+Path-integrity checks run after normal loss/onset analysis and contribute separate finding
+classes, not network-loss numerators. Before loss classification, complete payload changes can
+join a unique canonical tuple/SEQ/ACK/flags/length pair within a calibrated match window; the
+joined occurrence is propagated downstream. This avoids calling a modified-but-observed packet
+lost. Ambiguous retries, segmentation differences and unsupported proxy identity remain unknown.
+Checks batch adjacent-edge queries in DuckDB and bound representative findings with visible notes.
+Origin evidence includes endpoint TTL/IP-ID samples, vendor metadata and capture-quality gates.
+
+Schema-v3 integrity types are `reset_origin`, `icmp_origin`, `payload_modified`,
+`downstream_packet`, `mtu_black_hole`, `mss_clamping`, `ttl_path`, `dscp_remark`,
+`option_stripping`, `asymmetric_routing`, `capture_duplicate`, and `duplication`.
+Normal endpoint-origin reset observations are quality annotations; only a bracketed device-origin
+hypothesis gets high severity. Findings include their rule tooltip and portable frame references.
+Window filtering includes integrity findings. Generic full-proxy correlation remains unsupported.
+
+### PR #6 review — multi-device attribution (0.1.9)
+
+Origin checks require an explicitly declared Client/Server capture at the source end of the
+selected direction. A first middlebox capture cannot substitute for it. Matched endpoint
+reference packets project the observed TTL distribution to the candidate's first capture point;
+raw TTL equality at different path positions is not the comparison. An endpoint-compatible
+pattern leaves capture miss unresolved, including with zero/constant IDs. Device first-appearance
+and coverage/clock gates still apply. IP ID observations do not authenticate a source.
+
+Unique header-matched payload changes are indexed once in `modified_payload_pairs` and used
+both to join the physical occurrence and to produce findings. This works across inter-device
+links as well as inside a device. Expected ALG transformations exempt the device boundary,
+not an adjoining link. Link findings retain `device=null` and an explicit link label.
+
+Asymmetry groups a completely bypassed device into one observation, and separately recognizes
+a return-path detour between two otherwise-present points. Both bounding return points and an
+alternate-path observation of the same flow are required. A detoured link is never assigned to
+either adjacent device. Existing report-version invalidation clears pre-fix reports on upgrade.
