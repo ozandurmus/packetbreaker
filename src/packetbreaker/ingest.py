@@ -28,12 +28,12 @@ ip.proto ipv6.nxt ip.id ipv6.flow tcp.srcport udp.srcport tcp.dstport udp.dstpor
  ip.flags.mf ip.frag_offset ipv6.fraghdr.offset ipv6.fraghdr.more frame.protocols frame.md5_hash dns.id dns.flags.response""".split()
 PATH_FIELDS = """ipv6.tclass.dscp tcp.options tcp.options.wscale.shift tcp.options.sack_perm
  tcp.options.timestamp.tsval tcp.options.timestamp.tsecr ip.flags.df icmp.code icmp.mtu
- icmpv6.code icmpv6.mtu""".split()
+ icmpv6.code icmpv6.mtu tls.record.content_type""".split()
 FIELDS += PATH_FIELDS
 BASE_FIELDS = FIELDS.copy()
 FIELDS += VENDOR_FIELDS
 CAPLEN_INDEX = list(PACKET_COLUMNS).index("caplen")
-PARSER_VERSION = 9
+PARSER_VERSION = 10
 csv.field_size_limit(16 * 1024 * 1024)
 
 
@@ -182,6 +182,7 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         path_fields=json.dumps(
             {
                 "quoted": quoted,
+                "tls_record_type": number(g("tls.record.content_type"), None),
                 "window_scale": number(g("tcp.options.wscale.shift"), None),
                 "tcp_options": g("tcp.options") if caplen == wirelen else None,
                 "sack_permitted": bool(g("tcp.options.sack_perm")) if caplen == wirelen else None,

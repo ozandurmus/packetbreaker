@@ -249,7 +249,9 @@ def create_app(project_path):
 
     @app.post("/api/analyze")
     def run_analysis(body: Topology):
-        return jobs.start("analysis", lambda: analyze(project, body, progress=jobs.update))
+        return jobs.start(
+            "analysis", lambda: analyze(project, body, progress=jobs.update, cancel=jobs.cancel)
+        )
 
     @app.get("/api/report")
     def report():

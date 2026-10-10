@@ -5,7 +5,15 @@ from datetime import datetime, timezone
 from . import __version__
 from .clock import ClockModel, fit_clock
 from .device_drops import prepare_proofs, upgrade_events, finding_context, add_unplaced, device_report
-from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions, propagate_translation_unknown
+from .matching import (
+    prepare_occurrences,
+    match_occurrences,
+    link_tcp_sessions,
+    propagate_translation_unknown,
+    partition_proxy_legs,
+)
+from .application_index import index_applications
+from .proxy_analysis import correlate
 from .ingest import tuple_id
 from .headlines import add_headlines
 from .integrity import analyze_integrity, link_modified_payloads
@@ -203,6 +211,7 @@ def prepare(db, topology):
             ELSE 'reverse' END FROM f5_connections c WHERE obs.capture_id=c.capture_id AND obs.stream=c.stream
             AND c.role IN ('client','server') AND json_extract_string(obs.vendor,'$."f5ethtrailer.ingress"') IS NOT NULL""")
     normalize_sequences(db, topology)
+    partition_proxy_legs(db, topology)
     # Compare the shared captured prefix, not the digest of different-length payloads.
     db.execute("""CREATE OR REPLACE TEMP TABLE prefix_lengths AS
         SELECT packet_key,min(coalesce(length(prefix),0)) AS n FROM obs GROUP BY packet_key""")
@@ -319,7 +328,7 @@ def align(db, topology):
     return models
 
 
-def analyze(project, topology: Topology | dict, progress=None):
+def analyze(project, topology: Topology | dict, progress=None, cancel=None):
     topology = topology if isinstance(topology, Topology) else Topology.model_validate(topology)
     if len(topology.forward) < 2:
         drops = [p.id for p in topology.points if p.vendor == "paloalto" and p.vendor_stage == "drop"]
@@ -333,6 +342,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         project.set(db, "report", None)
         progress(state="matching")
         suggestions = prepare(db, topology)
+        application_status = index_applications(project, db, topology, cancel, progress)
         progress(state="aligning clocks")
         models = align(db, topology)
         match_occurrences(db, topology)
@@ -341,6 +351,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         propagate_translation_unknown(db)
         byte_active = prepare_byte_ranges(db, topology)
         prepare_flow_filters(db)
+        proxies = correlate(db, topology, models, application_status)
         for suggestion in suggestions:
             suggestion["evidence"] = evidence(
                 db,
@@ -379,7 +390,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             for idx, (a, b) in enumerate(zip(path, path[1:])):
                 pa, pb = points[a], points[b]
                 segment_id = f"{direction}:{a}:{b}"
-                unsupported = any(p.translation == "full_proxy" for p in (pa, pb))
+                unsupported = pa.device == pb.device and any(p.translation == "full_proxy" for p in (pa, pb))
                 pending_nat = any(
                     x["point_a"] in (a, b)
                     and x["point_b"] in (a, b)
@@ -834,6 +845,8 @@ def analyze(project, topology: Topology | dict, progress=None):
         )
         report = dict(
             schema_version=2,
+            application_status=application_status,
+            proxies=proxies,
             integrity_notes=integrity_notes,
             f5=f5_report(db, topology),
             **device_report(db),
