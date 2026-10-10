@@ -593,3 +593,11 @@ field diffs, time series or raw packets. `assistant.py` recursively tokenizes IP
 plus contextual single-label hostnames/CNs, with one ephemeral dictionary for the whole preview.
 Addresses are canonicalized, hostname tokens are case-insensitive, and evidence-filter identifiers
 are preserved. Neither a provider client nor credentials nor outbound connections exist.
+
+### Brief audit boundary
+
+`BRIEF_COVERAGE.md` maps the original brief item by item to source/test evidence and explicit
+partial/missing behavior. Counters/decoded fields do not count as implemented diagnoses.
+Transport gaps include RTP quality, DNS response-time metrics, receive-window causality,
+microbursts and flood/fan-out/session-pressure heuristics. Existing HTTP waterfalls are bounded
+visible HTTP/1.x measurements. No missing feature is implemented as part of this report.

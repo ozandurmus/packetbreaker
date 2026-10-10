@@ -799,3 +799,15 @@ creation, DNS lookup and urllib requests while enabling, previewing and disablin
 foreign origins remain rejected. The ordinary API ingest test enables the setting before attach
 and proves UI-only preferences do not reach ingest. Assistant/API/export focused run: **8 passed
 in 9.46 s**. TypeScript and Vite build pass. No new test is marked slow.
+
+### Final local acceptance
+
+Default `pytest -q`: **360 passed, 166 deselected in 108.53 s** (109.00 s wall,
+109.69 s user, 40.66 s system), with no warnings. **526 total tests**, three new fast cases;
+none moved to slow. Ruff and TypeScript/Vite pass. The final arm64 one-file build succeeds.
+Its smoke verifies 10 recovered losses at `forward:p2:p3`, five captures, health/version,
+auto-detected external tshark, both bundled UI assets and local findings-only assistant preview.
+The separate wheel/sdist build and native Windows/x86_64 smokes are required gates below.
+
+The audit in `BRIEF_COVERAGE.md` is source/test evidence, not a claim that every original brief
+item is implemented. No RTP/DNS/window/microburst/flood/session-pressure feature was added.

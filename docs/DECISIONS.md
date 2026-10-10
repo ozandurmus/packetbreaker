@@ -375,3 +375,10 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   sensitive address/hostname occurrences in nested fields and filter strings consistently.
 - This preview is not complete anonymization. Local paths, organizations and arbitrary free-text
   single-label names can remain identifying. Do not offer a send action or automatically copy it.
+
+### Brief audit
+
+- Publish a source/test-backed done/partial/missing inventory, rather than claim the entire brief
+  from phase completion. Record partial UI brush/table/graph and transport/security semantics.
+- Keep audit gaps report-only. The owner chooses the next independent objective from
+  `BRIEF_COVERAGE.md`; no next phase, signing service, provider or detector is started here.
