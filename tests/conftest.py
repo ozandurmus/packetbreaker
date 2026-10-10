@@ -76,3 +76,30 @@ def clone_project(tmp_path_factory):
         return Project(destination)
 
     return clone
+
+
+_proxy_wire_cache = {}
+
+
+@pytest.fixture(scope="session", params=[("zero", False), ("constant", False), ("zero", True)])
+def proxy_capture(request, tmp_path_factory, tshark):
+    from concurrent.futures import ThreadPoolExecutor
+    from packetbreaker.ingest import ingest
+    from packetbreaker.topology import Topology
+    from proxy_fixtures import make_fixture
+
+    def build(mode):
+        directory = tmp_path_factory.mktemp("proxy_wire")
+        file, topology, truth = make_fixture(directory, ipv6=mode[1], ip_id=mode[0])
+        project = Project(directory / "project")
+        capture_id = ingest(project, file, tshark=tshark)
+        bind_capture_ids(topology, {file.name: capture_id})
+        report = analyze(project, topology)
+        return project, Topology.model_validate(topology), truth, report
+
+    if not _proxy_wire_cache:
+        # Independent tiny files; amortize tshark startup, without a large matrix or shared DB writers.
+        modes = [("zero", False), ("constant", False), ("zero", True)]
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            _proxy_wire_cache.update(zip(modes, pool.map(build, modes)))
+    return _proxy_wire_cache[request.param]

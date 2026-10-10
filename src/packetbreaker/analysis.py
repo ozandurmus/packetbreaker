@@ -13,8 +13,9 @@ from .matching import (
     partition_proxy_legs,
 )
 from .application_index import index_applications
-from .proxy_analysis import correlate
+from .proxy_analysis import correlate, restrict_onset_domains
 from .proxy_waterfall import add_dwell
+from .proxy_resets import reset_checks
 from .ingest import tuple_id
 from .headlines import add_headlines
 from .integrity import analyze_integrity, link_modified_payloads
@@ -241,6 +242,7 @@ def align(db, topology):
     ref = points[order[0]].capture_id
     epoch = db.execute("SELECT min(ts) FROM obs WHERE capture_id=?", [ref]).fetchone()[0] or 0
     models[ref] = ClockModel(0, 0, epoch, 0, "reference", "Reference capture clock", 0)
+    models[ref].domain = ref
     for cid, override in topology.clock_overrides.items():
         models[cid] = ClockModel(
             override.offset_ms / 1000,
@@ -278,6 +280,7 @@ def align(db, topology):
                     [(models[aid].correct(x), y, not f if flip else f) for x, y, f, _, _ in data]
                 )
                 if model.offset is not None:
+                    model.domain = models[aid].domain
                     model.uncertainty = (model.uncertainty or 0) + (models[aid].uncertainty or 0)
                     anchors = sorted(data, key=lambda row: row[1] - models[aid].correct(row[0]))
                     chosen = anchors[:2] + anchors[-2:]
@@ -294,6 +297,26 @@ def align(db, topology):
                     changed = True
                     break
         if not changed:
+            if any(p.translation == "full_proxy" for p in topology.points):
+                # Calibrate disconnected TCP legs locally, without asserting cross-proxy clock alignment.
+                missing = next(
+                    (points[p].capture_id for p in order if points[p].capture_id not in models), None
+                )
+                if missing:
+                    local_epoch = db.execute(
+                        "SELECT min(ts) FROM obs WHERE capture_id=?", [missing]
+                    ).fetchone()[0]
+                    if local_epoch is not None:
+                        models[missing] = ClockModel(
+                            0,
+                            0,
+                            local_epoch,
+                            0,
+                            "reference",
+                            "Independent TCP leg reference; cross-domain timing unknown",
+                            domain=missing,
+                        )
+                        continue
             break
     for p in order:
         models.setdefault(points[p].capture_id, ClockModel(epoch=epoch))
@@ -419,7 +442,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     ).fetchone()[0]
                     pending_nat = pending_nat or unresolved > 0
                 ma, mb = models[pa.capture_id], models[pb.capture_id]
-                clocks_ok = ma.offset is not None and mb.offset is not None
+                clocks_ok = ma.offset is not None and mb.offset is not None and ma.domain == mb.domain
                 matched = rows(
                     db,
                     """SELECT count(*) AS matched,min(time_b-time_a)*1000 AS min_ms,
@@ -824,10 +847,14 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         time_window = dict(start=start, end=end, common_start=common_start, common_end=common_end)
         timeseries = build_timeseries(db, topology, segments, coverage, time_window)
         onsets = add_onsets(db, topology, segments)
+        restrict_onset_domains(onsets, points, models)
         integrity_findings, integrity_notes = analyze_integrity(
             db, topology, segments, coverage, models, start, end
         )
         findings.extend(integrity_findings)
+        proxy_findings, proxy_leg_report = reset_checks(db, topology, segments, models, coverage)
+        proxies.update(proxy_leg_report)
+        findings.extend(proxy_findings)
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         total_findings = len(findings)
         order_scores = rows(
@@ -859,7 +886,10 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             engine_version=__version__,
             generated_at=datetime.now(timezone.utc).isoformat(),
             verdict="Path integrity findings observed"
-            if any(f["confidence"] == "supported" and f["severity"] != "quality" for f in integrity_findings)
+            if any(
+                f["confidence"] == "supported" and f["severity"] != "quality"
+                for f in integrity_findings + proxy_findings
+            )
             else "Confirmed device drops observed"
             if any(f["type"] == "confirmed_device_drop" for f in findings)
             else "Impactful loss observed"

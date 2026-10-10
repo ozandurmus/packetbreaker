@@ -23,6 +23,8 @@ def interval(a, b, uncertainty_s):
 
 
 def add_dwell(db, topology, models, proxies):
+    if not proxies["transactions"]:
+        return
     points = {p.id: p for p in topology.points}
     lookup = {r["id"]: r for r in rows(db, "SELECT * FROM proxy_requests")}
     # Persist every pairing, even when the interactive overview is capped.

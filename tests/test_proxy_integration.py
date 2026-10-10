@@ -3,25 +3,9 @@
 from copy import deepcopy
 
 import pytest
-from packetbreaker.analysis import analyze
-from packetbreaker.ingest import ingest
-from packetbreaker.store import Project, rows
-from packetbreaker.synthetic import bind_capture_ids
-from packetbreaker.topology import Topology
+from packetbreaker.store import rows
 from packetbreaker.clock import ClockModel
 from packetbreaker.proxy_analysis import correlate
-from proxy_fixtures import make_fixture
-
-
-@pytest.fixture(scope="module", params=[("zero", False), ("constant", False), ("zero", True)])
-def proxy_capture(request, tmp_path_factory, tshark):
-    directory = tmp_path_factory.mktemp("proxy_wire")
-    f, t, truth = make_fixture(directory, ipv6=request.param[1], ip_id=request.param[0])
-    project = Project(directory / "project")
-    cid = ingest(project, f, tshark=tshark)
-    bind_capture_ids(t, {f.name: cid})
-    report = analyze(project, t)
-    return project, Topology.model_validate(t), truth, report
 
 
 @pytest.mark.parametrize("negative", ["clock", "missing_point", "capture_miss"])
@@ -58,7 +42,12 @@ def test_wire_pooling_and_ambiguity(proxy_capture):
         for device in ("Proxy A", "Proxy B"):
             pairs = report["proxies"]["transactions"]
             matched = [
-                p for p in pairs if p["device"] == device and p["status"] == "matched" and p["kind"] == "http"
+                p
+                for p in pairs
+                if p["device"] == device
+                and p["status"] == "matched"
+                and p["kind"] == "http"
+                and (p["request"].startswith("POST /shared") or p["request"].startswith("GET /ambiguous-"))
             ]
             assert len(matched) == 4
             assert any(
@@ -106,7 +95,12 @@ def test_exact_request_dwell_and_waterfall(proxy_capture):
                 [
                     p
                     for p in report["proxies"]["transactions"]
-                    if p["device"] == device and p["status"] == "matched" and p["kind"] == "http"
+                    if p["device"] == device
+                    and p["status"] == "matched"
+                    and p["kind"] == "http"
+                    and (
+                        p["request"].startswith("POST /shared") or p["request"].startswith("GET /ambiguous-")
+                    )
                 ],
                 key=lambda p: p["time"],
             )[:2]
@@ -162,3 +156,60 @@ def test_missing_pooled_response_never_shifts_request_pairing(proxy_capture):
             )
         finally:
             db.execute("ROLLBACK")
+
+
+def test_endpoint_capture_miss_and_link_never_blame_a_proxy(proxy_capture):
+    _, _, truth, report = proxy_capture
+    for case in truth["resets"][:4]:
+        supported = [
+            f
+            for f in report["findings"]
+            if f["type"].startswith("proxy_reset_")
+            and f["confidence"] == "supported"
+            and abs(f["time_range"][-1] - case["time"]) < 0.002
+        ]
+        assert not supported, supported
+
+
+def test_reset_propagation_names_exact_proxy(proxy_capture):
+    _, _, truth, report = proxy_capture
+    for case in truth["resets"][4:]:
+        supported = [
+            f
+            for f in report["findings"]
+            if f["type"].startswith("proxy_reset_")
+            and f["confidence"] == "supported"
+            and abs(f["time_range"][-1] - case["time"]) < 0.002
+        ]
+        assert len(supported) == 1, (case, supported, report["proxies"]["reset_notes"])
+        assert supported[0]["device"] == case["device"]
+        assert supported[0]["type"] == f"proxy_reset_{case['kind']}"
+        assert supported[0]["evidence"] and all(e["content_filter"] for e in supported[0]["evidence"])
+    assert report["proxies"]["legs"]
+    assert any(leg["resets"] for leg in report["proxies"]["legs"])
+
+
+def test_each_leg_loss_and_pure_capture_miss(proxy_capture):
+    project, _, truth, _ = proxy_capture
+    with project.connect() as db:
+        for case in truth["leg_loss"]:
+            flow = db.execute(
+                "SELECT flow FROM proxy_requests WHERE point=? AND line=?",
+                [case["point_a"], f"GET {case['uri']} HTTP/1.1"],
+            ).fetchone()[0]
+            losses = rows(
+                db,
+                "SELECT point_a,point_b,kind,count(*) AS n FROM events WHERE flow=? AND kind IN ('recovered_loss','impactful_loss','unrecovered_loss') GROUP BY point_a,point_b,kind",
+                [flow],
+            )
+            if case["capture_miss"]:
+                assert not losses
+                assert (
+                    db.execute(
+                        "SELECT count(*) FROM events WHERE flow=? AND kind='capture_miss'", [flow]
+                    ).fetchone()[0]
+                    >= 1
+                )
+            else:
+                assert len(losses) == 1 and losses[0]["n"] == 1, (case, losses)
+                assert (losses[0]["point_a"], losses[0]["point_b"]) == (case["point_a"], case["point_b"])

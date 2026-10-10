@@ -31,6 +31,7 @@ def uncertainty(models, a, b):
         or mb.uncertainty is None
         or ma.confidence == "unknown"
         or mb.confidence == "unknown"
+        or ma.domain != mb.domain
     ):
         return None
     return 0.0 if a.capture_id == b.capture_id else ma.uncertainty + mb.uncertainty
@@ -55,6 +56,14 @@ def refs(db, *requests):
 
 
 def prepare_requests(db):
+    if not db.execute(
+        "SELECT count(*) FROM app_protocol WHERE kind IN ('http_request','tls_setup')"
+    ).fetchone()[0]:
+        db.execute("""CREATE OR REPLACE TABLE proxy_requests(id VARCHAR,point VARCHAR,last_frame BIGINT,
+            first_frame BIGINT,response_frame BIGINT,flow VARCHAR,canon VARCHAR,start_seq BIGINT,kind VARCHAR,
+            origin_ip VARCHAR,line VARCHAR,host VARCHAR,xff VARCHAR[],sni VARCHAR,ready BOOLEAN,reason VARCHAR,
+            start DOUBLE,complete DOUBLE,response DOUBLE,protocol_stream BIGINT)""")
+        return
     # Components come from tshark reassembly, not captured-prefix parsing.
     db.execute("""CREATE OR REPLACE TABLE proxy_requests AS
     WITH app AS (SELECT *,md5(point||':'||frame::VARCHAR||':'||kind) AS id FROM app_protocol WHERE kind IN ('http_request','tls_setup')),
@@ -141,6 +150,7 @@ def correlate(db, topology, models, statuses):
                 point_a=a.id,
                 point_b=b.id,
                 kind=(c or s or {}).get("kind"),
+                request=(c or s or {}).get("line") or (c or s or {}).get("sni"),
                 client_flow=c["flow"] if c else None,
                 server_flow=s["flow"] if s else None,
                 time=(c or s or {}).get("start"),
@@ -163,3 +173,34 @@ def correlate(db, topology, models, statuses):
         request_count=len(requests),
         note="Requests pair across independent TCP legs. SNI pairs visible TLS setup only; encrypted application request boundaries remain unknown.",
     )
+
+
+def restrict_onset_domains(onsets, points, models):
+    """Local leg clock fits cannot rank degradation across unaligned proxy boundaries."""
+    from .onset import ordered_onsets
+
+    for item in onsets["items"]:
+        point = points[item["point_a"]] if "point_a" in item else None
+        if point is None:
+            # Onset identifiers include the direction and the two capture-point IDs.
+            point = points.get(item["segment"].split(":")[1])
+        item["clock_domain"] = models[point.capture_id].domain if point else None
+    for direction, value in onsets["directions"].items():
+        domains = {
+            i["clock_domain"]
+            for i in onsets["items"]
+            if i["direction"] == direction and i["scope"] == "network_segment"
+        }
+        if len(domains) > 1:
+            value.update(
+                propagation_order=[],
+                prime_suspects=[],
+                first_time=None,
+                caveat="Unknown cross-proxy propagation order: independent clock domains have no alignment evidence.",
+            )
+    domains = {i["clock_domain"] for i in onsets["items"] if i["scope"] == "network_segment"}
+    if len(domains) > 1:
+        onsets["summary"] = (
+            "Onsets detected per segment; first hop and propagation order across proxy legs are unknown because their clock domains are unaligned."
+        )
+    onsets["items"] = ordered_onsets(onsets["items"], onsets["directions"])

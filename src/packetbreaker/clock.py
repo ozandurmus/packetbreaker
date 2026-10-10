@@ -14,6 +14,7 @@ class ClockModel:
     reason: str = "Bidirectional matched packets are required"
     samples: int = 0
     evidence: list = field(default_factory=list)
+    domain: str | None = None
 
     def correct(self, timestamp):
         if self.offset is None:

@@ -337,6 +337,106 @@ def make_fixture(directory, ipv6=False, ip_id="zero"):
                 tls=True,
                 changed=changed,
             )
+    truth["resets"] = []
+    # Each event has independent request legs; endpoint/missing-trigger/link distractors come first.
+    reset_cases = [
+        (None, "endpoint"),
+        (None, "missing_endpoint"),
+        ("Proxy A", "capture_miss"),
+        ("link", "originated"),
+        ("Proxy A", "propagated"),
+        ("Proxy B", "propagated"),
+        ("Proxy A", "originated"),
+        ("Proxy B", "originated"),
+    ]
+    for index, (device, kind) in enumerate(reset_cases):
+        group = 11 + index
+        base = 10.137 + index * 0.317
+        for leg in range(3):
+            open_leg(leg, group)
+            payload = (
+                f"GET /reset-{index} HTTP/1.1\r\nHost: reset.example\r\nContent-Length: 0\r\n\r\n".encode()
+            )
+            emit(
+                leg,
+                group,
+                base + leg * 0.03,
+                1001 if leg == 0 else 10001 if leg == 1 else 20001,
+                9001,
+                payload=payload,
+            )
+        if kind in ("endpoint", "missing_endpoint"):
+            emit(
+                2,
+                group,
+                base + 0.15,
+                9001,
+                20001 + len(payload),
+                flags=20,
+                back=True,
+                omit=("server",) if kind == "missing_endpoint" else (),
+            )
+        elif device == "link":
+            emit(
+                1,
+                group,
+                base + 0.15,
+                9001,
+                10001 + len(payload),
+                flags=20,
+                back=True,
+                omit=("b_in", "r_out", "r_in"),
+            )
+        else:
+            front = 0 if device == "Proxy A" else 1
+            backend = front + 1
+            if kind in ("propagated", "capture_miss"):
+                emit(
+                    backend,
+                    group,
+                    base + 0.15,
+                    9001,
+                    (10001 if backend == 1 else 20001) + len(payload),
+                    flags=20,
+                    back=True,
+                    omit=("a_out",) if kind == "capture_miss" else (),
+                )
+            emit(
+                front,
+                group,
+                base + 0.173,
+                9001,
+                (1001 if front == 0 else 10001) + len(payload),
+                flags=20,
+                back=True,
+            )
+        truth["resets"].append(
+            dict(device=device, kind=kind, uri=f"/reset-{index}", time=1700000000 + base + 0.173)
+        )
+    truth["leg_loss"] = []
+    for index in range(4):
+        group = 30 + index
+        base = 14.037 + index * 0.313
+        target = index if index < 3 else 1
+        for leg in range(3):
+            open_leg(leg, group)
+            payload = (
+                f"GET /leg-loss-{index} HTTP/1.1\r\nHost: loss.example\r\nContent-Length: 0\r\n\r\n".encode()
+            )
+            seq = 1001 if leg == 0 else 10001 if leg == 1 else 20001
+            omit = tuple(LEGS[leg][1:]) if leg == target and index < 3 else ("r_in",) if leg == target else ()
+            emit(leg, group, base + leg * 0.4, seq, 9001, payload=payload, omit=omit)
+            if leg == target and index < 3:
+                emit(leg, group, base + leg * 0.4 + 0.097, seq, 9001, payload=payload)
+            emit(leg, group, base + leg * 0.4 + 0.123, 9001, seq + len(payload), flags=16, back=True)
+        truth["leg_loss"].append(
+            dict(
+                uri=f"/leg-loss-{index}",
+                point_a=LEGS[target][0],
+                point_b=LEGS[target][1],
+                capture_miss=index == 3,
+            )
+        )
     file = directory / "proxy-points.pcapng"
 
     def block(kind, body):
