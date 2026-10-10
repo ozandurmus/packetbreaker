@@ -73,7 +73,7 @@ def client_hello(sni, tls13=False):
     return tls_record(22, handshake(1, body))
 
 
-def server_hello(chain_name, tls13=False):
+def server_hello(chain_name, tls13=False, include_certificate=True):
     ext = b"\0\x2b\0\x02\x03\x04" if tls13 else b""
     hello = (
         b"\x03\x03"
@@ -85,7 +85,7 @@ def server_hello(chain_name, tls13=False):
         + ext
     )
     messages = handshake(2, hello)
-    if not tls13:
+    if not tls13 and include_certificate:
         cert = certificate(chain_name)
         entry = len(cert).to_bytes(3, "big") + cert
         messages += handshake(11, len(entry).to_bytes(3, "big") + entry) + handshake(14, b"")
@@ -297,7 +297,7 @@ def make_fixture(directory, ipv6=False, ip_id="zero"):
                     times=override,
                 )
                 seq += len(payload)
-    cases = ["consistent", "Proxy A", "Proxy B", "Router", "link", "tls13"]
+    cases = ["consistent", "Proxy A", "Proxy B", "Router", "link", "tls13", "mtls_only"]
     for group, case in enumerate(cases, start=4):
         for leg in range(3):
             open_leg(leg, group, tls=True)
@@ -319,7 +319,7 @@ def make_fixture(directory, ipv6=False, ip_id="zero"):
         chain1 = "ProxyB" if case == "Proxy B" else "Origin"
         chain0 = "ProxyA" if case == "Proxy A" else chain1
         for leg, chain in ((2, chain2), (1, chain1), (0, chain0)):
-            payload = server_hello(chain, case == "tls13")
+            payload = server_hello(chain, case == "tls13", case != "mtls_only")
             changed = {}
             if leg == 1 and case == "Router":
                 changed = {p: server_hello("Router") for p in ("r_in", "a_out")}
@@ -337,6 +337,20 @@ def make_fixture(directory, ipv6=False, ip_id="zero"):
                 tls=True,
                 changed=changed,
             )
+        if case == "mtls_only":
+            for leg in range(3):
+                cert = certificate(f"Client-{leg}")
+                entry = len(cert).to_bytes(3, "big") + cert
+                payload = tls_record(22, handshake(11, len(entry).to_bytes(3, "big") + entry))
+                emit(
+                    leg,
+                    group,
+                    at + 0.9,
+                    (1001 if leg == 0 else 10001 if leg == 1 else 20001) + len(client_hello(sni)),
+                    9001 + len(server_hello("Origin", include_certificate=False)),
+                    payload=payload,
+                    tls=True,
+                )
     truth["resets"] = []
     # Each event has independent request legs; endpoint/missing-trigger/link distractors come first.
     reset_cases = [
@@ -437,6 +451,14 @@ def make_fixture(directory, ipv6=False, ip_id="zero"):
                 capture_miss=index == 3,
             )
         )
+    for leg in range(3):
+        group = 40
+        open_leg(leg, group)
+        request = b"POST /out-of-order HTTP/1.1\r\nHost: order.example\r\nContent-Length: 8\r\n\r\n12345678"
+        seq = 1001 if leg == 0 else 10001 if leg == 1 else 20001
+        at = 17.013 + leg * 0.041
+        emit(leg, group, at, seq + len(request) - 4, 9001, payload=request[-4:])
+        emit(leg, group, at + 0.009, seq, 9001, payload=request[:-4])
     file = directory / "proxy-points.pcapng"
 
     def block(kind, body):

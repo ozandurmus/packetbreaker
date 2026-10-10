@@ -77,7 +77,7 @@ def test_wire_pooling_and_ambiguity(proxy_capture):
 def test_tshark_original_frame_mapping(proxy_capture):
     project, _, _, _ = proxy_capture
     with project.connect() as db:
-        requests = rows(db, "SELECT * FROM proxy_requests WHERE kind='http' AND line LIKE 'POST %'")
+        requests = rows(db, "SELECT * FROM proxy_requests WHERE kind='http' AND line='POST /shared HTTP/1.1'")
         assert requests and all(r["first_frame"] < r["last_frame"] for r in requests)
         assert all(r["complete"] >= r["start"] for r in requests)
         chains = rows(db, "SELECT metadata FROM app_protocol WHERE kind='tls_certificate'")
@@ -213,3 +213,68 @@ def test_each_leg_loss_and_pure_capture_miss(proxy_capture):
             else:
                 assert len(losses) == 1 and losses[0]["n"] == 1, (case, losses)
                 assert (losses[0]["point_a"], losses[0]["point_b"]) == (case["point_a"], case["point_b"])
+
+
+def test_out_of_order_reassembly_uses_logical_first_byte_and_completion_frame(proxy_capture):
+    project, _, _, report = proxy_capture
+    with project.connect() as db:
+        messages = rows(db, "SELECT * FROM proxy_requests WHERE line='POST /out-of-order HTTP/1.1'")
+        assert len(messages) == 8 and all(r["ready"] for r in messages)
+        assert all(r["first_frame"] == r["last_frame"] and r["start"] == r["complete"] for r in messages)
+        assert {r["start_seq"] for r in messages} == {1001, 10001, 20001}
+    pairs = [p for p in report["proxies"]["transactions"] if p["request"] == "POST /out-of-order HTTP/1.1"]
+    assert len(pairs) == 2 and all(p["status"] == "matched" for p in pairs)
+    assert all(
+        p["request_dwell"]["duration_ms"] == pytest.approx(40 if p["device"] == "Proxy A" else 38, abs=0.001)
+        for p in pairs
+    )
+
+
+def test_traveling_copies_are_not_sender_retransmissions(proxy_capture):
+    project, _, _, _ = proxy_capture
+    with project.connect() as db:
+        assert (
+            db.execute(
+                "SELECT count(*) FROM obs WHERE (retrans OR fast_retrans OR spurious) AND flow IN (SELECT flow FROM proxy_requests WHERE line='POST /shared HTTP/1.1')"
+            ).fetchone()[0]
+            == 0
+        )
+        for sender in ("client", "a_out", "b_out"):
+            flow = db.execute(
+                "SELECT flow FROM proxy_requests WHERE point=? AND line=?",
+                [sender, f"GET /leg-loss-{('client', 'a_out', 'b_out').index(sender)} HTTP/1.1"],
+            ).fetchone()[0]
+            assert (
+                db.execute(
+                    "SELECT count(*) FROM obs WHERE point=? AND flow=? AND (retrans OR fast_retrans)",
+                    [sender, flow],
+                ).fetchone()[0]
+                == 1
+            )
+
+
+def test_declaring_router_as_proxy_cannot_pair_one_tcp_connection_with_itself(proxy_capture):
+    from packetbreaker.proxy_analysis import correlate
+
+    project, topology, _, report = proxy_capture
+    modified = topology.model_copy(
+        update={
+            "points": [
+                p.model_copy(update={"translation": "full_proxy"}) if p.device == "Router" else p
+                for p in topology.points
+            ]
+        }
+    )
+    models = {
+        k: ClockModel(**{n: v for n, v in m.items() if n != "drift_ppm"}) for k, m in report["clocks"].items()
+    }
+    with project.connect() as db:
+        db.execute("BEGIN TRANSACTION")
+        try:
+            # Simulate the namespace partition produced by a declared boundary, without new TCP sockets.
+            db.execute("UPDATE obs SET flow=md5(flow||':fake-leg') WHERE point='r_out'")
+            found = correlate(db, modified, models, report["application_status"])
+            router = [p for p in found["transactions"] if p["device"] == "Router"]
+            assert router and all(p["status"] == "unknown" for p in router)
+        finally:
+            db.execute("ROLLBACK")

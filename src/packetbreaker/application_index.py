@@ -15,7 +15,7 @@ from .ingest import find_tshark
 from .metadata import metadata as capture_metadata
 from .store import rows
 
-VERSION = 3
+VERSION = 5
 MAX_EVENTS = 10000
 MAX_JSON = 4 * 1024 * 1024
 
@@ -113,6 +113,8 @@ def certificates(tree):
 
 def event_rows(packet):
     layers = packet["_source"]["layers"]
+    if "tcp" not in layers:
+        return []
     frame = integer(first(layers.get("frame", {}), "frame.number"))
     parts = [integer(v) for v in values(layers, "tcp.segment")] or [frame]
     tcp = layers.get("tcp", {})
@@ -130,6 +132,16 @@ def event_rows(packet):
         tcp_len=integer(first(tcp, "tcp.len")),
     )
     result = []
+    analysis = {
+        name: bool(values(tcp, "tcp.analysis." + field))
+        for name, field in (
+            ("retrans", "retransmission"),
+            ("fast_retrans", "fast_retransmission"),
+            ("spurious", "spurious_retransmission"),
+        )
+    }
+    if any(analysis.values()):
+        result.append({**common, "components": [frame], "kind": "tcp_analysis", "metadata": analysis})
     http = layers.get("http", {})
     if values(http, "http.request.method"):
         method = values(http, "http.request.method")
@@ -295,7 +307,7 @@ def index_applications(project, db, topology, cancel=None, progress=None):
     needed = (
         any(p.translation == "full_proxy" for p in topology.points)
         or db.execute(
-            "SELECT count(*) FROM obs WHERE json_extract_string(path_fields,'$.tls_record_type') IN ('20','21','22','23','24')"
+            "SELECT count(*) FROM obs WHERE proto='TCP' AND (json_extract_string(path_fields,'$.tls_record_type') IN ('20','21','22','23','24') OR NOT coalesce(json_exists(path_fields,'$.tls_record_type'),false))"
         ).fetchone()[0]
         > 0
     )
@@ -324,6 +336,8 @@ def index_applications(project, db, topology, cancel=None, progress=None):
             "SELECT identity,reason FROM app_protocol_cache WHERE point=?", [point.id]
         ).fetchone()
         if existing and existing[0] == identity:
+            if existing[1] is None:
+                apply_tcp_analysis(db, point.id)
             statuses.append(dict(point=point.id, reason=existing[1], cached=True))
             continue
         if cancel and cancel.is_set():
@@ -394,9 +408,11 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                     "-r",
                     str(selected),
                     "-Y",
-                    "http.request or http.response or tls.handshake",
+                    "tcp && (http.request or http.response or tls.handshake or tcp.analysis.retransmission or tcp.analysis.fast_retransmission or tcp.analysis.spurious_retransmission)",
                     "-o",
                     "tcp.desegment_tcp_streams:TRUE",
+                    "-o",
+                    "tcp.reassemble_out_of_order:TRUE",
                     "-o",
                     "http.desegment_body:TRUE",
                     "-o",
@@ -482,5 +498,20 @@ def index_applications(project, db, topology, cancel=None, progress=None):
             reason = str(exc)
             db.execute("DELETE FROM app_protocol WHERE point=?", [point.id])
         db.execute("INSERT OR REPLACE INTO app_protocol_cache VALUES (?,?,?)", [point.id, identity, reason])
+        if reason is None:
+            apply_tcp_analysis(db, point.id)
         statuses.append(dict(point=point.id, reason=reason, cached=False))
     return statuses
+
+
+def apply_tcp_analysis(db, point):
+    # A merged multi-point file makes tshark mistake traveling copies for retransmissions.
+    # Only successful isolated-point decodes can replace these three analysis flags.
+    db.execute("UPDATE obs SET retrans=false,fast_retrans=false,spurious=false WHERE point=?", [point])
+    db.execute(
+        """UPDATE obs SET retrans=try_cast(json_extract_string(a.metadata,'$.retrans') AS BOOLEAN),
+        fast_retrans=try_cast(json_extract_string(a.metadata,'$.fast_retrans') AS BOOLEAN),
+        spurious=try_cast(json_extract_string(a.metadata,'$.spurious') AS BOOLEAN)
+        FROM app_protocol a WHERE obs.point=a.point AND obs.frame=a.frame AND a.kind='tcp_analysis' AND a.point=?""",
+        [point],
+    )

@@ -16,6 +16,7 @@ from .application_index import index_applications
 from .proxy_analysis import correlate, restrict_onset_domains
 from .proxy_waterfall import add_dwell
 from .proxy_resets import reset_checks
+from .tls_analysis import tls_checks
 from .ingest import tuple_id
 from .headlines import add_headlines
 from .integrity import analyze_integrity, link_modified_payloads
@@ -281,7 +282,11 @@ def align(db, topology):
                 )
                 if model.offset is not None:
                     model.domain = models[aid].domain
-                    model.uncertainty = (model.uncertainty or 0) + (models[aid].uncertainty or 0)
+                    model.uncertainty = (
+                        (model.uncertainty or 0) + models[aid].uncertainty
+                        if models[aid].uncertainty is not None
+                        else None
+                    )
                     anchors = sorted(data, key=lambda row: row[1] - models[aid].correct(row[0]))
                     chosen = anchors[:2] + anchors[-2:]
                     for _, _, _, fa, fb in chosen:
@@ -855,6 +860,8 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         proxy_findings, proxy_leg_report = reset_checks(db, topology, segments, models, coverage)
         proxies.update(proxy_leg_report)
         findings.extend(proxy_findings)
+        tls_findings, tls_notes = tls_checks(db, topology, segments, models, start, end)
+        findings.extend(tls_findings)
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         total_findings = len(findings)
         order_scores = rows(
@@ -876,6 +883,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             schema_version=2,
             application_status=application_status,
             proxies=proxies,
+            tls=tls_notes,
             integrity_notes=integrity_notes,
             f5=f5_report(db, topology),
             **device_report(db),
@@ -888,7 +896,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             verdict="Path integrity findings observed"
             if any(
                 f["confidence"] == "supported" and f["severity"] != "quality"
-                for f in integrity_findings + proxy_findings
+                for f in integrity_findings + proxy_findings + tls_findings
             )
             else "Confirmed device drops observed"
             if any(f["type"] == "confirmed_device_drop" for f in findings)
@@ -903,7 +911,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 3 / Part 1; path integrity, security evidence, translation-aware matching and export",
+            scope="Phase 3 / Part 2; request-level full-proxy correlation, TLS chain evidence and independent TCP legs",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,
@@ -916,6 +924,11 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             flow_count=db.execute("SELECT count(*) FROM flow_summary").fetchone()[0],
             limitations=[
                 "Observed coverage does not prove uninterrupted capture.",
+                "Full proxies link requests, never TCP packets. Ambiguous request candidates remain unknown.",
+                "SNI pairs visible TLS setup only; encrypted HTTP request boundaries and TLS 1.3 certificates remain unknown.",
+                "Clock domains separated by a proxy cannot establish proxy dwell or cross-domain onset order without shared clock evidence.",
+                "HTTP/1.x response association requires complete SYN-anchored contiguous decoded request/response ranges; chunked or coalesced messages remain unknown.",
+                "Application indexing isolates capture points, uses two tshark passes and caches at most 10,000 events per point; narrow the capture when this budget is exceeded.",
                 "Latency is estimated under minimum-path symmetry; offsets include possible path asymmetry.",
                 "SPAN duplicates, unresolved occurrence timing collisions, fragments and unsupported transports are excluded.",
                 "TCP sessions are joined by shared occurrences; streams without a shared packet stay separate.",

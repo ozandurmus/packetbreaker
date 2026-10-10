@@ -99,9 +99,13 @@ def waterfall(db, report, topology, flow, start, end, request_index):
     }
     seeds = sorted(seeds.values(), key=lambda r: r["start"] or 0)[:100]
     choices = [dict(index=i, label=r["line"], time=r["start"]) for i, r in enumerate(seeds)]
+    models = {
+        cid: ClockModel(**{k: v for k, v in m.items() if k != "drift_ppm"})
+        for cid, m in report["clocks"].items()
+    }
     if request_index >= len(seeds):
         return dict(
-            items=[],
+            items=handshakes(db, topology, models, {"selected": {"flow": flow}}),
             requests=choices,
             reason="No uniquely correlated cleartext HTTP/1.x request for this leg/window",
         )
@@ -264,7 +268,56 @@ def handshakes(db, topology, models, stage):
             None,
         )
         bars = []
+
+        def local_handling(x, y, point, label):
+            value = interval(
+                x["corrected"] if x else None,
+                y["corrected"] if y else None,
+                uncertainty(models, points[point], points[point]),
+            )
+            keys = [(p["point"], p["frame"]) for p in (x, y) if p]
+            return dict(
+                label=label,
+                kind="handshake_processing",
+                direction="reverse",
+                point_a=point,
+                point_b=point,
+                **value,
+                start_ms=(x["corrected"] - syn["corrected"]) * 1000
+                if x and syn and not value["reason"]
+                else None,
+                evidence=evidence(
+                    db,
+                    " OR ".join("(o.point=? AND o.frame=?)" for _ in keys),
+                    [v for k in keys for v in k],
+                    _expand_ranges=False,
+                )
+                if keys
+                else [],
+                note="Local handling on this TCP leg; no cross-proxy handshake match.",
+            )
+
         for seed, path, label in [(syn, route, "SYN"), (sa, route[::-1], "SYN/ACK"), (ack, route, "ACK")]:
+            if label == "SYN/ACK":
+                peer_syn = next(
+                    (
+                        p
+                        for p in packets
+                        if syn and p["point"] == last and p["packet_key"] == syn["packet_key"]
+                    ),
+                    None,
+                )
+                bars.append(local_handling(peer_syn, sa, last, "TCP peer SYN handling"))
+            elif label == "ACK":
+                requester_sa = next(
+                    (
+                        p
+                        for p in packets
+                        if sa and p["point"] == first and p["packet_key"] == sa["packet_key"]
+                    ),
+                    None,
+                )
+                bars.append(local_handling(requester_sa, ack, first, "Requester handshake ACK handling"))
             matched = {p["point"]: p for p in packets if seed and p["packet_key"] == seed["packet_key"]}
             for a, b in zip(path, path[1:]):
                 x, y = matched.get(a), matched.get(b)

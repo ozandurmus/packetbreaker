@@ -14,7 +14,7 @@ def pair_requests(clients, servers, window_s, uncertainty_s, declared=True, db=N
         blocked = blocked or "Clock uncertainty unavailable; bounded pairing window unverified"
     candidates = []
     if not blocked:
-        schema = '[{"id":"VARCHAR","flow":"VARCHAR","origin_ip":"VARCHAR","line":"VARCHAR","host":"VARCHAR","xff":"VARCHAR[]","sni":"VARCHAR","start":"DOUBLE","complete":"DOUBLE","ready":"BOOLEAN","kind":"VARCHAR"}]'
+        schema = '[{"id":"VARCHAR","flow":"VARCHAR","socket_signature":"VARCHAR","origin_ip":"VARCHAR","line":"VARCHAR","host":"VARCHAR","xff":"VARCHAR[]","sni":"VARCHAR","start":"DOUBLE","complete":"DOUBLE","ready":"BOOLEAN","kind":"VARCHAR"}]'
         connection = db or duckdb.connect()
         try:
             edges = rows(
@@ -28,6 +28,7 @@ def pair_requests(clients, servers, window_s, uncertainty_s, declared=True, db=N
                 FROM clients c JOIN servers s ON c.r.kind=s.r.kind AND c.r.flow<>s.r.flow
                 AND s.r.start BETWEEN c.r.start-? AND c.r.start+?+?
                 WHERE c.r.ready AND s.r.ready
+                    AND (c.r.socket_signature IS NULL OR s.r.socket_signature IS NULL OR c.r.socket_signature<>s.r.socket_signature)
                     AND NOT(coalesce(c.r.line<>s.r.line OR c.r.host<>s.r.host,false)
                         AND c.r.line IS NOT NULL AND s.r.line IS NOT NULL AND c.r.host IS NOT NULL AND s.r.host IS NOT NULL)
                     AND (coalesce(len(s.r.xff),0)=0 OR c.r.origin_ip IS NULL OR list_contains(s.r.xff,c.r.origin_ip)))

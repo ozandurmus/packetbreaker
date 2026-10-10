@@ -5,6 +5,7 @@ import json
 from .evidence import evidence
 from .proxy_matching import pair_requests
 from .store import rows
+from .application_evidence import frame_lookup, frame_refs
 
 
 def boundaries(topology):
@@ -62,14 +63,17 @@ def prepare_requests(db):
         db.execute("""CREATE OR REPLACE TABLE proxy_requests(id VARCHAR,point VARCHAR,last_frame BIGINT,
             first_frame BIGINT,response_frame BIGINT,flow VARCHAR,canon VARCHAR,start_seq BIGINT,kind VARCHAR,
             origin_ip VARCHAR,line VARCHAR,host VARCHAR,xff VARCHAR[],sni VARCHAR,ready BOOLEAN,reason VARCHAR,
-            start DOUBLE,complete DOUBLE,response DOUBLE,protocol_stream BIGINT)""")
+            start DOUBLE,complete DOUBLE,response DOUBLE,protocol_stream BIGINT,socket_signature VARCHAR)""")
         return
     # Components come from tshark reassembly, not captured-prefix parsing.
     db.execute("""CREATE OR REPLACE TABLE proxy_requests AS
     WITH app AS (SELECT *,md5(point||':'||frame::VARCHAR||':'||kind) AS id FROM app_protocol WHERE kind IN ('http_request','tls_setup')),
-    components AS (SELECT a.id,arg_max(o.frame,(e.seq-o.seq+4294967296)%4294967296) AS first_frame,
-        min(o.corrected) AS earliest, bool_and(o.eligible) AS usable
+    anchors AS (SELECT point,flow,canon,arg_min(seq,frame) AS base FROM obs WHERE (flags&2)=2 GROUP BY point,flow,canon),
+    components AS (SELECT a.id,arg_min(o.frame,CASE WHEN h.base IS NOT NULL THEN (o.seq-h.base+4294967296)%4294967296
+        ELSE -((e.seq-o.seq+4294967296)%4294967296) END) AS first_frame,
+        min(o.corrected) AS earliest, bool_and(o.eligible AND (h.base IS NOT NULL OR (e.seq-o.seq+4294967296)%4294967296<2147483648)) AS usable
         FROM app a JOIN obs e ON e.point=a.point AND e.frame=a.frame
+        LEFT JOIN anchors h ON h.point=e.point AND h.flow=e.flow AND h.canon=e.canon
         JOIN obs o ON o.point=a.point AND o.frame IN (SELECT unnest(from_json(a.components,'["BIGINT"]')))
         GROUP BY a.id),
     responses AS (SELECT a.id,arg_min(r.frame,ro.corrected) AS completion_frame
@@ -78,29 +82,34 @@ def prepare_requests(db):
         OR (a.kind='tls_setup' AND r.kind='tls_server' AND r.frame>a.frame
             AND NOT EXISTS(SELECT 1 FROM app n WHERE n.point=a.point AND n.protocol_stream=a.protocol_stream AND n.kind='tls_setup' AND n.frame>a.frame AND n.frame<r.frame)))
         JOIN obs ro ON ro.point=r.point AND ro.frame=r.frame GROUP BY a.id),
-    response_start AS (SELECT r.id,arg_max(o.frame,(e.seq-o.seq+4294967296)%4294967296) AS response_frame
+    response_start AS (SELECT r.id,arg_min(o.frame,CASE WHEN h.base IS NOT NULL THEN (o.seq-h.base+4294967296)%4294967296
+        ELSE -((e.seq-o.seq+4294967296)%4294967296) END) AS response_frame
         FROM responses r JOIN app a ON a.id=r.id JOIN app_protocol p ON p.point=a.point AND p.frame=r.completion_frame AND p.kind IN ('http_response','tls_server')
-        JOIN obs e ON e.point=p.point AND e.frame=p.frame JOIN obs o ON o.point=p.point AND o.frame IN (SELECT unnest(from_json(p.components,'["BIGINT"]'))) GROUP BY r.id)
+        JOIN obs e ON e.point=p.point AND e.frame=p.frame LEFT JOIN anchors h ON h.point=e.point AND h.flow=e.flow AND h.canon=e.canon
+        JOIN obs o ON o.point=p.point AND o.frame IN (SELECT unnest(from_json(p.components,'["BIGINT"]'))) GROUP BY r.id)
     SELECT a.id,a.point,a.frame AS last_frame,c.first_frame,r.response_frame,e.flow,e.canon,s.seq AS start_seq,
         CASE WHEN a.kind='http_request' THEN 'http' ELSE 'tls_setup' END AS kind,
-        coalesce(json_extract_string(a.metadata,'$.xff[0]'),s.src) AS origin_ip,
+        coalesce(json_extract_string(a.metadata,'$.xff[0]'),json_extract_string(s.canon,'$[1]'),s.src) AS origin_ip,
         json_extract_string(a.metadata,'$.line') AS line,json_extract_string(a.metadata,'$.host') AS host,
         coalesce(from_json(json_extract(a.metadata,'$.xff'),'["VARCHAR"]'),[]::VARCHAR[]) AS xff,
         json_extract_string(a.metadata,'$.sni') AS sni,
         coalesce(try_cast(json_extract_string(a.metadata,'$.ready') AS BOOLEAN),false) AND c.usable AS ready,
-        CASE WHEN NOT c.usable THEN 'Unmatchable request components' ELSE json_extract_string(a.metadata,'$.reason') END AS reason,
+        CASE WHEN NOT c.usable THEN 'Unmatchable components or out-of-order bytes without a SYN sequence anchor' ELSE json_extract_string(a.metadata,'$.reason') END AS reason,
         s.corrected AS start,e.corrected AS complete,ro.corrected AS response,
-        a.protocol_stream
+        a.protocol_stream,md5(s.tuple_key||':'||coalesce((SELECT raw_seq::VARCHAR FROM obs h WHERE h.point=s.point AND h.flow=s.flow AND h.canon=s.canon AND (h.flags&18)=2 ORDER BY h.frame LIMIT 1),s.raw_seq::VARCHAR)) AS socket_signature
     FROM app a JOIN obs e ON e.point=a.point AND e.frame=a.frame
     JOIN components c ON c.id=a.id JOIN obs s ON s.point=a.point AND s.frame=c.first_frame
     LEFT JOIN response_start r ON r.id=a.id LEFT JOIN obs ro ON ro.point=a.point AND ro.frame=r.response_frame""")
     # HTTP/1.x responses preserve request order. tshark's request_in is not reliable for
     # pipelining. Require both handshakes and continuous decoded request/response byte ranges.
     db.execute("""CREATE OR REPLACE TEMP TABLE http_pdus AS
-        WITH data AS (SELECT a.*,e.canon,e.seq+e.length AS end_seq,e.corrected AS completion,
-            arg_max(o.frame,(e.seq-o.seq+4294967296)%4294967296) AS first_frame,
+        WITH anchors AS (SELECT point,flow,canon,arg_min(seq,frame) AS base FROM obs WHERE (flags&2)=2 GROUP BY point,flow,canon),
+        data AS (SELECT a.*,e.canon,arg_max((o.seq+o.length)%4294967296,
+            CASE WHEN h.base IS NOT NULL THEN (o.seq-h.base+4294967296)%4294967296 ELSE -((e.seq-o.seq+4294967296)%4294967296) END) AS end_seq,e.corrected AS completion,
+            arg_min(o.frame,CASE WHEN h.base IS NOT NULL THEN (o.seq-h.base+4294967296)%4294967296 ELSE -((e.seq-o.seq+4294967296)%4294967296) END) AS first_frame,
             bool_and(o.eligible AND coalesce(try_cast(json_extract_string(a.metadata,'$.ready') AS BOOLEAN),false)) AS ready
             FROM app_protocol a JOIN obs e ON e.point=a.point AND e.frame=a.frame
+            LEFT JOIN anchors h ON h.point=e.point AND h.flow=e.flow AND h.canon=e.canon
             JOIN obs o ON o.point=a.point AND o.frame IN (SELECT unnest(from_json(a.components,'["BIGINT"]')))
             WHERE a.kind='http_request' OR (a.kind='http_response' AND try_cast(json_extract_string(a.metadata,'$.code') AS INTEGER)>=200)
             GROUP BY ALL), ordered AS (SELECT d.*,s.seq AS start_seq,s.corrected AS first_time,
@@ -124,6 +133,15 @@ def correlate(db, topology, models, statuses):
     prepare_requests(db)
     requests = rows(db, "SELECT * FROM proxy_requests ORDER BY start,point,last_frame")
     lookup = {r["id"]: r for r in requests}
+    reference_lookup = frame_lookup(
+        db,
+        {
+            (r["point"], r[k])
+            for r in requests
+            for k in ("first_frame", "last_frame", "response_frame")
+            if r.get(k)
+        },
+    )
     failures = {s["point"]: s["reason"] for s in statuses if s["reason"]}
     found = []
     for a, b in boundaries(topology):
@@ -154,7 +172,17 @@ def correlate(db, topology, models, statuses):
                 client_flow=c["flow"] if c else None,
                 server_flow=s["flow"] if s else None,
                 time=(c or s or {}).get("start"),
-                evidence=refs(db, c, s),
+                evidence=frame_refs(
+                    db,
+                    [
+                        dict(point=r["point"], frame=r[k])
+                        for r in (c, s)
+                        if r
+                        for k in ("first_frame", "last_frame", "response_frame")
+                        if r.get(k)
+                    ],
+                    reference_lookup,
+                ),
             )
             if failures.get(a.id) or failures.get(b.id):
                 pair.update(status="unknown", reason=failures.get(a.id) or failures.get(b.id))

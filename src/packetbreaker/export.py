@@ -43,6 +43,7 @@ class Finding(BaseModel):
         "reset_origin",
         "proxy_reset_originated",
         "proxy_reset_propagated",
+        "tls_interception",
         "icmp_origin",
         "payload_modified",
         "downstream_packet",
@@ -205,6 +206,7 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <section id="findings"><h2>Findings ({len(data["findings"])})</h2>{findings or "<p>No findings.</p>"}</section>
 <section id="segments"><h2>Segments</h2>{segments}</section>
 <section id="proxies"><h2>Full-proxy requests and TCP legs</h2>{details(report.get("proxies", {}), "Request pairings, dwell uncertainty, evidence and independent-leg classifications")}</section>
+<section id="tls"><h2>TLS interception evidence</h2>{details(report.get("tls", []), "Visible certificate chains and unknown encrypted handshakes")}{details(report.get("application_status", []), "Application decoder status")}</section>
 <section id="field-diffs"><h2>Matched packet field differences</h2>{h(report.get("field_diffs", {}).get("note"))}{differences}</section>
 <section id="filters"><h2>Per-file flow filters</h2>{details(data["flow_filters"], "Copy filters for original or re-saved files")}</section>
 <script id="report-data" type="application/json">{encoded}</script><script>{HEATMAP_SCRIPT}</script></body></html>"""

@@ -148,6 +148,11 @@ export type Segment = {
   offset_uncertainty_ms: number | null;
 };
 export type Report = {
+  application_status?: {
+    point: string;
+    reason: string | null;
+    cached: boolean;
+  }[];
   proxies?: {
     note: string;
     transaction_count: number;

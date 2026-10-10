@@ -91,7 +91,11 @@ def waterfall(project, flow, start=None, end=None, request_index=0):
         client, server = forward[0], forward[-1]
         by_point = {p: [x for x in packets if x["point"] == p] for p in points}
         full_proxy = any(p["translation"] == "full_proxy" for p in points.values())
-        fallback = "unknown (full proxy, Phase 3)" if full_proxy else "Missing or unmatchable endpoint frame"
+        fallback = (
+            "unknown (full proxy: request correlation unavailable)"
+            if full_proxy
+            else "Missing or unmatchable endpoint frame"
+        )
         refs = {}
 
         has_byte_ranges = db.execute("SELECT count(*) FROM byte_flows WHERE flow=?", [flow]).fetchone()[0]
@@ -134,7 +138,7 @@ def waterfall(project, flow, start=None, end=None, request_index=0):
             mb = report["clocks"].get(points[pb]["capture_id"], {})
             uncertainty = None
             if any(points[p]["translation"] == "full_proxy" for p in (pa, pb)) and pa != pb:
-                reason = "unknown (full proxy, Phase 3)"
+                reason = "unknown (full proxy: request correlation unavailable)"
             if not a or not b or not a["eligible"] or not b["eligible"]:
                 reason = reason or fallback
             if a and b and a["corrected"] is not None and b["corrected"] is not None:

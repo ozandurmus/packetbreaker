@@ -3,8 +3,23 @@
 from .evidence import evidence
 
 
-def frame_refs(db, packets):
+def frame_lookup(db, keys):
+    if not keys:
+        return {}
+    data = evidence(
+        db,
+        "o.point||':'||o.frame::VARCHAR IN (SELECT unnest(?::VARCHAR[]))",
+        [[f"{p}:{f}" for p, f in keys]],
+        limit=len(keys),
+        _expand_ranges=False,
+    )
+    return {(r["point"], r["frame"]): r for r in data}
+
+
+def frame_refs(db, packets, lookup=None):
     keys = sorted({(p["point"], p["frame"]) for p in packets if p and p.get("frame")})
+    if lookup is not None:
+        return [lookup[k] for k in keys if k in lookup]
     return (
         evidence(
             db,
@@ -18,7 +33,7 @@ def frame_refs(db, packets):
     )
 
 
-def finding(db, segment, kind, summary, packets, metrics, supported=True, severity="high"):
+def finding(db, segment, kind, summary, packets, metrics, supported=True, severity="high", lookup=None):
     stamps = [p.get("corrected") for p in packets if p and p.get("corrected") is not None]
     return dict(
         id=f"proxy:{kind}:{segment['id']}:{packets[0]['frame']}",
@@ -32,7 +47,7 @@ def finding(db, segment, kind, summary, packets, metrics, supported=True, severi
         summary=summary,
         tooltip="Evidence describes observed request/certificate/reset events. Missing capture coverage and ambiguous candidates cannot establish origin.",
         metrics={"count": 1, **metrics},
-        evidence=frame_refs(db, packets),
+        evidence=frame_refs(db, packets, lookup),
         cause="unknown",
         clock_caveat="Clock-corrected estimates; see uncertainty in metrics.",
     )

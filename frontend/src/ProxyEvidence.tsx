@@ -11,6 +11,18 @@ export function ProxyEvidence({
   const proxies = report.proxies;
   return (
     <>
+      {report.application_status?.some((s) => s.reason) && (
+        <section>
+          <h2>Application decoder limitations</h2>
+          {report.application_status
+            .filter((s) => s.reason)
+            .map((s) => (
+              <p key={s.point}>
+                {s.point} · unknown: {s.reason}
+              </p>
+            ))}
+        </section>
+      )}
       {!!proxies?.transactions.length && (
         <section>
           <h2>Full-proxy requests and independent TCP legs</h2>
