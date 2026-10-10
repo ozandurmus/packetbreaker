@@ -340,8 +340,9 @@ in the stored prefixes. Content-Length request bodies are tracked by TCP sequenc
 coverage, including out-of-order arrival. Missing prefixes are never reconstructed
 from guesses. If headers are incomplete, choose a larger payload prefix in Settings
 and reattach the captures to rebuild the index. Chunked requests, pipelining, TLS
-and response-body download timing are not decoded. Full-proxy boundaries explicitly
-show **unknown (full proxy, Phase 3)**. The view is bounded to 20,000 observations
+and response-body download timing are not decoded by the original single-leg view.
+The Phase 3 / Part 2 request graph below supports complete pipelined HTTP/1.x across
+full proxies; unavailable request correlations remain explicitly unknown. The original view is bounded to 20,000 observations
 per flow, 8 KiB headers, 8 MiB request bodies and 100 request choices.
 
 Clock correction estimates contain path-asymmetry uncertainty. Even a positive
@@ -425,7 +426,8 @@ or injection. These checks do not inflate loss percentages or nominate a device 
 
 Declare **Payload transformation** (proxy, ALG or SSL inspection) in the path editor when
 expected. Full proxies still have no end-to-end packet identity; their field comparisons remain
-unknown. This part does not implement TLS decryption or general full-proxy request correlation.
+unknown. The Part 1 snapshot did not implement TLS decryption or general request correlation;
+Part 2 below adds evidence-backed request pairing and visible certificate comparisons.
 Reattach older capture indexes once to populate schema-6 path fields. Real captures remain local.
 
 
@@ -435,3 +437,23 @@ reset origin stays unknown with `no endpoint-side capture`. A server-compatible 
 at the first observation also leaves capture miss unresolved. Links are explicitly named
 (e.g. `link between FW egress and LB ingress`) with no device assignment. Updating from
 0.1.8 invalidates the old analysis report; run **Analyze path** again.
+
+### Generic full proxies and TLS evidence (Phase 3 / Part 2)
+
+Declare both sides of a proxy as capture points of the same device and select `full_proxy`. Include the
+original clients and proxy backend requester addresses in the client/requester CIDRs, excluding listener
+VIPs and server addresses. Keep the forward and return paths explicit. Run analysis after changing the
+configuration.
+
+The summary's **Full-proxy requests and independent TCP legs** section shows one-to-one HTTP/1.x request
+pairs, backend pooling, forwarding/response dwell and their evidence. Open any leg's stream waterfall to
+follow that request across both proxies, ordinary links and the return path. Separate TCP handshakes
+remain separate; unknown clock domains, incomplete byte boundaries and equally plausible candidates do
+not get invented durations. The per-point leg table keeps loss, retransmissions and resets independent.
+
+**TLS interception evidence** compares visible server certificate chains for a matched SNI/handshake.
+Undeclared changes identify the supported device; declared SSL inspection is a quality observation.
+TLS 1.3 certificates and encrypted HTTP request boundaries remain unknown. SNI-only associations are
+labelled TLS setup and do not pretend to measure encrypted application requests. Export HTML/JSON from
+the existing buttons or `packetbreaker export --format html|json`; findings schema 4 includes proxy resets,
+TLS evidence, clock caveats and original/portable frame filters.

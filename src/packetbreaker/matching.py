@@ -124,7 +124,11 @@ def link_tcp_sessions(db, topology):
     for device in {p.device for p in topology.points if p.vendor == "paloalto"}:
         same_node = [p.id for p in topology.points if p.device == device and p.vendor == "paloalto"]
         pairs.update(tuple(sorted(pair)) for pair in combinations(same_node, 2))
+    points = {p.id: p for p in topology.points}
+    proxy_devices = {p.device for p in topology.points if p.translation == "full_proxy"}
     for a, b in pairs:
+        if points[a].device == points[b].device and points[a].device in proxy_devices:
+            continue
         edges = db.execute(
             """SELECT DISTINCT a.point,a.stream,a.flow,b.point,b.stream,b.flow
             FROM obs a JOIN obs b ON a.packet_key=b.packet_key AND a.flow=b.flow
@@ -177,3 +181,34 @@ def propagate_translation_unknown(db):
             coalesce(o.excluded_reason,q.reason) AS excluded_reason)
             FROM obs o LEFT JOIN (SELECT flow,max(translation_reason) AS reason FROM obs
                 WHERE translation_reason IS NOT NULL GROUP BY flow) q USING(flow)""")
+
+
+def partition_proxy_legs(db, topology):
+    """Keep declared full-proxy TCP legs in distinct transport identity namespaces."""
+    points = {p.id: p for p in topology.points}
+    devices = {p.device for p in topology.points if p.translation == "full_proxy"}
+    if not devices:
+        return
+    active = set(topology.forward + topology.reverse)
+    parent = {p: p for p in active}
+
+    def root(p):
+        while parent[p] != p:
+            p = parent[p]
+        return p
+
+    for path in (topology.forward, topology.reverse or topology.forward[::-1]):
+        for a, b in zip(path, path[1:]):
+            if points[a].device == points[b].device and points[a].device in devices:
+                continue
+            ra, rb = root(a), root(b)
+            if ra != rb:
+                parent[max(ra, rb)] = min(ra, rb)
+    db.execute(
+        "CREATE OR REPLACE TEMP TABLE proxy_leg_names AS SELECT unnest(?::VARCHAR[]) AS point,unnest(?::VARCHAR[]) AS leg",
+        [sorted(active), [root(p) for p in sorted(active)]],
+    )
+    db.execute("""CREATE OR REPLACE TABLE obs AS SELECT o.* REPLACE(
+        CASE WHEN o.proto='TCP' AND n.leg IS NOT NULL THEN md5(o.packet_key||n.leg) ELSE o.packet_key END AS packet_key,
+        CASE WHEN o.proto='TCP' AND n.leg IS NOT NULL THEN md5(o.flow||n.leg) ELSE o.flow END AS flow)
+        FROM obs o LEFT JOIN proxy_leg_names n USING(point)""")

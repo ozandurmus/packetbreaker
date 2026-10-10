@@ -147,7 +147,7 @@ def make_matches_view(db, active):
     db.execute(f"""CREATE OR REPLACE VIEW observation_matches AS
         SELECT a.point AS point_a,b.point AS point_b,a.direction,a.corrected AS time_a,b.corrected AS time_b,
         a.packet_key AS key_a,b.packet_key AS key_b,a.length AS bytes,false AS byte_range
-        FROM obs a JOIN obs b USING(packet_key) WHERE a.point<>b.point AND a.eligible AND b.eligible {exclusion}{extra}""")
+        FROM obs a JOIN obs b USING(packet_key) WHERE a.point<>b.point AND (a.proto<>'TCP' OR a.flow=b.flow) AND a.eligible AND b.eligible {exclusion}{extra}""")
 
 
 def range_condition(a_alias="a"):

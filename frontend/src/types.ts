@@ -148,6 +148,57 @@ export type Segment = {
   offset_uncertainty_ms: number | null;
 };
 export type Report = {
+  application_status?: {
+    point: string;
+    reason: string | null;
+    cached: boolean;
+  }[];
+  proxies?: {
+    note: string;
+    transaction_count: number;
+    transactions: {
+      device: string;
+      kind: string;
+      request?: string;
+      status: string;
+      reason: string | null;
+      client_flow?: string | null;
+      server_flow?: string | null;
+      request_dwell?: {
+        duration_ms: number | null;
+        uncertainty_ms: number | null;
+        reason: string | null;
+      };
+      response_dwell?: {
+        duration_ms: number | null;
+        uncertainty_ms: number | null;
+        reason: string | null;
+      };
+      evidence: Ref[];
+    }[];
+    legs?: {
+      point: string;
+      flow: string;
+      packets: number;
+      retransmissions: number;
+      resets: number;
+      loss_by_class: Record<string, number>;
+    }[];
+    reset_notes?: {
+      device: string;
+      status: string;
+      reason: string;
+      evidence: Ref[];
+    }[];
+  };
+  tls?: {
+    status: string;
+    device?: string | null;
+    point?: string;
+    sni: string;
+    reason: string;
+    evidence: Ref[];
+  }[];
   confirmed_device_drop_count?: number;
   confirmed_device_drops?: { device: string; stage: string; count: number }[];
   vendor_device_event_count?: number;

@@ -36,7 +36,7 @@ def test_integrity_ground_truth_devices_evidence_and_exports(multi):
             == 0
         )
     data = export_data(project)
-    assert data["schema_version"] == 3 and data["report"]["field_diffs"]["items"]
+    assert data["schema_version"] == 4 and data["report"]["field_diffs"]["items"]
     assert "Payload changed across FW" in html_report(data)
 
 

@@ -328,3 +328,29 @@ acceptance cases were replaced by this matrix; no new test was marked slow.
 Reset attribution remains conservative: consistent endpoint TTL at the candidate's observation
 point is compatible with a missed endpoint packet. Unknown endpoint identity/coverage cannot
 become a device claim merely because a RST first appears on a device-adjacent capture.
+
+## Phase 3 / Part 2
+
+- Generic full proxies are explicit TCP boundaries. Request correlation never creates cross-proxy packet
+  identity or a packet-loss percentage inside the proxy. Existing F5 trailer handling remains separate.
+- Pair individual decoded requests, with lexicographic content evidence and mutual one-to-one selection.
+  A backend connection may serve many frontend requests. Nearest-time-only pairing is rejected by XFF
+  fixtures; equal candidates and contradictory visible HTTP identities remain unknown.
+- SNI alone supports a visible TLS-setup association. Encrypted HTTP request boundaries are unavailable,
+  so SNI cannot manufacture per-request dwell on pooled encrypted connections. HTTP/2, HTTP/3, chunked
+  requests, unsupported/coalesced message boundaries and incomplete response sequences are conservative
+  unknown cases, rather than new parsers.
+- Use tshark for every protocol field. Isolate capture points before reassembly, because discarded tap
+  copies still affect tshark state. Cache the bounded decoded event index, preserve original frame IDs,
+  and reuse native DuckDB joins for PDU ranges and candidate generation.
+- Use continuous SYN-anchored HTTP/1.x PDU order for pooled response association. tshark's request reference
+  can select the last pipelined request; a missing earlier response must never shift attribution.
+- Local clock domains allow separate-leg classification. They do not imply a shared proxy clock. Dwell,
+  cross-domain propagation and uncertain TLS association remain unknown without alignment evidence.
+- Attribute a TLS chain change to the directly supported device first. A chain already inconsistent
+  within a leg cannot justify blaming its adjacent full proxy. Server-direction chains only; no trust,
+  signature, SAN or certificate-policy validation is claimed. TLS 1.3/resumption without a visible chain
+  stays unknown. Expected changes at declared SSL inspection are quality observations.
+- Keep every new fixture in the fast suite. Reuse the original tiny multi-interface corpus across test
+  cases and overlap independent synthetic preparations; this changes neither production ingest defaults
+  nor test selection. Do not add a test runner dependency or move these tests into the slow matrix.

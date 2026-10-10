@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, num, time, reverseTuple } from "./api";
 import { FieldDiff, type FieldDiffData } from "./FieldDiff";
+import { ProxyEvidence } from "./ProxyEvidence";
 import { Waterfall } from "./Waterfall";
 import { Coverage, LadderChart } from "./Charts";
 import { TopologyEditor } from "./TopologyEditor";
@@ -657,6 +658,9 @@ function App() {
                       </button>
                     ))}
                 </section>
+              )}
+              {report && (
+                <ProxyEvidence report={report} onEvidence={setEvidence} />
               )}
               {!!report?.f5?.pairs.length && (
                 <section>
