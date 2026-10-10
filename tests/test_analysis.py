@@ -132,7 +132,7 @@ def test_bad_override_suppresses_negative_latency(scenarios):
     assert hop["reason"] == "Clock alignment unreliable"
 
 
-def test_overlap_and_unsupported_boundaries_do_not_blame_network(scenarios):
+def test_full_proxy_opacity_does_not_hide_independent_leg_loss(scenarios):
     project, _, topology, _ = scenarios("impactful_loss")
     topology = {
         **topology,
@@ -142,8 +142,15 @@ def test_overlap_and_unsupported_boundaries_do_not_blame_network(scenarios):
         ],
     }
     report = analyze(project, topology)
-    assert "impactful_loss" not in classes(report)
-    assert any(s["reason"] == "Unsupported translation boundary" for s in report["segments"])
+    # The internal boundary remains unknown; its independently observable backend leg still loses data.
+    assert "impactful_loss" in classes(report)
+    assert all(f["hop"] == "forward:p2:p3" for f in report["findings"] if f["type"] == "impactful_loss")
+    assert any(
+        s["id"] == "forward:p1:p2"
+        and s["reason"] == "Unsupported translation boundary"
+        and s["loss_percent"] is None
+        for s in report["segments"]
+    )
 
 
 def test_empty_selected_window_is_unknown_not_zero_loss(scenarios):

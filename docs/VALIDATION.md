@@ -706,3 +706,72 @@ sample skip on each job, and all 166 slow cases on macos-14 / Python 3.12 only.
 
 No real captures were added. Full final-head CI results and the exact run URL are recorded in
 PR #6's review-fix close-out; the existing push/PR/manual matrix policy is unchanged.
+
+## Phase 3 / Part 2 — 0.2.0
+
+Branch `phase3-part2` starts from main `82c6d3b`, after PRs #6 and #7 were merged.
+No real or third-party capture is tracked. The new wire fixtures are generated in test temporary
+folders: two full proxies, one plain router, eight capture points, concurrent equal-URI requests,
+pooled backend sockets, ambiguity at either proxy, per-leg losses/capture misses, legitimate and
+proxy-emitted resets, visible TLS chains, client-auth-only chains and encrypted TLS 1.3. IPv4 zero
+and constant IDs and IPv6 zero/constant-per-flow labels are covered; no fixture depends on unique IP IDs.
+
+The negative cases precede positive cases. Exact-device assertions distinguish Proxy A, Proxy B,
+Router and the intervening link; a link change cannot justify a supported device attribution.
+Nearest-time-only pairing fails the same one-to-one/XFF contract at both proxy locations. An
+always-first-proxy mutant fails the Proxy B TLS contract. The pooled case also rejects connection-level
+pairing: two distinct requests must map to one backend flow. Declaring the router as a proxy cannot
+turn copies of one TCP socket into independent request legs.
+
+Measured request/response forwarding intervals (shared capture clock, ms):
+
+| Device | Client | Request dwell | Response dwell |
+|---|---|---:|---:|
+| Proxy A | synthetic client A | 92 | 27 |
+| Proxy A | synthetic client B | 20 | 27 |
+| Proxy B | synthetic client A | 53 | 39 |
+| Proxy B | synthetic client B | 84 | 29 |
+
+Every value is asserted within 0.001 ms against the fixture schedule. Both proxies' request and
+response bars, ordinary links, server processing and three separate TCP handshakes retain original
+frame/content filters. A missing pooled response never shifts another request's response association.
+Out-of-order header/body delivery uses the logical first byte and physical completion frame.
+Traveling copies produce zero retransmissions on healthy pooled legs; each intentionally retransmitted
+leg records exactly one at its sender. Each leg's single loss is assigned to its actual link, and a pure
+capture miss produces no network-loss event.
+
+TLS chain expectations come from tshark's decoded subject/issuer/DER values. Only server-direction
+chains participate. TLS 1.3, absent/client-auth-only chains, incomplete quality evidence, missing points,
+clock uncertainty and equal request candidates remain unknown. Declared inspection yields a quality
+observation. JSON schema 4 validates all new finding classes; exported HTML includes proxy/TLS evidence
+and has no external HTTP(S) asset reference. Package and bundled UI builds pass.
+
+The initial complete default run passed 354 fast tests but exceeded the limit (155.14 s;
+153.88 s on profiling). Selected synthetic prefetch and existing bounded file workers
+reduced the later 357-case run to 132.19 s; separate preparation processes reduced it to 126.98 s.
+These were failed performance acceptance attempts, not accepted final timings. Evidence lookup was
+then batched per application graph/TLS comparison instead of repeatedly querying the same frames.
+No tests were removed, marked slow, or excluded to meet the time target. The slow matrix remains
+166 cases, on macos-14/Python 3.12 only.
+
+Final local default: **357 passed, 166 deselected in 113.58 s** (114.11 s wall,
+111.31 s user, 43.95 s system). Total collection: **523 tests**. Ruff, bundled UI and
+Python wheel/sdist builds pass. CI expects 356 passes plus the optional sample skip per fast job.
+
+Full PR matrix evidence: [PR #8 checks](https://github.com/ozandurmus/packetbreaker/pull/8/checks).
+This stable link tracks the final head's six-job matrix; the exact completed run URL is added to
+the PR validation section. Pushes retain the single macos-14/Python 3.12 job. No auto-merge is enabled.
+
+Initial PR run [38053124527](https://github.com/ozandurmus/packetbreaker/actions/runs/38053124527)
+passed all six fast suites and five complete jobs; its macos-14/Python 3.12 slow stage failed 13 of
+166 cases (153 passed, 391.68 s). All failures were the existing asymmetric realistic corpus:
+clock overrides for one-way points had no domain label, so otherwise matchable loss/SYN events were
+incorrectly classified unknown. User corrections now explicitly belong to the reference domain,
+while their uncertainty remains unverified and propagates as unverified. No assertion was weakened.
+A fast clock regression verifies both domain membership and that child fits do not invent verified
+uncertainty. The unchanged affected matrix passes locally: **17 passed in 70.51 s**. Final-head PR
+checks above contain the subsequent full six-job matrix.
+
+After the clock-override regression fix, the final local default run is **357 passed, 166 deselected
+in 109.03 s** (109.53 s wall, 107.40 s user, 41.55 s system), with no warnings. The final package
+build also succeeds. Test selection and all ground-truth assertions are unchanged.

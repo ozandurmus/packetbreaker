@@ -5,7 +5,18 @@ from datetime import datetime, timezone
 from . import __version__
 from .clock import ClockModel, fit_clock
 from .device_drops import prepare_proofs, upgrade_events, finding_context, add_unplaced, device_report
-from .matching import prepare_occurrences, match_occurrences, link_tcp_sessions, propagate_translation_unknown
+from .matching import (
+    prepare_occurrences,
+    match_occurrences,
+    link_tcp_sessions,
+    propagate_translation_unknown,
+    partition_proxy_legs,
+)
+from .application_index import index_applications
+from .proxy_analysis import correlate, restrict_onset_domains
+from .proxy_waterfall import add_dwell
+from .proxy_resets import reset_checks
+from .tls_analysis import tls_checks
 from .ingest import tuple_id
 from .headlines import add_headlines
 from .integrity import analyze_integrity, link_modified_payloads
@@ -203,6 +214,7 @@ def prepare(db, topology):
             ELSE 'reverse' END FROM f5_connections c WHERE obs.capture_id=c.capture_id AND obs.stream=c.stream
             AND c.role IN ('client','server') AND json_extract_string(obs.vendor,'$."f5ethtrailer.ingress"') IS NOT NULL""")
     normalize_sequences(db, topology)
+    partition_proxy_legs(db, topology)
     # Compare the shared captured prefix, not the digest of different-length payloads.
     db.execute("""CREATE OR REPLACE TEMP TABLE prefix_lengths AS
         SELECT packet_key,min(coalesce(length(prefix),0)) AS n FROM obs GROUP BY packet_key""")
@@ -231,6 +243,7 @@ def align(db, topology):
     ref = points[order[0]].capture_id
     epoch = db.execute("SELECT min(ts) FROM obs WHERE capture_id=?", [ref]).fetchone()[0] or 0
     models[ref] = ClockModel(0, 0, epoch, 0, "reference", "Reference capture clock", 0)
+    models[ref].domain = ref
     for cid, override in topology.clock_overrides.items():
         models[cid] = ClockModel(
             override.offset_ms / 1000,
@@ -239,6 +252,7 @@ def align(db, topology):
             None,
             "override",
             "User-supplied clock correction; uncertainty unverified",
+            domain=ref,
         )
     # Multiple passes permit an asymmetric return-path point to calibrate against any known point.
     for _ in range(len(order)):
@@ -268,7 +282,12 @@ def align(db, topology):
                     [(models[aid].correct(x), y, not f if flip else f) for x, y, f, _, _ in data]
                 )
                 if model.offset is not None:
-                    model.uncertainty = (model.uncertainty or 0) + (models[aid].uncertainty or 0)
+                    model.domain = models[aid].domain
+                    model.uncertainty = (
+                        (model.uncertainty or 0) + models[aid].uncertainty
+                        if models[aid].uncertainty is not None
+                        else None
+                    )
                     anchors = sorted(data, key=lambda row: row[1] - models[aid].correct(row[0]))
                     chosen = anchors[:2] + anchors[-2:]
                     for _, _, _, fa, fb in chosen:
@@ -284,6 +303,26 @@ def align(db, topology):
                     changed = True
                     break
         if not changed:
+            if any(p.translation == "full_proxy" for p in topology.points):
+                # Calibrate disconnected TCP legs locally, without asserting cross-proxy clock alignment.
+                missing = next(
+                    (points[p].capture_id for p in order if points[p].capture_id not in models), None
+                )
+                if missing:
+                    local_epoch = db.execute(
+                        "SELECT min(ts) FROM obs WHERE capture_id=?", [missing]
+                    ).fetchone()[0]
+                    if local_epoch is not None:
+                        models[missing] = ClockModel(
+                            0,
+                            0,
+                            local_epoch,
+                            0,
+                            "reference",
+                            "Independent TCP leg reference; cross-domain timing unknown",
+                            domain=missing,
+                        )
+                        continue
             break
     for p in order:
         models.setdefault(points[p].capture_id, ClockModel(epoch=epoch))
@@ -319,7 +358,7 @@ def align(db, topology):
     return models
 
 
-def analyze(project, topology: Topology | dict, progress=None):
+def analyze(project, topology: Topology | dict, progress=None, cancel=None):
     topology = topology if isinstance(topology, Topology) else Topology.model_validate(topology)
     if len(topology.forward) < 2:
         drops = [p.id for p in topology.points if p.vendor == "paloalto" and p.vendor_stage == "drop"]
@@ -333,6 +372,7 @@ def analyze(project, topology: Topology | dict, progress=None):
         project.set(db, "report", None)
         progress(state="matching")
         suggestions = prepare(db, topology)
+        application_status = index_applications(project, db, topology, cancel, progress)
         progress(state="aligning clocks")
         models = align(db, topology)
         match_occurrences(db, topology)
@@ -341,6 +381,8 @@ def analyze(project, topology: Topology | dict, progress=None):
         propagate_translation_unknown(db)
         byte_active = prepare_byte_ranges(db, topology)
         prepare_flow_filters(db)
+        proxies = correlate(db, topology, models, application_status)
+        add_dwell(db, topology, models, proxies)
         for suggestion in suggestions:
             suggestion["evidence"] = evidence(
                 db,
@@ -379,7 +421,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             for idx, (a, b) in enumerate(zip(path, path[1:])):
                 pa, pb = points[a], points[b]
                 segment_id = f"{direction}:{a}:{b}"
-                unsupported = any(p.translation == "full_proxy" for p in (pa, pb))
+                unsupported = pa.device == pb.device and any(p.translation == "full_proxy" for p in (pa, pb))
                 pending_nat = any(
                     x["point_a"] in (a, b)
                     and x["point_b"] in (a, b)
@@ -406,7 +448,7 @@ def analyze(project, topology: Topology | dict, progress=None):
                     ).fetchone()[0]
                     pending_nat = pending_nat or unresolved > 0
                 ma, mb = models[pa.capture_id], models[pb.capture_id]
-                clocks_ok = ma.offset is not None and mb.offset is not None
+                clocks_ok = ma.offset is not None and mb.offset is not None and ma.domain == mb.domain
                 matched = rows(
                     db,
                     """SELECT count(*) AS matched,min(time_b-time_a)*1000 AS min_ms,
@@ -811,10 +853,16 @@ def analyze(project, topology: Topology | dict, progress=None):
         time_window = dict(start=start, end=end, common_start=common_start, common_end=common_end)
         timeseries = build_timeseries(db, topology, segments, coverage, time_window)
         onsets = add_onsets(db, topology, segments)
+        restrict_onset_domains(onsets, points, models)
         integrity_findings, integrity_notes = analyze_integrity(
             db, topology, segments, coverage, models, start, end
         )
         findings.extend(integrity_findings)
+        proxy_findings, proxy_leg_report = reset_checks(db, topology, segments, models, coverage)
+        proxies.update(proxy_leg_report)
+        findings.extend(proxy_findings)
+        tls_findings, tls_notes = tls_checks(db, topology, segments, models, start, end)
+        findings.extend(tls_findings)
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         total_findings = len(findings)
         order_scores = rows(
@@ -834,6 +882,9 @@ def analyze(project, topology: Topology | dict, progress=None):
         )
         report = dict(
             schema_version=2,
+            application_status=application_status,
+            proxies=proxies,
+            tls=tls_notes,
             integrity_notes=integrity_notes,
             f5=f5_report(db, topology),
             **device_report(db),
@@ -844,7 +895,10 @@ def analyze(project, topology: Topology | dict, progress=None):
             engine_version=__version__,
             generated_at=datetime.now(timezone.utc).isoformat(),
             verdict="Path integrity findings observed"
-            if any(f["confidence"] == "supported" and f["severity"] != "quality" for f in integrity_findings)
+            if any(
+                f["confidence"] == "supported" and f["severity"] != "quality"
+                for f in integrity_findings + proxy_findings + tls_findings
+            )
             else "Confirmed device drops observed"
             if any(f["type"] == "confirmed_device_drop" for f in findings)
             else "Impactful loss observed"
@@ -858,7 +912,7 @@ def analyze(project, topology: Topology | dict, progress=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 3 / Part 1; path integrity, security evidence, translation-aware matching and export",
+            scope="Phase 3 / Part 2; request-level full-proxy correlation, TLS chain evidence and independent TCP legs",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,
@@ -871,6 +925,11 @@ def analyze(project, topology: Topology | dict, progress=None):
             flow_count=db.execute("SELECT count(*) FROM flow_summary").fetchone()[0],
             limitations=[
                 "Observed coverage does not prove uninterrupted capture.",
+                "Full proxies link requests, never TCP packets. Ambiguous request candidates remain unknown.",
+                "SNI pairs visible TLS setup only; encrypted HTTP request boundaries and TLS 1.3 certificates remain unknown.",
+                "Clock domains separated by a proxy cannot establish proxy dwell or cross-domain onset order without shared clock evidence.",
+                "HTTP/1.x response association requires complete SYN-anchored contiguous decoded request/response ranges; chunked or coalesced messages remain unknown.",
+                "Application indexing isolates capture points, uses two tshark passes and caches at most 10,000 events per point; narrow the capture when this budget is exceeded.",
                 "Latency is estimated under minimum-path symmetry; offsets include possible path asymmetry.",
                 "SPAN duplicates, unresolved occurrence timing collisions, fragments and unsupported transports are excluded.",
                 "TCP sessions are joined by shared occurrences; streams without a shared packet stay separate.",
