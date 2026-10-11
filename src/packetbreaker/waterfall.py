@@ -373,3 +373,98 @@ def waterfall(project, flow, start=None, end=None, request_index=0):
             if candidates
             else "No captured cleartext HTTP/1.x request line in this window; TLS is not decoded",
         )
+
+
+def service_times(project, flow):
+    """Reuse existing byte-boundary checks once per flow; never shift pipelined responses."""
+    with project.connect() as db:
+        report = project.get(db, "report")
+        raw = project.get(db, "topology")
+        if not report or not raw:
+            return dict(items=[], reason="Run analysis first")
+        server = raw["forward"][-1]
+        if report.get("proxies", {}).get("transactions"):
+            pairs = rows(
+                db,
+                """SELECT last_frame,response_frame,complete,response,point FROM proxy_requests
+                WHERE flow=? AND point=? AND ready AND response IS NOT NULL ORDER BY complete LIMIT 100""",
+                [flow, server],
+            )
+            result = []
+            for p in pairs:
+                refs = evidence(
+                    db, "o.point=? AND o.frame IN (?,?)", [server, p["last_frame"], p["response_frame"]], 2
+                )
+                local = rows(
+                    db,
+                    "SELECT frame,ts FROM obs WHERE point=? AND frame IN (?,?)",
+                    [server, p["last_frame"], p["response_frame"]],
+                )
+                stamps = {r["frame"]: r["ts"] for r in local}
+                if (
+                    p["last_frame"] in stamps
+                    and p["response_frame"] in stamps
+                    and stamps[p["response_frame"]] >= stamps[p["last_frame"]]
+                ):
+                    result.append(
+                        dict(ms=(stamps[p["response_frame"]] - stamps[p["last_frame"]]) * 1000, evidence=refs)
+                    )
+            return dict(items=result, reason=None)
+        packets = rows(
+            db,
+            "SELECT * FROM obs WHERE point=? AND flow=? AND proto='TCP' ORDER BY ts,frame LIMIT ?",
+            [server, flow, LIMIT + 1],
+        )
+        if len(packets) > LIMIT:
+            return dict(items=[], reason="Service boundary observation budget exceeded")
+        requests = [
+            p
+            for p in packets
+            if p["direction"] == "forward"
+            and p["length"] > 0
+            and p["eligible"]
+            and REQUEST.match(bytes.fromhex(p["prefix"] or ""))
+        ]
+        requests = list({p["seq"]: p for p in reversed(requests)}.values())
+        requests.sort(key=lambda p: p["ts"])
+        result = []
+        for i, req in enumerate(requests[:100]):
+            response = next(
+                (
+                    p
+                    for p in packets
+                    if p["direction"] == "reverse"
+                    and p["length"] > 0
+                    and p["eligible"]
+                    and p["ts"] >= req["ts"]
+                    and RESPONSE.match(bytes.fromhex(p["prefix"] or ""))
+                ),
+                None,
+            )
+            if response is None:
+                continue
+            if i + 1 < len(requests) and requests[i + 1]["ts"] < response["ts"]:
+                return dict(
+                    items=[],
+                    reason="Pipelined request/response ownership unknown; service association suppressed",
+                )
+            local = [p for p in packets if req["ts"] <= p["ts"] <= response["ts"]]
+            size, reason = request_size(req, local)
+            last = (
+                completion(local, req, size, response["ts"]) if size is not None and reason is None else None
+            )
+            if last is None:
+                continue
+            result.append(
+                dict(
+                    ms=(response["ts"] - last["ts"]) * 1000,
+                    evidence=evidence(
+                        db, "o.point=? AND o.frame IN (?,?)", [server, last["frame"], response["frame"]], 2
+                    ),
+                )
+            )
+        return dict(
+            items=result,
+            reason=None,
+            note="At most 100 visible HTTP requests; incomplete/chunked/pipelined boundaries stay unknown.",
+        )

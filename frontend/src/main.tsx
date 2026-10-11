@@ -8,6 +8,7 @@ import { ProxyEvidence } from "./ProxyEvidence";
 import { Assistant } from "./Assistant";
 import { Diagnosis } from "./Diagnosis";
 import { DNS } from "./DNS";
+import { TransportCharts } from "./TransportCharts";
 import { Waterfall } from "./Waterfall";
 import { Coverage, LadderChart } from "./Charts";
 import { TopologyEditor } from "./TopologyEditor";
@@ -1681,6 +1682,15 @@ function App() {
                   key={selectedFlow.flow}
                   flow={selectedFlow.flow}
                   rangeQuery={rangeQuery}
+                  onEvidence={setEvidence}
+                />
+              )}
+              {selectedFlow && (
+                <TransportCharts
+                  key={selectedFlow.flow + "-charts"}
+                  flow={selectedFlow.flow}
+                  rangeQuery={rangeQuery}
+                  onRange={setRange}
                   onEvidence={setEvidence}
                 />
               )}

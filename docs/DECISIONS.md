@@ -412,3 +412,11 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 - Stream isolated TCP state into a separate bounded-batch native cache. Dense ACK/flight fields
   must not consume the existing 10,000 HTTP/TLS application-event budget or require whole-capture
   Python mapping. Validate ordinal/tuple/sequence/length/time mapping in SQL.
+
+- Plot byte spans and normalized ACK/window edge, not packet counts. Unknown handshake scale
+  suppresses the window line. A local unaligned clock must not silently filter another point.
+- Keep packet rendering bounded while rate/RTT aggregates include all observations. Mark partial
+  buckets unknown and expose omitted-point counts. Link actual frame evidence on chart clicks.
+- Reuse the existing HTTP boundary checks once per flow for service hypotheses instead of
+  rebuilding ten complete waterfalls during every profile/export. Pipelining ambiguity suppresses
+  service association for the flow, rather than shifting responses.

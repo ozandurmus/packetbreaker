@@ -636,3 +636,11 @@ ambiguous retries remain unknown. Existing independently classified disappearanc
 query/response loss hops; a response visible upstream is not labelled a resolver timeout.
 `/api/dns` is paginated, and the DNS UI/export contains original frame filters. Parser 12 adds
 DNS question fields. Supported scope is one complete unicast question/message per indexed frame.
+
+Stream charts use SYN-relative sequence bytes (first observed byte when SYN is absent), data
+byte spans, reverse cumulative ACK and negotiated receive-window edges. RTT and payload bit/s
+buckets use the full indexed population, while packet points are capped at 2,000 (max 5,000);
+the UI exposes the shown/total count and narrowing brush. Partial/not-capturing buckets have
+unknown throughput, never invented zero. All three charts brush the aligned investigation;
+unaligned clocks use a point-local brush and an explicit uncertainty note. Packet/bucket clicks
+query original flow/point/frame filters. The chart endpoint is bounded and same-origin.

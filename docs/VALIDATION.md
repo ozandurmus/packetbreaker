@@ -847,3 +847,8 @@ fixture uses distinct clients: only the owning client's response yields 50 ms; t
 unanswered. DNS/native/export checkpoint: 8 passed in 7.54 s. Export preserves DNS evidence and the
 HTML section. A cached profile regression exposed a temporary edge table; generation-cached edges
 are now persistent. Dense isolated TCP state is streamed separately from bounded HTTP/TLS events.
+
+Chart tests verify packet limits, complete-population throughput, negotiated window lines,
+point/flow-scoped evidence and brush bounds. The first brush test caught a partial selected
+bucket divided by a full second; selected-range/capture boundaries now both gate known rates.
+Chart/diagnosis/export/waterfall checkpoint: 10 passed in 12.47 s; TypeScript/Vite pass.

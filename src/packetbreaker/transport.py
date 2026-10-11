@@ -5,7 +5,7 @@ from collections import defaultdict
 from .evidence import evidence
 from .store import rows
 from .topology import Topology
-from .waterfall import waterfall
+from .waterfall import service_times
 
 MOD = 4294967296
 TOOLTIP = (
@@ -301,15 +301,14 @@ def profiles(project, flow=None, include_service=True):
             metrics["rtt_degraded"] = bool(metrics["rtt_degraded"])
             service_refs = []
             if include_service and direction == "reverse" and flow is not None:
-                # Reuse validated byte-completion/clock-aware HTTP waterfall boundaries.
-                timeline = waterfall(project, fid)
-                for request in timeline.get("requests", [])[:10]:
-                    for item in waterfall(project, fid, request_index=request["index"]).get("items", []):
-                        for bar in item["bars"]:
-                            if bar["kind"] == "server_processing" and bar["duration_ms"] is not None:
-                                metrics["service_ms"] = max(metrics["service_ms"] or 0, bar["duration_ms"])
-                                metrics["service_samples"] += 1
-                                service_refs.extend(bar["evidence"])
+                service = service_times(project, fid)
+                valid = service["items"]
+                metrics["service_samples"] = len(valid)
+                if valid:
+                    slowest = max(valid, key=lambda p: p["ms"])
+                    metrics["service_ms"] = slowest["ms"]
+                    service_refs = slowest["evidence"]
+                metrics["service_reason"] = service.get("reason")
             decision = classify(metrics)
             refs = evidence(
                 db,
