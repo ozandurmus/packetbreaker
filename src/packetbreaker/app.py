@@ -135,6 +135,19 @@ def create_app(project_path):
 
         return profiles(project, flow)
 
+    @app.get("/api/dns")
+    def dns(
+        point: str | None = None,
+        resolver: str | None = None,
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=200),
+    ):
+        from .dns import dns_page
+
+        return dns_page(project, point, resolver, start, end, offset, limit)
+
     @app.get("/api/state")
     def state():
         with project.connect() as db:

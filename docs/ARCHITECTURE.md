@@ -628,3 +628,11 @@ Matched original sequence neighbours establish an arrival-order reversal: in ord
 out-of-order downstream, with all four frame refs. No packet identity crosses a full proxy.
 Receiver ACK timing accepts explicit SACK coverage so a missing cumulative ACK hole is not
 misinterpreted as a slow receiver. Flight uses tshark's estimate; sequence span is separate.
+
+DNS query ownership uses point/flow/reversed tuple + ID + question name/type/class, with mutually
+unique response candidates inside a configurable deadline. Local latency populations are kept
+separate by resolver and point. Missing deadline coverage/endpoint/clock/translation evidence or
+ambiguous retries remain unknown. Existing independently classified disappearance events identify
+query/response loss hops; a response visible upstream is not labelled a resolver timeout.
+`/api/dns` is paginated, and the DNS UI/export contains original frame filters. Parser 12 adds
+DNS question fields. Supported scope is one complete unicast question/message per indexed frame.

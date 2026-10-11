@@ -50,6 +50,7 @@ export type Mapping = {
 };
 export type Topology = {
   bucket_seconds?: number;
+  dns_timeout_ms?: number;
   report_timezone?: string | null;
   points: Point[];
   forward: string[];

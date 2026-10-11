@@ -403,3 +403,12 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   independently decoded TCP state. A downstream out-of-order counter alone cannot name a device.
 - Extend the existing isolated tshark cache to all required stateful fields; remap RTO frame
   references to original evidence. Never use merged tap copies as independent TCP state.
+
+- DNS ID alone cannot identify a transaction. Require tuple/protocol/question identity and unique
+  response ownership; do not pick the nearest retry. Separate local timeout observation from its
+  possible resolver/path/capture cause, and retain unknown when the resolver side is not covered.
+- Reuse supported path events for DNS disappearance. Do not treat an observed downstream response
+  capture miss as network loss or join resolver populations from different points into one latency.
+- Stream isolated TCP state into a separate bounded-batch native cache. Dense ACK/flight fields
+  must not consume the existing 10,000 HTTP/TLS application-event budget or require whole-capture
+  Python mapping. Validate ordinal/tuple/sequence/length/time mapping in SQL.

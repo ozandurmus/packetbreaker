@@ -7,6 +7,7 @@ import { FieldDiff, type FieldDiffData } from "./FieldDiff";
 import { ProxyEvidence } from "./ProxyEvidence";
 import { Assistant } from "./Assistant";
 import { Diagnosis } from "./Diagnosis";
+import { DNS } from "./DNS";
 import { Waterfall } from "./Waterfall";
 import { Coverage, LadderChart } from "./Charts";
 import { TopologyEditor } from "./TopologyEditor";
@@ -436,17 +437,19 @@ function App() {
         </div>
         <div className="workspace-label">LOCAL WORKSPACE</div>
         <nav>
-          {["Overview", "Captures", "Path", "Flows", "Settings"].map((x, i) => (
-            <button
-              key={x}
-              className={tab === x ? "active" : ""}
-              onClick={() => setTab(x)}
-            >
-              <span>{["◈", "▤", "⌘", "≋", "⚙"][i]}</span>
-              {x}
-              {x === "Captures" && <b>{state.captures.length}</b>}
-            </button>
-          ))}
+          {["Overview", "Captures", "Path", "Flows", "DNS", "Settings"].map(
+            (x, i) => (
+              <button
+                key={x}
+                className={tab === x ? "active" : ""}
+                onClick={() => setTab(x)}
+              >
+                <span>{["◈", "▤", "⌘", "≋", "⇄", "⚙"][i]}</span>
+                {x}
+                {x === "Captures" && <b>{state.captures.length}</b>}
+              </button>
+            ),
+          )}
         </nav>
         <div className="sidebar-bottom">
           <span className="local-dot" /> Local processing only
@@ -455,7 +458,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 3 / PART 3 · v{state.version}</small>
+          <small>PHASE 4 / PART 1 · v{state.version}</small>
         </div>
       </aside>
       <main>
@@ -622,6 +625,9 @@ function App() {
               </p>
               <button onClick={() => selectRange(null)}>Clear selection</button>
             </section>
+          )}
+          {tab === "DNS" && (
+            <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />
           )}
           {tab === "Overview" && (
             <>
@@ -2023,6 +2029,21 @@ function App() {
                         setTopology({
                           ...topology,
                           stall_ms: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label title="DNS response deadline at each observation point; incomplete coverage stays unknown. Re-analyze after changing it.">
+                    DNS timeout (ms)
+                    <input
+                      type="number"
+                      min="100"
+                      max="60000"
+                      value={topology.dns_timeout_ms ?? 2000}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          dns_timeout_ms: Number(e.target.value),
                         })
                       }
                     />

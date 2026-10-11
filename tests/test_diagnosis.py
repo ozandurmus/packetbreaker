@@ -28,6 +28,8 @@ def facts(**changes):
         service_samples=0,
         stall_ms=200,
         sender_captured=True,
+        receiver_captured=True,
+        receiver_window_evidence=True,
     )
     return {**result, **changes}
 

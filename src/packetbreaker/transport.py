@@ -25,18 +25,22 @@ def classify(m):
         ("trusted", "TCP state was not decoded independently at this capture point"),
         ("handshake", "Handshake not captured completely; negotiated receive-window scale unknown"),
         ("sender_captured", "No declared sender-side capture for this TCP leg"),
+        ("receiver_captured", "No declared receiver-side capture to separate ACK delay from path time"),
     ]:
         if not m.get(key):
             return {**result, "reason": reason}
     if m.get("samples", 0) < 6:
         return {**result, "reason": "Too few data observations for a limitation profile"}
     stall = m["stall_ms"]
-    receiver = (
-        m["zero_windows"] >= 2
-        and m["zero_span_ms"] >= stall
-        and (m["blocked_samples"] >= 2 or m["probes"] >= 1)
-        and (m["window_shrinks"] >= 1 or m["probes"] >= 1)
-    ) or (m["window_full"] >= 3 and m["window_shrinks"] >= 2 and m["blocked_samples"] >= 3)
+    receiver = m.get("receiver_window_evidence", False) and (
+        (
+            m["zero_windows"] >= 2
+            and m["zero_span_ms"] >= stall
+            and (m["blocked_samples"] >= 2 or m["probes"] >= 1)
+            and (m["window_shrinks"] >= 1 or m["probes"] >= 1)
+        )
+        or (m["window_full"] >= 3 and m["window_shrinks"] >= 2 and m["blocked_samples"] >= 3)
+    )
     open_window = m["open_samples"] >= 3 and not receiver
     prompt_ack = (
         m["ack_samples"] >= 3 and m["ack_delay_p95_ms"] is not None and m["ack_delay_p95_ms"] < stall / 4
@@ -91,7 +95,7 @@ def classify(m):
 
 
 def prepare(db, project, topology, report):
-    generation = [report["generated_at"], 3]
+    generation = [report["generated_at"], 4]
     if project.get(db, "transport_generation") == generation:
         return
     db.execute("CREATE OR REPLACE TEMP TABLE transport_points(point VARCHAR,kind VARCHAR,label VARCHAR)")
@@ -115,11 +119,11 @@ def prepare(db, project, topology, report):
         FROM obs o JOIN transport_points p USING(point) WHERE proto='TCP' AND flow IS NOT NULL""")
     db.execute("""CREATE OR REPLACE TEMP TABLE transport_syn AS
         SELECT flow,point,direction,arg_min(seq,ts) AS isn,arg_min(raw_seq,ts) AS raw_isn,arg_min(shift,ts) AS shift,min(ts) AS ts
-        FROM transport_tcp WHERE (flags&2)>0 AND eligible GROUP BY ALL""")
+        FROM transport_tcp WHERE (flags&2)>0 AND eligible AND caplen>=wirelen GROUP BY ALL""")
     db.execute("""CREATE OR REPLACE TABLE transport_handshake AS
         SELECT h.*,peer.isn AS peer_isn,
         peer.isn IS NOT NULL AND h.shift BETWEEN 0 AND 14 AND peer.shift BETWEEN 0 AND 14 AS scaled,
-        peer.isn IS NOT NULL AND EXISTS(SELECT 1 FROM transport_tcp a
+        peer.isn IS NOT NULL AND (h.shift IS NULL OR h.shift BETWEEN 0 AND 14) AND (peer.shift IS NULL OR peer.shift BETWEEN 0 AND 14) AND EXISTS(SELECT 1 FROM transport_tcp a
            WHERE a.flow=h.flow AND a.point=h.point AND (a.flags&18)=16
            AND a.ts>=greatest(h.ts,peer.ts) AND a.seq=(CASE WHEN a.direction=h.direction THEN h.isn ELSE peer.isn END+1)%4294967296
            AND a.ack=(CASE WHEN a.direction=h.direction THEN peer.isn ELSE h.isn END+1)%4294967296) AS handshake
@@ -181,9 +185,7 @@ def prepare(db, project, topology, report):
         FROM d LEFT JOIN a USING(flow,point,direction)""",
         [topology.stall_ms],
     )
-    db.execute(
-        "CREATE OR REPLACE TEMP TABLE transport_edges(direction VARCHAR,a VARCHAR,b VARCHAR,hop VARCHAR)"
-    )
+    db.execute("CREATE OR REPLACE TABLE transport_edges(direction VARCHAR,a VARCHAR,b VARCHAR,hop VARCHAR)")
     edges = []
     for direction, path in [
         ("forward", topology.forward),
@@ -277,6 +279,10 @@ def profiles(project, flow=None, include_service=True):
                 )
             metrics = dict(sender or points[0])
             metrics["sender_captured"] = sender is not None
+            metrics["receiver_captured"] = receiver is not None
+            metrics["receiver_window_evidence"] = bool(
+                receiver and (receiver["zero_windows"] >= 2 or receiver["window_full"] >= 3)
+            )
             metrics["blocked_samples"] += metrics.pop("blocked_windows", 0)
             metrics["ack_samples"] = receiver["ack_samples"] if receiver else 0
             metrics["ack_delay_p95_ms"] = receiver["ack_delay_p95_ms"] if receiver else None
@@ -318,7 +324,7 @@ def profiles(project, flow=None, include_service=True):
                 ORDER BY zero_probe DESC,window_full DESC,gap_ms DESC NULLS LAST,ack_delay_ms DESC NULLS LAST LIMIT 6""",
                 [fid, direction],
             )
-            for p in {s["point"] for s in signal}:
+            for p in {s["point"] for s in signal} if decision["classification"] != "unknown" else set():
                 frames = list(
                     {
                         int(v)

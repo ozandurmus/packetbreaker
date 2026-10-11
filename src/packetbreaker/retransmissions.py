@@ -95,7 +95,7 @@ def report(db, topology, flow=None):
     events = rows(
         db,
         """SELECT flow,point,frame,rto_frame,retry_kind,rto_seconds,rto_bound,prior_rtts,duplicate_acks,sack_hole,ack_trigger_frame,delivered_frame FROM transport_retries
-        WHERE (? IS NULL OR flow=?) ORDER BY ts,point,frame LIMIT 200""",
+        WHERE trusted AND indexed AND (? IS NULL OR flow=?) ORDER BY ts,point,frame LIMIT 200""",
         [flow, flow],
     )
     for event in events:

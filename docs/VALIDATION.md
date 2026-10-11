@@ -840,3 +840,10 @@ coverage and retries with competing ACK triggers. Positive subtype contracts cov
 SACK-backed fast, ACK-corroborated spurious and RTO-compatible recovery. Recovery/diagnosis/proxy
 integration checkpoint: 45 passed in 15.64 s; no tests marked slow. Full wire-location assertions
 are supplied by the shared adversarial corpus in item 5.
+
+DNS negative contracts reject incomplete questions, ambiguous ownership, insufficient deadline or
+resolver coverage and unsupported far-response attribution. The tiny real-tshark same-ID/same-name
+fixture uses distinct clients: only the owning client's response yields 50 ms; the distractor stays
+unanswered. DNS/native/export checkpoint: 8 passed in 7.54 s. Export preserves DNS evidence and the
+HTML section. A cached profile regression exposed a temporary edge table; generation-cached edges
+are now persistent. Dense isolated TCP state is streamed separately from bounded HTTP/TLS events.
