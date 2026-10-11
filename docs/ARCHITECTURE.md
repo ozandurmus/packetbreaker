@@ -618,3 +618,13 @@ HTTP byte-completion waterfall bars supply visible service-time evidence. `/api/
 returns metrics, reasons, tooltips and original frame/content/flow filters; stream UI and bounded
 offline exports expose the same profiles. Schema-6 packet storage remains compatible; parser 11
 adds tshark transport fields in `path_fields`. Old indexes require reattachment for these fields.
+
+Recovery breakdowns use isolated tshark fast/spurious/duplicate-ACK/SACK flags, with explicit
+ACK coverage and retry-interval corroboration. Exclusive classes are spurious, SACK-backed fast,
+fast, RTO-compatible and unknown. The conservative retry bound is max(1 s, median prior RTT +
+4 standard deviations); it is not a measured kernel RTO. Duplicate ACKs are attributed to the
+acknowledged data direction. Per-point and upstream-per-segment counts remain observations.
+Matched original sequence neighbours establish an arrival-order reversal: in order upstream,
+out-of-order downstream, with all four frame refs. No packet identity crosses a full proxy.
+Receiver ACK timing accepts explicit SACK coverage so a missing cumulative ACK hole is not
+misinterpreted as a slow receiver. Flight uses tshark's estimate; sequence span is separate.

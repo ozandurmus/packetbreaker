@@ -834,3 +834,9 @@ written first (initial collection failed because the new module did not exist). 
 missing-handshake/index/sender, untrusted TCP state, receiver ACK delay and competing-cause cases
 reject a naive diagnosis. Initial limitation guards plus real five-file healthy profile: 3 passed
 in 2.13 s. Final wire fixture assertions, complete fast suite and CI are recorded at close-out.
+
+Recovery negative tests reject no-RTT/short timers, untrusted decode, spurious flags without ACK
+coverage and retries with competing ACK triggers. Positive subtype contracts cover fast,
+SACK-backed fast, ACK-corroborated spurious and RTO-compatible recovery. Recovery/diagnosis/proxy
+integration checkpoint: 45 passed in 15.64 s; no tests marked slow. Full wire-location assertions
+are supplied by the shared adversarial corpus in item 5.

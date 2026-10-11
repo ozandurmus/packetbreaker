@@ -15,7 +15,7 @@ from .ingest import find_tshark
 from .metadata import metadata as capture_metadata
 from .store import rows
 
-VERSION = 5
+VERSION = 6
 MAX_EVENTS = 10000
 MAX_JSON = 4 * 1024 * 1024
 
@@ -138,8 +138,22 @@ def event_rows(packet):
             ("retrans", "retransmission"),
             ("fast_retrans", "fast_retransmission"),
             ("spurious", "spurious_retransmission"),
+            ("out_of_order", "out_of_order"),
+            ("zero_window", "zero_window"),
+            ("duplicate_ack", "duplicate_ack"),
+            ("window_full", "window_full"),
+            ("zero_probe", "zero_window_probe"),
         )
     }
+    for name, field in (("rtt", "tcp.analysis.ack_rtt"), ("rto_seconds", "tcp.analysis.rto")):
+        value = first(tcp, field)
+        analysis[name] = float(value) if value else None
+    analysis.update(
+        bytes_in_flight=integer(first(tcp, "tcp.analysis.bytes_in_flight"), None),
+        rto_frame=integer(first(tcp, "tcp.analysis.rto_frame"), None),
+        sack_left=integer(first(tcp, "tcp.options.sack_le"), None),
+        sack_right=integer(first(tcp, "tcp.options.sack_re"), None),
+    )
     if any(analysis.values()):
         result.append({**common, "components": [frame], "kind": "tcp_analysis", "metadata": analysis})
     http = layers.get("http", {})
@@ -445,6 +459,8 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                 ordinals.add(event["local_frame"])
                 if event["metadata"].get("request_in"):
                     ordinals.add(event["metadata"]["request_in"])
+                if event["metadata"].get("rto_frame"):
+                    ordinals.add(event["metadata"]["rto_frame"])
             mapped = (
                 rows(
                     db,
@@ -475,6 +491,8 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                 reference = meta.get("request_in")
                 if reference:
                     meta["request_in"] = mapping[reference]["frame"] if reference in mapping else None
+                if meta.get("rto_frame"):
+                    meta["rto_frame"] = mapping.get(meta["rto_frame"], {}).get("frame")
                 records.append(
                     dict(
                         point=point.id,
@@ -506,12 +524,21 @@ def index_applications(project, db, topology, cancel=None, progress=None):
 
 def apply_tcp_analysis(db, point):
     # A merged multi-point file makes tshark mistake traveling copies for retransmissions.
-    # Only successful isolated-point decodes can replace these three analysis flags.
-    db.execute("UPDATE obs SET retrans=false,fast_retrans=false,spurious=false WHERE point=?", [point])
+    # Replace stateful TCP fields only after a successful isolated decode.
+    db.execute(
+        """UPDATE obs SET retrans=false,fast_retrans=false,spurious=false,out_of_order=false,
+        zero_window=false,rtt=NULL,path_fields=json_merge_patch(path_fields,
+        '{"duplicate_ack":false,"window_full":false,"zero_probe":false,"rto_seconds":null,"rto_frame":null}') WHERE point=?""",
+        [point],
+    )
     db.execute(
         """UPDATE obs SET retrans=try_cast(json_extract_string(a.metadata,'$.retrans') AS BOOLEAN),
         fast_retrans=try_cast(json_extract_string(a.metadata,'$.fast_retrans') AS BOOLEAN),
-        spurious=try_cast(json_extract_string(a.metadata,'$.spurious') AS BOOLEAN)
+        spurious=try_cast(json_extract_string(a.metadata,'$.spurious') AS BOOLEAN),
+        out_of_order=try_cast(json_extract_string(a.metadata,'$.out_of_order') AS BOOLEAN),
+        zero_window=try_cast(json_extract_string(a.metadata,'$.zero_window') AS BOOLEAN),
+        rtt=try_cast(json_extract_string(a.metadata,'$.rtt') AS DOUBLE),
+        path_fields=json_merge_patch(obs.path_fields,a.metadata)
         FROM app_protocol a WHERE obs.point=a.point AND obs.frame=a.frame AND a.kind='tcp_analysis' AND a.point=?""",
         [point],
     )

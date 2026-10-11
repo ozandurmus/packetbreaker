@@ -91,7 +91,8 @@ def classify(m):
 
 
 def prepare(db, project, topology, report):
-    if project.get(db, "transport_generation") == report["generated_at"]:
+    generation = [report["generated_at"], 3]
+    if project.get(db, "transport_generation") == generation:
         return
     db.execute("CREATE OR REPLACE TEMP TABLE transport_points(point VARCHAR,kind VARCHAR,label VARCHAR)")
     db.executemany(
@@ -105,13 +106,15 @@ def prepare(db, project, topology, report):
         coalesce(try_cast(json_extract_string(path_fields,'$.duplicate_ack') AS BOOLEAN),false) AS duplicate_ack,
         coalesce(try_cast(json_extract_string(path_fields,'$.zero_probe') AS BOOLEAN),false) AS zero_probe,
         try_cast(json_extract_string(path_fields,'$.rto_seconds') AS DOUBLE) AS rto_seconds,
+        try_cast(json_extract_string(path_fields,'$.rto_frame') AS BIGINT) AS rto_frame,
+        try_cast(json_extract_string(path_fields,'$.bytes_in_flight') AS BIGINT) AS dissected_flight,
         try_cast(json_extract_string(path_fields,'$.sack_left') AS BIGINT) AS sack_left,
         try_cast(json_extract_string(path_fields,'$.sack_right') AS BIGINT) AS sack_right,
         (SELECT count(DISTINCT point) FROM obs x WHERE x.capture_id=o.capture_id)=1
             OR EXISTS(SELECT 1 FROM app_protocol_cache a WHERE a.point=o.point AND a.reason IS NULL) AS trusted
         FROM obs o JOIN transport_points p USING(point) WHERE proto='TCP' AND flow IS NOT NULL""")
     db.execute("""CREATE OR REPLACE TEMP TABLE transport_syn AS
-        SELECT flow,point,direction,arg_min(seq,ts) AS isn,arg_min(shift,ts) AS shift,min(ts) AS ts
+        SELECT flow,point,direction,arg_min(seq,ts) AS isn,arg_min(raw_seq,ts) AS raw_isn,arg_min(shift,ts) AS shift,min(ts) AS ts
         FROM transport_tcp WHERE (flags&2)>0 AND eligible GROUP BY ALL""")
     db.execute("""CREATE OR REPLACE TABLE transport_handshake AS
         SELECT h.*,peer.isn AS peer_isn,
@@ -125,7 +128,9 @@ def prepare(db, project, topology, report):
         SELECT o.flow,o.point,CASE WHEN o.direction='forward' THEN 'reverse' ELSE 'forward' END AS direction,
         o.frame,o.ts,o.corrected,(o.ack-h.isn+4294967296)%4294967296 AS ack_end,o.rtt,
         CASE WHEN h.handshake THEN o.window*CASE WHEN (o.flags&2)>0 OR NOT h.scaled THEN 1 ELSE pow(2,peer.shift) END END AS receive_window,
-        o.zero_window,o.duplicate_ack,o.sack_left,o.sack_right
+        o.zero_window,o.duplicate_ack,o.sack_left,o.sack_right,
+        (o.sack_left-h.raw_isn+4294967296)%4294967296 AS sack_start,
+        (o.sack_right-h.raw_isn+4294967296)%4294967296 AS sack_end
         FROM transport_tcp o JOIN transport_handshake h ON o.flow=h.flow AND o.point=h.point AND o.direction<>h.direction
         LEFT JOIN transport_handshake peer ON peer.flow=h.flow AND peer.point=h.point AND peer.direction<>h.direction
         WHERE (o.flags&16)>0""")
@@ -140,12 +145,19 @@ def prepare(db, project, topology, report):
             max(relative_seq+length) OVER(PARTITION BY flow,point,direction ORDER BY ts,frame) AS sent_end,
             (ts-lag(ts) OVER(PARTITION BY flow,point,direction ORDER BY ts,frame))*1000 AS gap_ms FROM d)
         SELECT s.*,w.receive_window,w.ack_end,w.frame AS window_frame,
-        greatest(0,s.sent_end-w.ack_end) AS bytes_in_flight,
+        CASE WHEN s.trusted THEN s.dissected_flight END AS bytes_in_flight,
+        greatest(0,s.sent_end-w.ack_end) AS unacknowledged_span,
         CASE WHEN NOT s.retrans AND NOT s.spurious AND a.ts>=s.ts AND a.ts<s.ts+60 THEN (a.ts-s.ts)*1000 END AS ack_delay_ms,
         a.frame AS ack_frame
         FROM s ASOF LEFT JOIN transport_acks w ON s.flow=w.flow AND s.point=w.point AND s.direction=w.direction AND s.ts>=w.ts
         ASOF LEFT JOIN transport_ack_first a ON s.flow=a.flow AND s.point=a.point AND s.direction=a.direction AND s.seq_end<=a.ack_end""")
-    db.execute("""CREATE OR REPLACE TABLE transport_samples AS SELECT * FROM transport_data""")
+    db.execute("""CREATE OR REPLACE TABLE transport_samples AS
+        SELECT d.* EXCLUDE(ack_delay_ms,ack_frame),
+        CASE WHEN NOT d.retrans AND NOT d.spurious THEN least(d.ack_delay_ms,(s.ts-d.ts)*1000) END AS ack_delay_ms,
+        CASE WHEN s.ts IS NOT NULL AND (d.ack_delay_ms IS NULL OR (s.ts-d.ts)*1000<d.ack_delay_ms) THEN s.frame ELSE d.ack_frame END AS ack_frame
+        FROM transport_data d LEFT JOIN LATERAL(SELECT min(w.ts) AS ts,arg_min(w.frame,w.ts) AS frame FROM transport_acks w
+            WHERE w.flow=d.flow AND w.point=d.point AND w.direction=d.direction AND w.sack_start<=d.relative_seq AND w.sack_end>=d.seq_end
+            AND w.ts>=d.ts AND w.ts<d.ts+60) s ON true""")
     db.execute("""CREATE OR REPLACE TEMP TABLE transport_window_trace AS
         WITH w AS(SELECT *,lag(receive_window) OVER(PARTITION BY flow,point,direction ORDER BY ts,frame) AS prior_window FROM transport_acks)
         SELECT w.*,greatest(0,d.sent_end-w.ack_end) AS flight
@@ -205,7 +217,10 @@ def prepare(db, project, topology, report):
         count(*) FILTER(WHERE ts<=lo+(hi-lo)*.25)>=3 AND count(*) FILTER(WHERE ts>lo+(hi-lo)*.25)>=3
         AND median(rtt) FILTER(WHERE ts>lo+(hi-lo)*.25)>greatest(.1,2*median(rtt) FILTER(WHERE ts<=lo+(hi-lo)*.25)) AS rtt_degraded
         FROM r GROUP BY ALL""")
-    project.set(db, "transport_generation", report["generated_at"])
+    from .retransmissions import prepare as prepare_retries
+
+    prepare_retries(db)
+    project.set(db, "transport_generation", generation)
 
 
 def profiles(project, flow=None, include_service=True):
@@ -329,8 +344,11 @@ def profiles(project, flow=None, include_service=True):
                     evidence=refs + service_refs,
                 )
             )
+        from .retransmissions import report as retry_report
+
         return dict(
             items=items,
+            retransmissions=retry_report(db, topology, flow),
             point_metrics=data,
             reason=None,
             tooltip=TOOLTIP,

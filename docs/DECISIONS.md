@@ -395,3 +395,11 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   cache has unknown transport classification rather than contaminated analysis flags.
 - Keep profiles/series lazy and generation-cached, so ordinary packet analysis need not build
   every flow chart. Bound offline profile samples and keep complete selected-flow evidence local.
+
+- Keep fast/spurious/SACK and timer-compatible retry interpretations separate. A generic
+  retransmission flag is not sufficient RTO evidence, nor does the one-second conservative
+  threshold reproduce every OS TCP timer. Short/unsupported mechanisms remain unknown.
+- A first reordering hop needs a matched original pair that reverses arrival order and trustworthy
+  independently decoded TCP state. A downstream out-of-order counter alone cannot name a device.
+- Extend the existing isolated tshark cache to all required stateful fields; remap RTO frame
+  references to original evidence. Never use merged tap copies as independent TCP state.
