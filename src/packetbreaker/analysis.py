@@ -18,6 +18,8 @@ from .proxy_waterfall import add_dwell
 from .proxy_resets import reset_checks
 from .tls_analysis import tls_checks
 from .ingest import tuple_id
+from .capture_layers import tunnel_report
+from .fragments import normalize_fragments, guard_missing, fragment_findings
 from .headlines import add_headlines
 from .integrity import analyze_integrity, link_modified_payloads
 from .evidence import evidence, prepare_flow_filters
@@ -26,6 +28,7 @@ from .topology import Topology
 from .vendors import point_selector, prepare_f5_connections, f5_report
 from .timeseries import build_timeseries
 from .onset import add_onsets
+from .microbursts import build_microbursts
 from .translation import normalize_sequences, sequence_report
 from .byte_ranges import (
     add_byte_calibration,
@@ -43,7 +46,7 @@ def reverse_tuple(key):
     return tuple_id(proto, dst, dport, src, sport)
 
 
-def prepare(db, topology):
+def prepare(db, topology, project=None, cancel=None):
     db.execute("DROP VIEW IF EXISTS observation_matches")
     db.execute("CREATE OR REPLACE TABLE byte_flows(flow VARCHAR,direction VARCHAR)")
     db.execute("DROP TABLE IF EXISTS obs")
@@ -73,18 +76,25 @@ def prepare(db, topology):
                 )
             clause += " AND iface=?"
             params.append(point.interface)
-        if point.source_cidr:
-            network = ipaddress.ip_network(point.source_cidr, strict=False)
-            addresses = db.execute("SELECT DISTINCT src FROM packets WHERE " + clause, params).fetchall()
-            accepted = [(src,) for (src,) in addresses if src and ipaddress.ip_address(src) in network]
-            db.execute("CREATE OR REPLACE TEMP TABLE point_sources(src VARCHAR)")
-            if accepted:
-                db.executemany("INSERT INTO point_sources VALUES (?)", accepted)
-            clause += " AND src IN (SELECT src FROM point_sources)"
         db.execute(
             f"INSERT INTO obs SELECT *,seq,ack,NULL,NULL,?,tuple_key FROM packets WHERE {clause}",
             [point.id, *params],
         )
+        if project is not None:
+            from .capture_layers import apply_layers
+
+            apply_layers(project, db, point, cancel)
+        if point.source_cidr:
+            network = ipaddress.ip_network(point.source_cidr, strict=False)
+            addresses = db.execute("SELECT DISTINCT src FROM obs WHERE point=?", [point.id]).fetchall()
+            accepted = [(src,) for (src,) in addresses if src and ipaddress.ip_address(src) in network]
+            db.execute("CREATE OR REPLACE TEMP TABLE point_sources(src VARCHAR)")
+            if accepted:
+                db.executemany("INSERT INTO point_sources VALUES (?)", accepted)
+            db.execute(
+                "DELETE FROM obs WHERE point=? AND (src IS NULL OR src NOT IN (SELECT src FROM point_sources))",
+                [point.id],
+            )
         if point.vendor == "paloalto":
             db.execute(
                 "UPDATE obs SET vendor=? WHERE point=?",
@@ -111,6 +121,7 @@ def prepare(db, topology):
         GROUP BY capture_id,frame HAVING count(*)>1)""").fetchone()[0]
     if duplicates:
         raise ValueError("Capture-point selections overlap: use distinct file/interface/source filters")
+    normalize_fragments(db)
     points = {p.id: p for p in topology.points}
     nat_points = sorted(
         {
@@ -371,7 +382,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         db.execute("SET preserve_insertion_order=false")
         project.set(db, "report", None)
         progress(state="matching")
-        suggestions = prepare(db, topology)
+        suggestions = prepare(db, topology, project, cancel)
         application_status = index_applications(project, db, topology, cancel, progress)
         progress(state="aligning clocks")
         models = align(db, topology)
@@ -413,7 +424,19 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         }
         has_device_proofs = prepare_proofs(db, topology, start, end)
         segments, findings = [], []
+        outer_points = {
+            r[0]
+            for r in db.execute(
+                "SELECT DISTINCT point FROM obs WHERE json_extract_string(path_fields,'$.tunnel.layer')='outer'"
+            ).fetchall()
+        }
         progress(state="classifying")
+        unselected_points = {
+            r[0]
+            for r in db.execute(
+                "SELECT DISTINCT point FROM obs WHERE unsupported LIKE 'Tunnel encapsulation%' OR unsupported LIKE 'Capture layer decode unavailable:%'"
+            ).fetchall()
+        }
         for direction, path in (
             ("forward", topology.forward),
             ("reverse", topology.reverse or list(reversed(topology.forward))),
@@ -464,6 +487,10 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                 reason = (
                     "Unsupported translation boundary"
                     if unsupported
+                    else "Tunnel matching layer undecided or unavailable; loss unknown"
+                    if a in unselected_points or b in unselected_points
+                    else "Incompatible matching layers across tunnel boundary; loss unknown"
+                    if (a in outer_points) != (b in outer_points)
                     else "NAT mapping awaits confirmation"
                     if pending_nat
                     else "Clock alignment unreliable"
@@ -533,7 +560,10 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                         ", ".join(f"{k}: {v}" for k, v in sorted(excluded_counts.items()))
                         or "no observations"
                     )
-                    reason = f"Insufficient matchable packets ({100 * (1 - eligible_ratio):.1f}% excluded: {detail})"
+                    reason = (
+                        (reason + "; " if reason else "")
+                        + f"Insufficient matchable packets ({100 * (1 - eligible_ratio):.1f}% excluded: {detail})"
+                    )
                 segment = dict(
                     eligible_ratio=eligible_ratio,
                     excluded_counts=excluded_counts,
@@ -571,6 +601,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                 )
                 if byte_active:
                     range_later_seen(db, a, b, direction, downstream)
+                guard_missing(db, b)
                 # Re-delivery requires the same byte range and local stream; new IP ID is allowed.
                 # ponytail: recoveries beyond 60 seconds stay unknown; extend for long-RTO investigations.
                 db.execute(
@@ -854,9 +885,12 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         timeseries = build_timeseries(db, topology, segments, coverage, time_window)
         onsets = add_onsets(db, topology, segments)
         restrict_onset_domains(onsets, points, models)
+        microbursts = build_microbursts(db, topology, models, onsets, start, end)
         integrity_findings, integrity_notes = analyze_integrity(
             db, topology, segments, coverage, models, start, end
         )
+        fragment_events, fragment_quality = fragment_findings(db, topology, segments)
+        findings.extend(fragment_events)
         findings.extend(integrity_findings)
         proxy_findings, proxy_leg_report = reset_checks(db, topology, segments, models, coverage)
         proxies.update(proxy_leg_report)
@@ -882,6 +916,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         )
         report = dict(
             schema_version=2,
+            tunnel_points=tunnel_report(db),
+            fragment_points=fragment_quality,
+            microbursts=microbursts,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,
@@ -912,7 +949,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 3 / Part 2; request-level full-proxy correlation, TLS chain evidence and independent TCP legs",
+            scope="Phase 4 / Part 2; selected capture layers, IP datagrams and capture microbursts",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,
@@ -931,7 +968,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                 "HTTP/1.x response association requires complete SYN-anchored contiguous decoded request/response ranges; chunked or coalesced messages remain unknown.",
                 "Application indexing isolates capture points, uses two tshark passes and caches at most 10,000 events per point; narrow the capture when this budget is exceeded.",
                 "Latency is estimated under minimum-path symmetry; offsets include possible path asymmetry.",
-                "SPAN duplicates, unresolved occurrence timing collisions, fragments and unsupported transports are excluded.",
+                "SPAN duplicates, unresolved occurrence collisions, ambiguous/incomplete fragment observations and unsupported transports are excluded from packet matching; whole-datagram disappearance is assessed separately.",
                 "TCP sessions are joined by shared occurrences; streams without a shared packet stay separate.",
                 "Unrecovered disappearance cannot confirm a device drop without positive device evidence.",
             ],

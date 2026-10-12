@@ -21,6 +21,7 @@ class Point(BaseModel):
     vendor_stage: str | None = None
     vendor_interface: str | None = Field(default=None, max_length=100)
     inspection_complete: bool = False
+    matching_layer: Literal["inner", "outer"] | None = None
     source_cidr: str | None = None
     translation: Literal["none", "nat", "full_proxy", "seq_randomization"] = "none"
     payload_transform: Literal["none", "proxy", "alg", "ssl_inspection"] = "none"
@@ -70,7 +71,7 @@ class NatMapping(BaseModel):
                 "NAT tuple must be [protocol, source IP, source port, destination IP, destination port]"
             )
         proto, src, sport, dst, dport = parts
-        if proto not in ("TCP", "UDP", "ICMP"):
+        if proto not in ("TCP", "UDP", "ICMP", "ICMPv6", "GRE"):
             raise ValueError("Unsupported NAT protocol")
         ipaddress.ip_address(src)
         ipaddress.ip_address(dst)
@@ -85,6 +86,7 @@ class Override(BaseModel):
 
 
 class Topology(BaseModel):
+    microburst_window_ms: float = Field(default=1, ge=1, le=10, allow_inf_nan=False)
     dns_timeout_ms: float = Field(default=2000, ge=100, le=60000, allow_inf_nan=False)
     bucket_seconds: float = Field(default=1, ge=0.1, le=3600, allow_inf_nan=False)
     report_timezone: str | None = None

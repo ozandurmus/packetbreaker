@@ -435,3 +435,36 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 - A sender/application hypothesis needs matched timing evidence across every drawn edge of its
   captured TCP leg. Healthy surviving edges cannot vouch for an unmeasurable hop. Supported local
   receiver pressure or a separately supported loss cause remains independent of that path claim.
+
+## Phase 4 / Part 2
+
+- Select IP and its own L4 subtree together from tshark's protocol stack; never zip first/last
+  flattened field occurrences, which mixes IPv4/IPv6 envelopes and inner/outer ports.
+- ERSPAN is a remote SPAN default: inner identity. Other tunnels require explicit selection.
+  Layer selection precedes source-CIDR filtering. Preserve outer context and layer-scoped filters.
+- Cache point-isolated decoded layer variants; validate selected frame counts and timestamps,
+  retain original frame IDs, bound JSON batches and honor cancellation/file identity changes.
+
+- tshark owns byte reassembly. SQL validates decoded fragment spans/membership, including overlaps,
+  gaps, repeated incomplete IDs and truncated records; it does not parse or reconstruct headers.
+- Count an assembly once, preserve its member frame filters, and use completion time for a complete
+  datagram. Missing members are not multiple lost packets. Ambiguous assemblies cannot prove loss.
+- A first observed fragmentation boundary names the drawn device/link, not an unseen internal
+  device. Unsupported clocks suppress attribution. A downstream reappearance remains capture miss.
+
+- Measure capture-byte rate over a rolling window, not only fixed bins: a burst crossing a bucket
+  boundary must remain visible. Derive a transparent relative threshold; this is not a measurement
+  of link capacity or queue depth. Zero-span batching cannot provide an exact duration.
+- Bursts and supported next-segment loss onsets are temporally associated only. A burst with no
+  loss produces no cause finding, and uncertain clocks cannot assert precedence. Never use this
+  association to promote the burst point to a loss suspect.
+
+- A selected outer view must actually become eligible. Strip tunnel markers only from the chosen
+  IP/L4 field view, retain outer metadata, and mark incompatible adjacent matching layers unknown.
+- Keep logical datagram IP length separate from the final fragment's physical IP length; otherwise
+  ICMP reassembly silently changes the match signature. Validate TCP, UDP and ICMP in both families.
+- Batch microburst frame evidence once, and use the existing two-worker test fixture pool for the
+  new independent datasets. Keep every new test fast; do not hide runtime regressions with marks.
+
+- Layer overlays replace identity fields only; preserve original frame identity/hash and ingest
+  timestamp precision. Secondary tshark JSON timestamps are mapping checks, not replacement clocks.

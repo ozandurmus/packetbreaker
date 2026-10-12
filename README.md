@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.3.0-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.3.1-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -143,7 +143,7 @@ packetbreaker --project demo/project
 6. **Export HTML / Export JSON:** use the header buttons. HTML opens locally as a
    single file; its metric-selectable heatmap, onset markers and evidence filters
    work without the running app or Internet. JSON follows
-   [findings schema v4](docs/findings-v4.schema.json). Both export the complete
+   [findings schema v5](docs/findings-v5.schema.json). Both export the complete
    saved analysis window, independent of the current brush. Neither embeds packet
    payloads; addresses and filters are still sensitive investigation metadata.
 7. **Settings:** inspect clock estimates/calibration frames, then stop with Ctrl+C.
@@ -204,6 +204,31 @@ paced sender, FW/LB/link loss and reordering, and DNS resolver timeout versus lo
 Use `--ip-id constant` or `--ipv6` for alternate identities. Healthy, capture-miss-only, idle-zero
 and receiver-delayed-ACK flows are deliberately present and must not become network diagnoses.
 
+## Tunnels, fragments and microbursts (Phase 4 / Part 2)
+
+In **Path**, select a capture point and its **Tunnel matching layer**. ERSPAN type II/III defaults
+to inner (the mirrored traffic). GRE, VXLAN and GENEVE remain excluded until you choose inner or
+outer. Save and analyze again; selection does not rewrite captures. Evidence retains ERSPAN
+session/VNI, outer addresses and layer-scoped filters. Outer-to-inner/plain boundaries have
+unknown loss rates rather than treating different identities as disappearance. Truncated ERSPAN
+inner payloads have a visible warning. Nested/incomplete envelopes and vendor-adapter combinations
+remain unknown.
+
+Fragment reassembly runs separately at each point using tshark. Matching and loss percentages
+count logical datagrams; capture inventory and microburst rates still count physical frames.
+**Fragmented by …** names the first supported device/link boundary and links every retained
+fragment frame. Missing middle fragments can produce one whole-datagram loss; later downstream
+reappearance is capture miss. Overlaps, inconsistent/truncated groups and ambiguous incomplete
+ID reuse stay unknown. A complete datagram is timed at completion, including fragment arrival wait.
+
+In **Overview → Capture microbursts**, inspect per-point peak rate, episode duration and frequency.
+Select a point or burst for frame evidence. **Settings → Microburst window** accepts 1–10 ms.
+The documented threshold is >=8 frames and >=4× median nonempty fixed-window rate (floor 1 Mbps);
+rolling windows avoid fixed-bin boundary misses. Rates use captured frame lengths, exclude SPAN
+copies, and cannot establish physical capacity. Offload or coarse/batched timestamps can obscure
+wire timing. A burst near the next segment's supported loss onset is **corroboration only**, with
+cause unknown. HTML/JSON exports include these measurements; JSON findings schema is v5.
+
 ## What PacketBreaker measures, estimates and leaves unknown
 
 | Result | Meaning |
@@ -234,7 +259,7 @@ filters flow membership, findings and ladder packets without refitting the basel
 
 Declared full proxies stop packet-level attribution. Declared sequence randomizers
 learn session-specific offsets; inconsistent or insufficient evidence stays unknown.
-Fragment reassembly and selectable tunnel decapsulation remain unsupported. Vendor stage evidence,
+IPv4/IPv6 fragment datagrams and selectable tunnel layers are supported with the limits below. Vendor stage evidence,
 MTU/security observations, full-proxy request correlation, native packaging and the AI placeholder
 are described below. See the brief coverage audit for transport, security and UI gaps.
 

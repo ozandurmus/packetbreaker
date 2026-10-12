@@ -39,6 +39,26 @@ def build_proxy_fixture(mode, directory, tshark):
     return str(project.path), truth, topology, report
 
 
+def build_fragment_fixture(mode, directory):
+    from capture_realism_fixtures import fragment_path
+
+    project, truth, topology, report = fragment_path(directory, *mode)
+    return str(project.path), truth, topology, report
+
+
+def build_burst_fixture(mode, directory):
+    from capture_realism_fixtures import burst_path
+
+    project, truth, topology, report = burst_path(directory, *mode)
+    return str(project.path), truth, topology, report
+
+
+_burst_futures = {}
+
+
+_fragment_futures = {}
+
+
 _proxy_futures = {}
 
 
@@ -106,6 +126,24 @@ def scenarios(tmp_path_factory, tshark, request):
             key: pool.submit(build_scenario_fixture, name, kwargs, directories[key], tshark)
             for key, (name, kwargs) in planned.items()
         }
+
+    if pool:
+        modes = {
+            getattr(getattr(item, "callspec", None), "params", {}).get("fragment_capture")
+            for item in request.session.items
+        }
+        for mode in modes - {None}:
+            _fragment_futures[mode] = pool.submit(
+                build_fragment_fixture, mode, tmp_path_factory.mktemp("fragments")
+            )
+
+    if pool:
+        modes = {
+            getattr(getattr(item, "callspec", None), "params", {}).get("burst_capture")
+            for item in request.session.items
+        }
+        for mode in modes - {None}:
+            _burst_futures[mode] = pool.submit(build_burst_fixture, mode, tmp_path_factory.mktemp("bursts"))
 
     if pool and any("proxy_capture" in getattr(item, "fixturenames", []) for item in request.session.items):
         for mode in [("zero", False), ("constant", False), ("zero", True)]:

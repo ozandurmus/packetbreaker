@@ -1,3 +1,4 @@
+import { Microbursts } from "./Microbursts";
 import { Heatmap } from "./Heatmap";
 import type { TimeSeries, Finding } from "./types";
 import React, { useCallback, useEffect, useState } from "react";
@@ -459,7 +460,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 4 / PART 1 · v{state.version}</small>
+          <small>PHASE 4 / PART 2 · v{state.version}</small>
         </div>
       </aside>
       <main>
@@ -634,6 +635,31 @@ function App() {
           {tab === "DNS" && (
             <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />
           )}
+          {tab === "Overview" && report?.microbursts && (
+            <Microbursts data={report.microbursts} onEvidence={setEvidence} />
+          )}
+          {report?.fragment_points?.map((p) => (
+            <p className="hint" key={p.point + p.status}>
+              {p.point}: {p.datagrams} IP datagrams from {p.physical_fragments}{" "}
+              fragments — {p.status}.
+              {p.status !== "complete" &&
+                " Reassembly evidence incomplete or ambiguous; no guessed packet identity."}
+            </p>
+          ))}
+          {report?.tunnel_points?.map((p) => (
+            <p className="hint" key={p.point}>
+              {p.point}: tunnel layer{" "}
+              {p.layer || "unknown — choose inner or outer in Path"};{" "}
+              {p.selected} selected, {p.unselected} unselected.
+              {p.truncated_inner > 0 && (
+                <strong>
+                  {" "}
+                  ERSPAN/inner payload truncation: {p.truncated_inner}{" "}
+                  observations; full payload unavailable.
+                </strong>
+              )}
+            </p>
+          ))}
           {tab === "Overview" && (
             <>
               <Assistant
@@ -2028,6 +2054,22 @@ function App() {
                         setTopology({
                           ...topology,
                           min_eligible_ratio: Number(e.target.value) / 100,
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Microburst window (ms)
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      step={0.1}
+                      value={topology.microburst_window_ms ?? 1}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          microburst_window_ms: Number(e.target.value),
                         })
                       }
                     />

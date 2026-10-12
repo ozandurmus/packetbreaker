@@ -656,3 +656,44 @@ changing production ingest defaults or moving diagnostic tests to the slow suite
 An application/sender hypothesis requires timing pairs on every drawn edge between the leg's
 captured sender and receiver. A healthy partial path does not prove network health; report
 generation caching includes the directional profile schema version to invalidate earlier results.
+
+## Phase 4 / Part 2 — selectable capture layers
+
+A point selects inner or outer IP/transport identity. An unset choice automatically selects inner
+only for ERSPAN II/III; GRE/VXLAN/GENEVE remain excluded until chosen. `capture_layers.py` isolates
+the point, streams tshark JSON with protocol occurrence boundaries and caches both variants.
+Native SQL applies the selected identity before CIDR, NAT, clock and occurrence matching. Outer
+addresses, ERSPAN session/VNI and occurrence-scoped evidence/flow filters remain available.
+Nested/incomplete layers and unsupported vendor combinations stay unknown; ERSPAN truncation is
+visible even when the outer capture record itself is complete. No Python packet dissector exists.
+
+### IP fragment observations
+
+The point-isolated tshark pass reassembles IPv4/IPv6 and exports fragment IDs, offsets, lengths,
+error flags and completion references. Native SQL validates membership and contiguous nonoverlapping
+coverage, collapses each assembly into one datagram observation, and keeps all physical frame refs.
+Incomplete groups retain the first-fragment header; overlapping/inconsistent groups remain unknown.
+Existing whole-datagram disappearance logic locates missing middle fragments, with downstream/ACK
+capture-miss guards. A first fragmentation boundary requires a unique upstream datagram and usable
+clocks; complete and identifiable incomplete downstream groups are distinguished. Physical wire
+observations remain separate from logical datagram counts. Export schema v5 adds `fragmentation`.
+
+### Microbursts
+
+`microbursts.py` uses physical wire observations, not collapsed datagram counts. Native rolling
+1–10 ms windows aggregate captured bytes, packet count and inter-arrival; overlapping candidates
+merge into episodes. A candidate needs >=8 frames and >=4× the median nonempty fixed-window rate
+(minimum 1 Mbps). Complete non-offload windows supply peak measurements; SPAN copies are removed.
+The report stores per-point peak/duration/frequency, bounded frame evidence and up to 200 strongest
+episodes; Settings exposes window size. Loss association uses first-event frame timing at the
+upstream point of an already supported next-segment loss onset, inside 100 ms plus clock bounds.
+Unknown clock uncertainty suppresses association; overlapping uncertainty leaves order unknown.
+Every association says corroboration_only, with cause unknown. UI and HTML/JSON share these data.
+
+### Capture-realism validation boundaries
+
+Unselected/undecodable tunnel observations make adjacent segment loss rates unknown, even if
+they are a small fraction of otherwise matchable traffic. Outer versus inner/plain selections
+likewise cannot support a disappearance claim. The selected outer UDP view no longer retains an
+inner tunnel's exclusion marker. Complete datagrams use reconstructed logical IP lengths for
+ICMP signatures, while physical captured lengths remain unchanged.
