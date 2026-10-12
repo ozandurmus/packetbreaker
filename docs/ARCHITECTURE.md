@@ -733,3 +733,9 @@ with configurable expiry, not the device table; FIN records closure initiation. 
 unaligned/partial coverage stays unknown. Supported blocked-handshake and positive drop-stage
 control events reuse the existing stopping-hop frame evidence. UI and offline exports include
 per-point counts, occupancy buckets and failed-handshake stopping hops.
+
+Security cohorts group local SYN sessions by the existing bucket width. Completed observation
+deadlines, source spread and both SYN/ACK and established ratios gate sustained SYN patterns.
+Cross-point completion is a capture-quality guard, not a claim that proxy legs match. Thresholds
+are topology settings; quality notes explain suppression. Pattern findings are capture signals,
+not fault attribution. The findings schema advances to v6 for the new heuristic types.

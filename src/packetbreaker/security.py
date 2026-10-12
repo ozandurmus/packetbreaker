@@ -129,3 +129,140 @@ def build_lifecycle(db, topology, coverage, series, window):
         note=LIFECYCLE_NOTE,
         scope="Full saved analysis window; not filtered by the UI brush",
     )
+
+
+SECURITY_NOTE = (
+    "Heuristics describe observed traffic, never an attack or proven device capacity failure. "
+    "Rates use distinct SYN-anchored sessions and completed observation deadlines; source spread "
+    "is not proof of spoofing. Healthy completion elsewhere makes a local missing handshake unknown. "
+    "Capture quality, matching, clock and complete coverage gate absence-based claims."
+)
+
+
+def finding(
+    db, kind, point, start, end, summary, metrics, *, supported=True, hop=None, device=None, refs=None
+):
+    proof = (
+        refs
+        if refs is not None
+        else evidence(
+            db, "o.point=? AND o.corrected>=? AND o.corrected<? AND (o.flags&2)>0", [point, start, end], 16
+        )
+    )
+    return dict(
+        id=f"security:{kind}:{point}:{start}",
+        type=kind,
+        hop=hop or f"forward:{point}:{point}",
+        device=device,
+        direction="forward",
+        severity="low" if supported else "unknown",
+        confidence="supported" if supported else "unknown",
+        time_range=[start, end],
+        summary=summary,
+        headline=summary,
+        tooltip=SECURITY_NOTE,
+        metrics=metrics,
+        evidence=proof,
+        cause="unknown",
+        clock_caveat="Clock-corrected observations; clock uncertainty and coverage apply",
+    )
+
+
+def security_checks(db, topology, coverage, series, segments, clocks):
+    import json
+
+    width, origin = topology.bucket_seconds, series.get("start")
+    thresholds = dict(
+        syn_rate=topology.security_syn_rate,
+        completion_ratio=topology.security_completion_ratio,
+        sources=topology.security_min_sources,
+        sustained_buckets=topology.security_sustained_buckets,
+        observation_timeout_seconds=topology.session_timeout_seconds,
+    )
+    bypoint = {c["point"]: c for c in coverage}
+    inventories = {r["id"]: json.loads(r["inventory"]) for r in rows(db, "SELECT id,inventory FROM captures")}
+    points = {p.id: p for p in topology.points}
+    notes = []
+    usable = []
+    for p in topology.points:
+        cov = bypoint.get(p.id, {})
+        inv = inventories[p.capture_id]
+        reason = None
+        if (
+            cov.get("start") is None
+            or cov.get("end") is None
+            or clocks.get(p.capture_id, {}).get("uncertainty") is None
+        ):
+            reason = "Clock or complete point coverage unavailable"
+        elif any(
+            inv.get(k)
+            for k in ("ifdrop", "osdrop", "damaged_tail", "truncated_tail", "timestamp_excluded_counts")
+        ):
+            reason = "Capture quality prevents absence-based security inference"
+        elif any(s.get("reason") for s in segments if p.id in (s["point_a"], s["point_b"])):
+            reason = "Adjacent segment matching/coverage/translation insufficient"
+        if reason:
+            notes.append(dict(point=p.id, status="unknown", reason=reason))
+        else:
+            usable.append(p.id)
+    db.execute("""CREATE OR REPLACE TEMP TABLE security_sessions AS SELECT s.*,
+        bool_or(established IS NOT NULL) OVER(PARTITION BY flow,seq) AS completed_elsewhere,
+        bool_or(synack IS NOT NULL) OVER(PARTITION BY flow,seq) AS reply_elsewhere
+        FROM session_lifecycle s""")
+    db.execute(
+        'CREATE OR REPLACE TABLE security_cohorts(point VARCHAR,bucket BIGINT,start DOUBLE,"end" DOUBLE,sessions BIGINT,sources BIGINT,synack_ratio DOUBLE,established_ratio DOUBLE,syn_rate DOUBLE,usable BOOLEAN)'
+    )
+    findings = []
+    if origin is None:
+        return findings, dict(note=SECURITY_NOTE, thresholds=thresholds, quality=notes)
+    timeout = topology.session_timeout_seconds
+    db.execute("CREATE OR REPLACE TEMP TABLE security_points(point VARCHAR,start DOUBLE,finish DOUBLE)")
+    db.executemany(
+        "INSERT INTO security_points VALUES (?,?,?)",
+        [
+            (p.id, bypoint.get(p.id, {}).get("start"), bypoint.get(p.id, {}).get("end"))
+            for p in topology.points
+        ],
+    )
+    db.execute(
+        f"""INSERT INTO security_cohorts SELECT point,floor((s.start-{origin})/{width})::BIGINT AS bucket,
+        {origin}+bucket*{width},{origin}+(bucket+1)*{width},count(*),count(DISTINCT src),
+        count(synack)*1.0/count(*),count(established)*1.0/count(*),count(*)/{width},
+        point IN (SELECT unnest(?::VARCHAR[])) AND min(s.start)>=(SELECT p.start FROM security_points p WHERE p.point=s.point)
+        AND max(s.start)+{timeout}<=(SELECT finish FROM security_points p WHERE p.point=s.point)
+        AND NOT bool_or((established IS NULL AND completed_elsewhere) OR (synack IS NULL AND reply_elsewhere))
+        FROM security_sessions s WHERE s.start>={origin} AND s.start<{series["end"]} GROUP BY point,bucket""",
+        [usable],
+    )
+    n = topology.security_sustained_buckets
+    waves = rows(
+        db,
+        f"""WITH signal AS(SELECT *,bucket-row_number() OVER(PARTITION BY point ORDER BY bucket) AS run
+        FROM security_cohorts WHERE usable AND syn_rate>=? AND sources>=?
+        AND greatest(synack_ratio,established_ratio)<=?), runs AS(
+        SELECT point,run,min(start) AS start,max("end") AS finish,count(*) AS buckets,
+        sum(sessions) AS sessions,min(sources) AS sources,min(syn_rate) AS syn_rate,
+        max(synack_ratio) AS synack_ratio,max(established_ratio) AS established_ratio
+        FROM signal GROUP BY point,run HAVING count(*)>={n}) SELECT * FROM runs ORDER BY start,point""",
+        [topology.security_syn_rate, topology.security_min_sources, topology.security_completion_ratio],
+    )
+    for wave in waves:
+        metrics = {
+            **wave,
+            "count": wave["sessions"],
+            "thresholds": thresholds,
+            "scope": "signal observed here; not a fault attribution",
+        }
+        findings.append(
+            finding(
+                db,
+                "syn_flood_like",
+                wave["point"],
+                wave["start"],
+                wave["finish"],
+                f"SYN-flood-like pattern (heuristic) at {points[wave['point']].label}: {wave['syn_rate']:.1f}+ SYN sessions/s, "
+                f"{wave['sources']}+ observed sources over {wave['buckets']} buckets; SYN/ACK ratio {wave['synack_ratio']:.1%}, established ratio {wave['established_ratio']:.1%}.",
+                metrics,
+            )
+        )
+    return findings, dict(note=SECURITY_NOTE, thresholds=thresholds, quality=notes)

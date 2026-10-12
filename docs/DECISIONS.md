@@ -513,3 +513,7 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   Count SYN retries once, and do not manufacture sessions where the SYN was not captured.
 - Use a configurable 10-second observation expiry for half-open occupancy. This is neither a
   measured device timer nor its internal session-table occupancy. FIN means closure has started.
+- A SYN-rate excursion needs low completion ratios, at least 20 observed sources and three
+  sustained buckets (defaults: 50 sessions/s, maximum ratio 0.2). A healthy flash crowd is a
+  required negative guard. Source diversity is not proof of spoofing; incomplete deadlines,
+  capture loss, translation or clock uncertainty suppress supported absence-based patterns.

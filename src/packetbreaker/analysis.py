@@ -884,6 +884,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         time_window = dict(start=start, end=end, common_start=common_start, common_end=common_end)
         timeseries = build_timeseries(db, topology, segments, coverage, time_window)
         from .security import build_lifecycle
+
         sessions = build_lifecycle(db, topology, coverage, timeseries, time_window)
         onsets = add_onsets(db, topology, segments)
         restrict_onset_domains(onsets, points, models)
@@ -899,6 +900,12 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         findings.extend(proxy_findings)
         tls_findings, tls_notes = tls_checks(db, topology, segments, models, start, end)
         findings.extend(tls_findings)
+        from .security import security_checks
+
+        security_findings, security_report = security_checks(
+            db, topology, coverage, timeseries, segments, {cid: m.json() for cid, m in models.items()}
+        )
+        findings.extend(security_findings)
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         from .pilot import flow_columns
 
@@ -925,6 +932,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             fragment_points=fragment_quality,
             microbursts=microbursts,
             sessions=sessions,
+            security=security_report,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,
@@ -937,7 +945,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             onsets=onsets,
             engine_version=__version__,
             generated_at=datetime.now(timezone.utc).isoformat(),
-            verdict="Path integrity findings observed"
+            verdict="Security heuristic patterns observed; interpretation required"
+            if any(f["confidence"] == "supported" for f in security_findings)
+            else "Path integrity findings observed"
             if any(
                 f["confidence"] == "supported" and f["severity"] != "quality"
                 for f in integrity_findings + proxy_findings + tls_findings
@@ -955,7 +965,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 4 / Part 3; pilot inventory, brushed topology and evidence drill-down",
+            scope="Phase 4 / Part 4; observed lifecycle and conservative security heuristics",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,
@@ -1156,7 +1166,7 @@ def findings_page(project, start=None, end=None):
         items.extend(
             f
             for f in (project.get(db, "export_findings") or [])
-            if f["id"].startswith("integrity:")
+            if f["id"].startswith(("integrity:", "security:"))
             and (start is None or f["time_range"][1] >= start)
             and (end is None or f["time_range"][0] < end)
         )

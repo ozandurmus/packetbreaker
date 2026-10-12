@@ -51,6 +51,10 @@ export type Mapping = {
 };
 export type Topology = {
   bucket_seconds?: number;
+  security_syn_rate?: number;
+  security_completion_ratio?: number;
+  security_min_sources?: number;
+  security_sustained_buckets?: number;
   session_timeout_seconds?: number;
   microburst_window_ms?: number;
   dns_timeout_ms?: number;
@@ -242,6 +246,11 @@ export type Report = {
     }[];
   };
   offload_points?: { point: string; large_frames: number; note: string }[];
+  security?: {
+    note: string;
+    thresholds: Record<string, number>;
+    quality: { point: string; status: string; reason: string }[];
+  };
   sessions?: import("./Sessions").SessionReport;
   microbursts?: import("./Microbursts").MicroburstReport;
   fragment_points?: {

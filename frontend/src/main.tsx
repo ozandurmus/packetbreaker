@@ -673,6 +673,15 @@ function App() {
           {tab === "Overview" && report?.microbursts && (
             <>
               <Sessions data={report.sessions} onEvidence={setEvidence} />
+              {report.security && (
+                <details>
+                  <summary>
+                    Security thresholds and unknown quality notes
+                  </summary>
+                  <p>{report.security.note}</p>
+                  <pre>{JSON.stringify(report.security, null, 2)}</pre>
+                </details>
+              )}
               <Microbursts data={report.microbursts} onEvidence={setEvidence} />
             </>
           )}
@@ -2117,6 +2126,66 @@ function App() {
               </section>
               <section>
                 <h2>Analysis window and thresholds</h2>
+                <div className="two-col">
+                  <label>
+                    SYN heuristic rate floor (sessions/s)
+                    <input
+                      type="number"
+                      min={1}
+                      value={topology.security_syn_rate ?? 50}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_syn_rate: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Maximum healthy handshake ratio
+                    <input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={topology.security_completion_ratio ?? 0.2}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_completion_ratio: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Minimum observed sources
+                    <input
+                      type="number"
+                      min={2}
+                      value={topology.security_min_sources ?? 20}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_min_sources: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Sustained SYN buckets
+                    <input
+                      type="number"
+                      min={2}
+                      value={topology.security_sustained_buckets ?? 3}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_sustained_buckets: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
                 <label title="Bucket width for stored time series and onset resolution. Re-run analysis after changing it.">
                   Time bucket (seconds)
                   <input
