@@ -739,3 +739,9 @@ deadlines, source spread and both SYN/ACK and established ratios gate sustained 
 Cross-point completion is a capture-quality guard, not a claim that proxy legs match. Thresholds
 are topology settings; quality notes explain suppression. Pattern findings are capture signals,
 not fault attribution. The findings schema advances to v6 for the new heuristic types.
+
+Fan-out uses event-anchored rolling windows over SYN sessions per observed source/point. It
+counts distinct destination IP/port pairs and requires predominantly unestablished handshakes.
+Established connections closed with FIN/RST do not become failed handshakes. Peak rolling counts
+are distinct from the displayed span of qualifying windows; completion elsewhere suppresses
+capture-miss false positives. UI thresholds and v6 HTML/JSON exports include the heuristic.

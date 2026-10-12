@@ -2128,6 +2128,51 @@ function App() {
                 <h2>Analysis window and thresholds</h2>
                 <div className="two-col">
                   <label>
+                    Scan rolling window (s)
+                    <input
+                      type="number"
+                      min={1}
+                      max={300}
+                      value={topology.security_scan_window_seconds ?? 5}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_scan_window_seconds: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Scan minimum destinations/ports
+                    <input
+                      type="number"
+                      min={2}
+                      value={topology.security_scan_targets ?? 20}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_scan_targets: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Scan failed handshake ratio
+                    <input
+                      type="number"
+                      min={0.5}
+                      max={1}
+                      step={0.05}
+                      value={topology.security_scan_failed_ratio ?? 0.8}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_scan_failed_ratio: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
                     SYN heuristic rate floor (sessions/s)
                     <input
                       type="number"

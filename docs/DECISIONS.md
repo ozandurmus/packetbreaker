@@ -517,3 +517,7 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   sustained buckets (defaults: 50 sessions/s, maximum ratio 0.2). A healthy flash crowd is a
   required negative guard. Source diversity is not proof of spoofing; incomplete deadlines,
   capture loss, translation or clock uncertainty suppress supported absence-based patterns.
+- Fan-out alone is insufficient. Default scan pattern: at least 20 destination IP/port pairs in
+  five seconds, at least 80% unestablished handshakes, and complete observation deadlines.
+  Successful health checks, LB-style traffic and NAT-pool fan-out are mandatory distractors.
+  Intent and authorized unsuccessful scanning cannot be distinguished from packets alone.

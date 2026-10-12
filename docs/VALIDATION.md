@@ -1094,3 +1094,6 @@ unknown clocks/coverage, and establishment inferred from an ACK flag with incons
 SYN-pattern and export focused gate: 4 passed in 7.01 s. The healthy flash crowd exceeds the
 rate floor but does not trigger; missing coverage cannot support a flood pattern. Lifecycle plus
 bucket regression: 8 passed in 8.10 s. TypeScript/Vite build passes after fixing the JSX wrapper.
+Scan negative/positive tests were added before implementation: the required scan assertion failed
+(1 failed / 3 passed). Final combined SYN/scan gate: 4 passed in 5.11 s. Healthy health-check,
+NAT-pool, endpoint FIN closure and downstream-completed capture-miss traffic do not become scans.

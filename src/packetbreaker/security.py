@@ -265,4 +265,66 @@ def security_checks(db, topology, coverage, series, segments, clocks):
                 metrics,
             )
         )
+    findings.extend(scan_checks(db, topology, usable, series))
+    thresholds.update(
+        scan_window_seconds=topology.security_scan_window_seconds,
+        scan_targets=topology.security_scan_targets,
+        scan_failed_ratio=topology.security_scan_failed_ratio,
+    )
     return findings, dict(note=SECURITY_NOTE, thresholds=thresholds, quality=notes)
+
+
+def scan_checks(db, topology, usable, series):
+    width = topology.security_scan_window_seconds
+    timeout = topology.session_timeout_seconds
+    db.execute(
+        f"""CREATE OR REPLACE TABLE security_fanout AS SELECT a.point,a.src AS source,
+        a.start-{width} AS start,a.start AS finish,count(*) AS sessions,
+        count(DISTINCT struct_pack(dst:=s.dst,port:=s.dport)) AS targets,
+        count(*) FILTER(WHERE s.established IS NULL)*1.0/count(*) AS failed_ratio,
+        bool_and(NOT s.completed_elsewhere OR s.established IS NOT NULL) AS consistent
+        FROM security_sessions a JOIN security_sessions s ON a.point=s.point AND a.src=s.src
+        AND s.start>=a.start-{width} AND s.start<=a.start
+        WHERE a.point IN (SELECT unnest(?::VARCHAR[])) AND a.start>={series["start"]}+{width}
+        AND a.start+{timeout}<=(SELECT finish FROM security_points p WHERE p.point=a.point)
+        AND a.start<{series["end"]} GROUP BY a.point,a.src,a.start""",
+        [usable],
+    )
+    candidates = rows(
+        db,
+        """SELECT point,source,min(start) AS start,max(finish) AS finish,
+        max(sessions) AS sessions,max(targets) AS targets,max(failed_ratio) AS failed_ratio
+        FROM security_fanout WHERE consistent AND targets>=? AND failed_ratio>=?
+        GROUP BY point,source ORDER BY start,point LIMIT 200""",
+        [topology.security_scan_targets, topology.security_scan_failed_ratio],
+    )
+    findings = []
+    for c in candidates:
+        refs = evidence(
+            db,
+            "o.point=? AND o.src=? AND (o.flags&2)>0 AND o.corrected>=? AND o.corrected<=?",
+            [c["point"], c["source"], c["start"], c["finish"]],
+            16,
+        )
+        findings.append(
+            finding(
+                db,
+                "scan_like_fanout",
+                c["point"],
+                c["start"],
+                c["finish"],
+                f"scan-like fan-out (heuristic): source {c['source']} touched {c['targets']} destinations/ports in a {width:g} s rolling window with {c['failed_ratio']:.1%} unestablished handshakes at {c['point']}.",
+                {
+                    **c,
+                    "count": c["sessions"],
+                    "thresholds": dict(
+                        window_seconds=width,
+                        targets=topology.security_scan_targets,
+                        failed_ratio=topology.security_scan_failed_ratio,
+                    ),
+                    "note": "Peak rolling-window counts; displayed interval spans qualifying windows, not one aggregate count.",
+                },
+                refs=refs,
+            )
+        )
+    return findings
