@@ -19,6 +19,7 @@ from .proxy_resets import reset_checks
 from .tls_analysis import tls_checks
 from .ingest import tuple_id
 from .capture_layers import tunnel_report
+from .fragments import normalize_fragments, guard_missing, fragment_findings
 from .headlines import add_headlines
 from .integrity import analyze_integrity, link_modified_payloads
 from .evidence import evidence, prepare_flow_filters
@@ -119,6 +120,7 @@ def prepare(db, topology, project=None, cancel=None):
         GROUP BY capture_id,frame HAVING count(*)>1)""").fetchone()[0]
     if duplicates:
         raise ValueError("Capture-point selections overlap: use distinct file/interface/source filters")
+    normalize_fragments(db)
     points = {p.id: p for p in topology.points}
     nat_points = sorted(
         {
@@ -579,6 +581,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                 )
                 if byte_active:
                     range_later_seen(db, a, b, direction, downstream)
+                guard_missing(db, b)
                 # Re-delivery requires the same byte range and local stream; new IP ID is allowed.
                 # ponytail: recoveries beyond 60 seconds stay unknown; extend for long-RTO investigations.
                 db.execute(
@@ -865,6 +868,8 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         integrity_findings, integrity_notes = analyze_integrity(
             db, topology, segments, coverage, models, start, end
         )
+        fragment_events, fragment_quality = fragment_findings(db, topology, segments)
+        findings.extend(fragment_events)
         findings.extend(integrity_findings)
         proxy_findings, proxy_leg_report = reset_checks(db, topology, segments, models, coverage)
         proxies.update(proxy_leg_report)
@@ -891,6 +896,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         report = dict(
             schema_version=2,
             tunnel_points=tunnel_report(db),
+            fragment_points=fragment_quality,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,

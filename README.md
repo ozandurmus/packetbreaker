@@ -143,7 +143,7 @@ packetbreaker --project demo/project
 6. **Export HTML / Export JSON:** use the header buttons. HTML opens locally as a
    single file; its metric-selectable heatmap, onset markers and evidence filters
    work without the running app or Internet. JSON follows
-   [findings schema v4](docs/findings-v4.schema.json). Both export the complete
+   [findings schema v5](docs/findings-v5.schema.json). Both export the complete
    saved analysis window, independent of the current brush. Neither embeds packet
    payloads; addresses and filters are still sensitive investigation metadata.
 7. **Settings:** inspect clock estimates/calibration frames, then stop with Ctrl+C.

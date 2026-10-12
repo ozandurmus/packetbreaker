@@ -666,3 +666,14 @@ Native SQL applies the selected identity before CIDR, NAT, clock and occurrence 
 addresses, ERSPAN session/VNI and occurrence-scoped evidence/flow filters remain available.
 Nested/incomplete layers and unsupported vendor combinations stay unknown; ERSPAN truncation is
 visible even when the outer capture record itself is complete. No Python packet dissector exists.
+
+### IP fragment observations
+
+The point-isolated tshark pass reassembles IPv4/IPv6 and exports fragment IDs, offsets, lengths,
+error flags and completion references. Native SQL validates membership and contiguous nonoverlapping
+coverage, collapses each assembly into one datagram observation, and keeps all physical frame refs.
+Incomplete groups retain the first-fragment header; overlapping/inconsistent groups remain unknown.
+Existing whole-datagram disappearance logic locates missing middle fragments, with downstream/ACK
+capture-miss guards. A first fragmentation boundary requires a unique upstream datagram and usable
+clocks; complete and identifiable incomplete downstream groups are distinguished. Physical wire
+observations remain separate from logical datagram counts. Export schema v5 adds `fragmentation`.

@@ -444,3 +444,10 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   Layer selection precedes source-CIDR filtering. Preserve outer context and layer-scoped filters.
 - Cache point-isolated decoded layer variants; validate selected frame counts and timestamps,
   retain original frame IDs, bound JSON batches and honor cancellation/file identity changes.
+
+- tshark owns byte reassembly. SQL validates decoded fragment spans/membership, including overlaps,
+  gaps, repeated incomplete IDs and truncated records; it does not parse or reconstruct headers.
+- Count an assembly once, preserve its member frame filters, and use completion time for a complete
+  datagram. Missing members are not multiple lost packets. Ambiguous assemblies cannot prove loss.
+- A first observed fragmentation boundary names the drawn device/link, not an unseen internal
+  device. Unsupported clocks suppress attribution. A downstream reappearance remains capture miss.

@@ -60,3 +60,91 @@ def sample(path):
     packets = [tunnel(p, k) for k in ("erspan2", "erspan3", "gre", "vxlan", "geneve")]
     packets += fragments(p) + fragments(p6)
     write_pcap(path, [(1700000000 + i * 0.01, packet) for i, packet in enumerate(packets)])
+
+
+def fragment_path(directory, ipv6=False, ip_id="zero"):
+    from packetbreaker.ingest import ingest
+    from packetbreaker.store import Project
+    from packetbreaker.analysis import analyze
+
+    directory.mkdir(parents=True, exist_ok=True)
+    names = ["client", "fw_in", "fw_out", "lb_in", "lb_out", "server"]
+    captures = [[] for _ in names]
+    truth = {}
+    modes = [
+        ("FW", 2, None),
+        ("LB", 4, None),
+        ("link", 3, None),
+        ("lost_middle", 2, "loss"),
+        ("overlap", 2, "overlap"),
+        ("capture_miss", 2, "capture_miss"),
+        ("healthy", 6, None),
+    ]
+    for n, (name, start, fault) in enumerate(modes):
+        client = f"2001:db8:1::{n + 1}" if ipv6 else f"10.1.0.{n + 1}"
+        server = "2001:db8:2::2" if ipv6 else "10.2.0.2"
+        port = 42000 + n
+        seq = 1000 + n * 10000
+        pid = 0 if ip_id == "zero" else 777
+        truth[name] = dict(port=port, start=start, seq=seq + 1 + 6 * 180)
+
+        def emit(t, forward, s, a, flags, body=b"", target=False):
+            packet = tcp_packet(
+                client if forward else server,
+                server if forward else client,
+                port if forward else 80,
+                80 if forward else port,
+                s,
+                a,
+                flags,
+                body,
+                pid,
+            )
+            for i in range(6):
+                stamp = 1700000000 + t + (i if forward else 5 - i) * 0.001
+                if target and i >= start:
+                    parts = fragments(
+                        packet, fragment_id=(900 + n if ipv6 else pid), overlap=fault == "overlap"
+                    )
+                    for j, part in enumerate(parts):
+                        if j == 1 and ((fault == "loss" and i >= 4) or (fault == "capture_miss" and i == 3)):
+                            continue
+                        captures[i].append((stamp + j * 0.00007, part))
+                else:
+                    captures[i].append((stamp, packet))
+
+        t = n * 0.003
+        emit(0.05 + t, True, seq, 0, 2)
+        emit(0.07 + t, False, 9000, seq + 1, 18)
+        emit(0.09 + t, True, seq + 1, 9001, 16)
+        for k in range(7):
+            t = 0.2 + k * 0.19 + n * 0.002 + (k % 3) * 0.0004
+            emit(t, True, seq + 1 + k * 180, 9001, 24, bytes([65 + n]) * 180, target=k == 6)
+            if k != 6 or fault not in ("loss", "overlap"):
+                emit(t + 0.02, False, 9001, seq + 1 + (k + 1) * 180, 16)
+        if name == "healthy":
+            for k in range(8):
+                emit(2 + k * 0.25, True, seq + 1 + (7 + k) * 180, 9001, 24, b"h" * 180)
+                emit(2.02 + k * 0.25, False, 9001, seq + 1 + (8 + k) * 180, 16)
+    project = Project(directory / "project")
+    points = []
+    for i, name in enumerate(names):
+        path = directory / (name + ".pcap")
+        write_pcap(path, captures[i])
+        cid = ingest(project, path)
+        points.append(
+            dict(
+                id=name,
+                label=name,
+                device="FW" if name.startswith("fw") else "LB" if name.startswith("lb") else name,
+                kind="Generic",
+                capture_id=cid,
+            )
+        )
+    topology = dict(
+        points=points,
+        forward=names,
+        client_cidrs=["2001:db8:1::/64"] if ipv6 else ["10.1.0.0/24"],
+        clock_overrides={p["capture_id"]: dict(offset_ms=0) for p in points},
+    )
+    return project, truth, topology, analyze(project, topology)

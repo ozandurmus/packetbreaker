@@ -71,7 +71,7 @@ class NatMapping(BaseModel):
                 "NAT tuple must be [protocol, source IP, source port, destination IP, destination port]"
             )
         proto, src, sport, dst, dport = parts
-        if proto not in ("TCP", "UDP", "ICMP"):
+        if proto not in ("TCP", "UDP", "ICMP", "ICMPv6", "GRE"):
             raise ValueError("Unsupported NAT protocol")
         ipaddress.ip_address(src)
         ipaddress.ip_address(dst)

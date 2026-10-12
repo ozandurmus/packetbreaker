@@ -8,12 +8,12 @@ import subprocess
 import tempfile
 from datetime import datetime
 
-from .application_index import first, json_packets, read_filter, running
+from .application_index import first, values, json_packets, read_filter, running
 from .ingest import FIELDS, find_tshark, number, parse_packet, packet_signature, tuple_id
 from .metadata import metadata
 from .store import PACKET_COLUMNS, rows
 
-VERSION = 1
+VERSION = 2
 TUNNELS = {"gre", "vxlan", "geneve"}
 
 
@@ -47,14 +47,16 @@ def decoded_layers(layers):
     net = [i for i, p in enumerate(stack) if p in ("ip", "ipv6")]
     tunnels = [i for i, p in enumerate(stack) if p in TUNNELS]
     result = dict(reason=None, layers={}, tunnel=None)
-    if not tunnels:
+    if not tunnels and not net:
         return result
-    if len(tunnels) != 1 or not net or not any(i > tunnels[0] for i in net):
+    if tunnels and (len(tunnels) != 1 or not net or not any(i > tunnels[0] for i in net)):
         result["reason"] = "Unknown tunnel layer: nested or incomplete IP envelope"
         return result
-    positions = dict(outer=net[0], inner=next(i for i in net if i > tunnels[0]))
+    positions = (
+        dict(outer=net[0], inner=next(i for i in net if i > tunnels[0])) if tunnels else {"plain": net[0]}
+    )
     outer = flat(occurrence(layers, stack, stack[net[0]], net[0]))
-    kind = "erspan" if "erspan" in stack else stack[tunnels[0]]
+    kind = "erspan" if "erspan" in stack else stack[tunnels[0]] if tunnels else None
     info = dict(
         kind=kind,
         outer_src=outer.get("ip.src") or outer.get("ipv6.src"),
@@ -63,7 +65,7 @@ def decoded_layers(layers):
         vni=first(layers.get("vxlan", {}), "vxlan.vni") or first(layers.get("geneve", {}), "geneve.vni"),
         truncated=bool(number(first(layers.get("erspan", {}), "erspan.truncated", "0"))),
     )
-    result["tunnel"] = info
+    result["tunnel"] = info if tunnels else None
     for choice, pos in positions.items():
         family = stack[pos]
         ip = occurrence(layers, stack, family, pos)
@@ -82,10 +84,12 @@ def decoded_layers(layers):
             if choice == "inner":
                 for p in ("dns", "http", "tls"):
                     data.update(flat(layers.get(p, {})))
+        if "ipv6.fraghdr" in stack[pos:end]:
+            scope["ipv6.fraghdr"] = stack[:end].count("ipv6.fraghdr")
         data["frame.protocols"] = ":".join(stack[pos:end])
         raw = layers.get(family + "_raw")
         raw = raw[scope[family] - 1] if raw and isinstance(raw[0], list) else raw
-        result["layers"][choice] = dict(fields=data, scope=scope, raw=raw)
+        result["layers"][choice] = dict(fields=data, scope=scope, raw=raw, ip=ip, family=family)
     return result
 
 
@@ -125,11 +129,17 @@ def layer_rows(layers, cid, prefix_bytes):
                 )
                 row["tuple_key"] = tuple_id("GRE", row["src"], 0, row["dst"], 0)
                 row["reverse_tuple"] = tuple_id("GRE", row["dst"], 0, row["src"], 0)
-        info = {**decoded["tunnel"], "layer": choice, "scope": layer["scope"]}
+        info = {**decoded["tunnel"], "layer": choice, "scope": layer["scope"]} if decoded["tunnel"] else None
         if choice == "inner":
             info["truncated"] |= row["caplen"] < row["wirelen"]
         meta = json.loads(row["path_fields"])
-        meta["tunnel"] = info
+        if info:
+            meta["tunnel"] = info
+        fragment = fragment_metadata(layer)
+        if fragment:
+            meta["fragment"] = fragment
+            if fragment["complete"] and not fragment["invalid"]:
+                row["unsupported"] = ""
         row["path_fields"] = json.dumps(meta)
         result.append(dict(layer=choice, local_frame=row["frame"], packet=row))
     return result, decoded["reason"]
@@ -137,7 +147,8 @@ def layer_rows(layers, cid, prefix_bytes):
 
 def apply_layers(project, db, point, cancel=None):
     count = db.execute(
-        "SELECT count(*) FROM obs WHERE point=? AND unsupported LIKE 'Tunnel encapsulation%'", [point.id]
+        "SELECT count(*) FROM obs WHERE point=? AND (unsupported LIKE 'Tunnel encapsulation%' OR unsupported LIKE 'Fragmented packet%')",
+        [point.id],
     ).fetchone()[0]
     if not count:
         return
@@ -239,18 +250,19 @@ def apply_layers(project, db, point, cancel=None):
                 cmd = [
                     binary,
                     "-n",
+                    "-2",
                     "-r",
                     str(selected),
                     "-Y",
-                    "gre || vxlan || geneve",
+                    "gre || vxlan || geneve || ip.flags.mf || ip.frag_offset > 0 || ipv6.fraghdr",
                     "-T",
                     "json",
                     "-x",
                     "--no-duplicate-keys",
                     "-o",
-                    "ip.defragment:FALSE",
+                    "ip.defragment:TRUE",
                     "-o",
-                    "ipv6.defragment:FALSE",
+                    "ipv6.defragment:TRUE",
                     "-o",
                     "tcp.desegment_tcp_streams:FALSE",
                 ]
@@ -278,22 +290,26 @@ def apply_layers(project, db, point, cancel=None):
         reason = cached[1]
     if reason:
         db.execute(
-            "UPDATE obs SET unsupported=? WHERE point=? AND unsupported LIKE 'Tunnel encapsulation%'",
+            "UPDATE obs SET unsupported=? WHERE point=? AND (unsupported LIKE 'Tunnel encapsulation%' OR unsupported LIKE 'Fragmented packet%')",
             [reason, point.id],
         )
         return
     chosen = point.matching_layer
     db.execute(
         """CREATE OR REPLACE TEMP TABLE chosen_layer AS SELECT frame,from_json(packet,?) AS p
-        FROM layer_packets WHERE point=? AND (layer=? OR (? IS NULL AND layer='inner'
+        FROM layer_packets WHERE point=? AND (layer='plain' OR layer=? OR (? IS NULL AND layer='inner'
         AND json_extract_string(json_extract_string(packet,'$.path_fields'),'$.tunnel.kind')='erspan'))""",
         [json.dumps(PACKET_COLUMNS), point.id, chosen, chosen],
     )
-    columns = [k for k in PACKET_COLUMNS if k not in ("frame", "capture_id", "iface")]
+    columns = [k for k in PACKET_COLUMNS if k not in ("frame", "capture_id", "iface", "frame_hash")]
     db.execute(
         "UPDATE obs SET "
         + ",".join(f'"{k}"=c.p."{k}"' for k in columns)
-        + ",raw_seq=c.p.seq,raw_ack=c.p.ack,canon=c.p.tuple_key FROM chosen_layer c WHERE obs.point=? AND obs.frame=c.frame",
+        + ",raw_seq=c.p.seq,raw_ack=c.p.ack,canon=c.p.tuple_key FROM chosen_layer c WHERE obs.point=? AND obs.frame=c.frame AND (json_extract_string(c.p.path_fields,'$.fragment.complete') IS DISTINCT FROM 'false' OR json_exists(c.p.path_fields,'$.tunnel'))",
+        [point.id],
+    )
+    db.execute(
+        "UPDATE obs SET path_fields=json_merge_patch(obs.path_fields,c.p.path_fields) FROM chosen_layer c WHERE obs.point=? AND obs.frame=c.frame AND json_exists(c.p.path_fields,'$.fragment')",
         [point.id],
     )
     # The decoder's frame ordinal is private; evidence always uses the original capture frame.
@@ -312,4 +328,44 @@ def tunnel_report(db):
         count(*) FILTER(WHERE json_extract_string(path_fields,'$.tunnel.layer')='inner'
         AND try_cast(json_extract_string(path_fields,'$.tunnel.truncated') AS BOOLEAN)) AS truncated_inner
         FROM obs GROUP BY point HAVING selected+unselected>0""",
+    )
+
+
+def fragment_metadata(layer):
+    data, ip, family = layer["fields"], layer["ip"], layer["family"]
+    offset = number(data.get("ip.frag_offset" if family == "ip" else "ipv6.fraghdr.offset", "0")) * 8
+    more = bool(number(data.get("ip.flags.mf" if family == "ip" else "ipv6.fraghdr.more", "0")))
+    if not offset and not more:
+        return None
+    complete = bool(first(ip, family + ".reassembled.length"))
+    target = first(ip, "ip.reassembled_in" if family == "ip" else "ipv6.reassembled.in")
+    invalid = any(
+        any(number(str(v)) for v in values(ip, family + ".fragment." + k))
+        for k in ("overlap", "overlap.conflict", "multipletails", "toolongfragment", "error")
+    )
+    size = (
+        number(data.get("ip.len", "0")) - number(data.get("ip.hdr_len", "0"))
+        if family == "ip"
+        else number(data.get("ipv6.plen", "0")) - 8
+    )
+    if family == "ipv6":
+        raw_fragment = ip.get("ipv6.fraghdr_raw")
+        if raw_fragment and layer["raw"]:
+            size = number(data.get("ipv6.plen", "0")) - (
+                int(raw_fragment[1]) + int(raw_fragment[2]) - int(layer["raw"][1]) - 40
+            )
+        else:
+            invalid = True
+    return dict(
+        id=data.get("ip.id") if family == "ip" else data.get("ipv6.fraghdr.ident"),
+        protocol=data.get("ip.proto") if family == "ip" else data.get("ipv6.fraghdr.nxt"),
+        family=family,
+        offset=offset,
+        more=more,
+        size=size,
+        complete=complete,
+        invalid=invalid,
+        target=int(target) if target else int(data["frame.number"]) if complete else None,
+        members=[int(v) for v in values(ip, family + ".fragment")],
+        local_frame=int(data["frame.number"]),
     )

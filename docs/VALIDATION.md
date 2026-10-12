@@ -915,3 +915,11 @@ IPv4/IPv6 envelopes. Content filters are executed by tshark. A six-point FW/LB t
 a deliberate outer-address/inner-port collision distractor; ERSPAN defaults inner, VXLAN stays
 unknown until selected, and outer selection retains UDP ports. ERSPAN truncation is visible.
 TypeScript/Vite build passes. No real capture is used.
+
+Fragment checkpoint: **13 passed in 22.95 s**. Four IPv4/IPv6 zero/constant-ID variants share
+seven concurrent flows on six points. Exact FW, LB and link origins each have one supported
+fragmentation finding and one datagram per point. A middle fragment disappearing at LB yields
+exactly one unrecovered datagram; a middle-fragment capture miss yields capture_miss only.
+Overlaps are unknown. Missing-clock attribution is rejected. Every emitted fragment evidence
+filter in the checked finding is executed by tshark against its original file. Combined prior
+fragment/layer/export gate: 19 passed in 35.71 s. Schema assertions deliberately advance to v5.

@@ -240,6 +240,7 @@ export type Report = {
     }[];
   };
   offload_points?: { point: string; large_frames: number; note: string }[];
+  fragment_points?: {point: string; status: string; datagrams: number; physical_fragments: number}[];
   tunnel_points?: {point: string; selected: number; unselected: number; layer: string | null; truncated_inner: number}[];
   sequence_translations?: {
     ingress: string;

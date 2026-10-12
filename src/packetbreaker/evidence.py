@@ -33,11 +33,12 @@ def tunnel_filter(expression, tunnel):
     if not tunnel:
         return expression
     scope = tunnel.get("scope", {})
-    expression = re.sub(
-        r"\b(ipv6|ip|tcp|udp|icmpv6|icmp)\.[a-zA-Z_][\w.]*",
-        lambda m: m[0] + f"#{scope[m[1]]}" if m[1] in scope else m[0],
-        expression,
-    )
+
+    def scoped(match):
+        key = next((k for k in sorted(scope, key=len, reverse=True) if match[0].startswith(k + ".")), None)
+        return match[0] + f"#{scope[key]}" if key else match[0]
+
+    expression = re.sub(r"\b(ipv6|ip|tcp|udp|icmpv6|icmp)\.[a-zA-Z_][\w.]*", scoped, expression)
     outer = "ipv6" if ":" in tunnel["outer_src"] else "ip"
     expression += f" && {outer}.src#1 == {tunnel['outer_src']} && {outer}.dst#1 == {tunnel['outer_dst']}"
     if tunnel.get("session") is not None:
@@ -214,6 +215,43 @@ def evidence(db, predicate, params, limit=128, _expand_ranges=True):
             item["filter_note"] += (
                 " The stage is an external file tag; preserve the original file provenance when merging."
             )
-        item["tunnel"] = json.loads(e.get("path_fields") or "{}").get("tunnel")
+        meta = json.loads(e.get("path_fields") or "{}")
+        item["tunnel"] = meta.get("tunnel")
+        item["fragment"] = meta.get("fragment")
         result.append(item)
+        if item.get("fragment") and item["fragment"].get("members"):
+            fragment = item["fragment"]
+            family = fragment["family"]
+            field = "ip.id" if family == "ip" else "ipv6.fraghdr.ident"
+            expression = f"{family}.src == {e['src']} && {family}.dst == {e['dst']} && {field} == {int(fragment['id'], 0)}"
+            if family == "ip":
+                expression += " && (ip.flags.mf == 1 || ip.frag_offset > 0)"
+            # Fragment filters deliberately omit L4 fields: non-initial members do not carry them.
+            expression = tunnel_filter(expression, item.get("tunnel"))
+            physical = {
+                r["frame"]: r
+                for r in rows(
+                    db,
+                    "SELECT frame,ts,off FROM fragment_members WHERE point=? AND frame IN (SELECT unnest(?::BIGINT[]))",
+                    [item["point"], fragment["members"][:128]],
+                )
+            }
+            if fragment.get("status") != "complete":
+                item["content_filter"] = expression
+            for frame in fragment["members"][:128]:
+                if frame == item["frame"]:
+                    continue
+                result.append(
+                    {
+                        **item,
+                        "frame": frame,
+                        "display_filter": f"frame.number == {frame}",
+                        "content_filter": expression
+                        + f" && {family}.{'frag_offset' if family == 'ip' else 'fraghdr.offset'} == {physical[frame]['off'] // 8}",
+                        "observed_time": physical[frame]["ts"],
+                        "corrected_time": None,
+                        "filter_note": "IP datagram fragment membership; identical reused IDs require timestamp/context comparison",
+                    }
+                )
+
     return result

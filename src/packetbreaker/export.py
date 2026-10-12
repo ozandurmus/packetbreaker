@@ -33,6 +33,7 @@ class Finding(BaseModel):
     )
     id: str
     type: Literal[
+        "fragmentation",
         "recovered_loss",
         "impactful_loss",
         "unrecovered_loss",
@@ -79,7 +80,7 @@ class Finding(BaseModel):
 class FindingsExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_name: Literal["packetbreaker.findings"] = "packetbreaker.findings"
-    schema_version: Literal[4] = 4
+    schema_version: Literal[5] = 5
     engine_version: str
     exported_at: str
     findings: list[Finding]
