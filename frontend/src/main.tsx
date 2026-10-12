@@ -1,3 +1,4 @@
+import { CasePreflight } from "./CasePreflight";
 import { Microbursts } from "./Microbursts";
 import { Heatmap } from "./Heatmap";
 import type { TimeSeries, Finding } from "./types";
@@ -174,7 +175,7 @@ function App() {
   }, []);
 
   const [state, setState] = useState<State | null>(null),
-    [tab, setTab] = useState("Overview"),
+    [tab, setTab] = useState(new URLSearchParams(location.search).get("view") === "Path" ? "Path" : "Overview"),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [job, setJob] = useState<Job>({ state: "idle", busy: false }),
@@ -1195,6 +1196,7 @@ function App() {
           )}
           {tab === "Captures" && (
             <>
+              <CasePreflight state={state} />
               <section>
                 <h2>Import Fortinet verbose-6 text</h2>
                 <p className="hint">
@@ -1429,6 +1431,7 @@ function App() {
           )}
           {tab === "Path" && (
             <>
+              <CasePreflight state={state} />
               <section>
                 <TopologyEditor
                   topology={topology}

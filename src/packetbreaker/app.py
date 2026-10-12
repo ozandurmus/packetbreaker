@@ -178,14 +178,19 @@ def create_app(project_path):
             topology = project.get(db, "topology", Topology().model_dump())
             report = project.get(db, "report")
             conversion = project.get(db, "fortinet_conversion")
+            case_context = project.get(db, "case_context")
         try:
             tshark = dict(path=find_tshark(settings.get("tshark")), error=None)
         except ValueError as exc:
             tshark = dict(path=None, error=str(exc))
+        from .case_setup import inventory_overview
+        captures = project.inventory()
         return dict(
             version=__version__,
             project=str(project.path),
-            captures=project.inventory(),
+            captures=captures,
+            preflight=inventory_overview(captures),
+            case_context=case_context,
             topology=topology,
             report=report,
             settings=settings,

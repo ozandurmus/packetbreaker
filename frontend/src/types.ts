@@ -352,6 +352,28 @@ export type Job = {
   error?: string;
 };
 export type State = {
+  preflight?: {
+    files: {
+      id?: string;
+      name: string;
+      state: string;
+      start: number | null;
+      end: number | null;
+      packet_count: number | null;
+      header_snaplen: number | null;
+      header_snaplens: number[];
+      observed_max_caplen: number | null;
+      ifdrop: number | null;
+      osdrop: number | null;
+      warnings: string[];
+    }[];
+    overlap: { status: string; reason: string };
+  };
+  case_context?: {
+    note: string;
+    warning: string | null;
+    issues: { file: string; error: string }[];
+  } | null;
   version: string;
   project: string;
   captures: Capture[];
