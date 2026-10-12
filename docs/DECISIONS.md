@@ -435,3 +435,12 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 - A sender/application hypothesis needs matched timing evidence across every drawn edge of its
   captured TCP leg. Healthy surviving edges cannot vouch for an unmeasurable hop. Supported local
   receiver pressure or a separately supported loss cause remains independent of that path claim.
+
+## Phase 4 / Part 2
+
+- Select IP and its own L4 subtree together from tshark's protocol stack; never zip first/last
+  flattened field occurrences, which mixes IPv4/IPv6 envelopes and inner/outer ports.
+- ERSPAN is a remote SPAN default: inner identity. Other tunnels require explicit selection.
+  Layer selection precedes source-CIDR filtering. Preserve outer context and layer-scoped filters.
+- Cache point-isolated decoded layer variants; validate selected frame counts and timestamps,
+  retain original frame IDs, bound JSON batches and honor cancellation/file identity changes.

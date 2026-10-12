@@ -18,6 +18,7 @@ from .proxy_waterfall import add_dwell
 from .proxy_resets import reset_checks
 from .tls_analysis import tls_checks
 from .ingest import tuple_id
+from .capture_layers import tunnel_report
 from .headlines import add_headlines
 from .integrity import analyze_integrity, link_modified_payloads
 from .evidence import evidence, prepare_flow_filters
@@ -43,7 +44,7 @@ def reverse_tuple(key):
     return tuple_id(proto, dst, dport, src, sport)
 
 
-def prepare(db, topology):
+def prepare(db, topology, project=None, cancel=None):
     db.execute("DROP VIEW IF EXISTS observation_matches")
     db.execute("CREATE OR REPLACE TABLE byte_flows(flow VARCHAR,direction VARCHAR)")
     db.execute("DROP TABLE IF EXISTS obs")
@@ -73,18 +74,25 @@ def prepare(db, topology):
                 )
             clause += " AND iface=?"
             params.append(point.interface)
-        if point.source_cidr:
-            network = ipaddress.ip_network(point.source_cidr, strict=False)
-            addresses = db.execute("SELECT DISTINCT src FROM packets WHERE " + clause, params).fetchall()
-            accepted = [(src,) for (src,) in addresses if src and ipaddress.ip_address(src) in network]
-            db.execute("CREATE OR REPLACE TEMP TABLE point_sources(src VARCHAR)")
-            if accepted:
-                db.executemany("INSERT INTO point_sources VALUES (?)", accepted)
-            clause += " AND src IN (SELECT src FROM point_sources)"
         db.execute(
             f"INSERT INTO obs SELECT *,seq,ack,NULL,NULL,?,tuple_key FROM packets WHERE {clause}",
             [point.id, *params],
         )
+        if project is not None:
+            from .capture_layers import apply_layers
+
+            apply_layers(project, db, point, cancel)
+        if point.source_cidr:
+            network = ipaddress.ip_network(point.source_cidr, strict=False)
+            addresses = db.execute("SELECT DISTINCT src FROM obs WHERE point=?", [point.id]).fetchall()
+            accepted = [(src,) for (src,) in addresses if src and ipaddress.ip_address(src) in network]
+            db.execute("CREATE OR REPLACE TEMP TABLE point_sources(src VARCHAR)")
+            if accepted:
+                db.executemany("INSERT INTO point_sources VALUES (?)", accepted)
+            db.execute(
+                "DELETE FROM obs WHERE point=? AND (src IS NULL OR src NOT IN (SELECT src FROM point_sources))",
+                [point.id],
+            )
         if point.vendor == "paloalto":
             db.execute(
                 "UPDATE obs SET vendor=? WHERE point=?",
@@ -371,7 +379,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         db.execute("SET preserve_insertion_order=false")
         project.set(db, "report", None)
         progress(state="matching")
-        suggestions = prepare(db, topology)
+        suggestions = prepare(db, topology, project, cancel)
         application_status = index_applications(project, db, topology, cancel, progress)
         progress(state="aligning clocks")
         models = align(db, topology)
@@ -882,6 +890,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         )
         report = dict(
             schema_version=2,
+            tunnel_points=tunnel_report(db),
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,

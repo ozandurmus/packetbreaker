@@ -634,6 +634,10 @@ function App() {
           {tab === "DNS" && (
             <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />
           )}
+          {report?.tunnel_points?.map((p) => <p className="hint" key={p.point}>
+            {p.point}: tunnel layer {p.layer || "unknown — choose inner or outer in Path"}; {p.selected} selected, {p.unselected} unselected.
+            {p.truncated_inner > 0 && <strong> ERSPAN/inner payload truncation: {p.truncated_inner} observations; full payload unavailable.</strong>}
+          </p>)}
           {tab === "Overview" && (
             <>
               <Assistant

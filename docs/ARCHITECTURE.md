@@ -656,3 +656,13 @@ changing production ingest defaults or moving diagnostic tests to the slow suite
 An application/sender hypothesis requires timing pairs on every drawn edge between the leg's
 captured sender and receiver. A healthy partial path does not prove network health; report
 generation caching includes the directional profile schema version to invalidate earlier results.
+
+## Phase 4 / Part 2 — selectable capture layers
+
+A point selects inner or outer IP/transport identity. An unset choice automatically selects inner
+only for ERSPAN II/III; GRE/VXLAN/GENEVE remain excluded until chosen. `capture_layers.py` isolates
+the point, streams tshark JSON with protocol occurrence boundaries and caches both variants.
+Native SQL applies the selected identity before CIDR, NAT, clock and occurrence matching. Outer
+addresses, ERSPAN session/VNI and occurrence-scoped evidence/flow filters remain available.
+Nested/incomplete layers and unsupported vendor combinations stay unknown; ERSPAN truncation is
+visible even when the outer capture record itself is complete. No Python packet dissector exists.

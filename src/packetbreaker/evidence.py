@@ -2,6 +2,7 @@
 
 import ipaddress
 import json
+import re
 from .store import rows
 
 
@@ -12,7 +13,7 @@ def tuple_filter(proto, src, dst, sport, dport, bidirectional=False):
             return None
     except (ValueError, TypeError):
         return None
-    protocol = {"TCP": "tcp", "UDP": "udp", "ICMP": "icmp", "ICMPv6": "icmpv6"}.get(proto)
+    protocol = {"TCP": "tcp", "UDP": "udp", "ICMP": "icmp", "ICMPv6": "icmpv6", "GRE": "gre"}.get(proto)
     if not protocol:
         return None
 
@@ -26,6 +27,24 @@ def tuple_filter(proto, src, dst, sport, dport, bidirectional=False):
     return (
         "(" + " || ".join(sorted([forward, one(dst, src, dport, sport)])) + ")" if bidirectional else forward
     )
+
+
+def tunnel_filter(expression, tunnel):
+    if not tunnel:
+        return expression
+    scope = tunnel.get("scope", {})
+    expression = re.sub(
+        r"\b(ipv6|ip|tcp|udp|icmpv6|icmp)\.[a-zA-Z_][\w.]*",
+        lambda m: m[0] + f"#{scope[m[1]]}" if m[1] in scope else m[0],
+        expression,
+    )
+    outer = "ipv6" if ":" in tunnel["outer_src"] else "ip"
+    expression += f" && {outer}.src#1 == {tunnel['outer_src']} && {outer}.dst#1 == {tunnel['outer_dst']}"
+    if tunnel.get("session") is not None:
+        expression += f" && erspan.spanid == {int(tunnel['session'], 0)}"
+    if tunnel.get("vni") is not None:
+        expression += f" && {tunnel['kind']}.vni == {int(tunnel['vni'], 0)}"
+    return expression
 
 
 def content_filter(packet):
@@ -45,14 +64,14 @@ def content_filter(packet):
                 result += f" && {field} == {packet[key]}"
     elif packet["proto"] == "ICMPv6" and packet["icmp_type"] is not None:
         result += f" && icmpv6.type == {packet['icmp_type']}"
-    return result
+    return tunnel_filter(result, json.loads(packet.get("path_fields") or "{}").get("tunnel"))
 
 
 def prepare_flow_filters(db):
     metadata = rows(
         db,
-        """SELECT flow,capture_id,tuple_key,min(ts) AS start,max(ts) AS "end"
-        FROM obs GROUP BY flow,capture_id,tuple_key""",
+        """SELECT flow,capture_id,tuple_key,json_extract(path_fields,'$.tunnel') AS tunnel,min(ts) AS start,max(ts) AS "end"
+        FROM obs GROUP BY flow,capture_id,tuple_key,tunnel""",
     )
     grouped = {}
     for item in metadata:
@@ -60,6 +79,7 @@ def prepare_flow_filters(db):
         expression = tuple_filter(proto, src, dst, sport, dport, True)
         if not expression:
             continue
+        expression = tunnel_filter(expression, json.loads(item["tunnel"]) if item["tunnel"] else None)
         group = grouped.setdefault(
             (item["flow"], item["capture_id"]), dict(expressions=set(), start=item["start"], end=item["end"])
         )
@@ -84,7 +104,7 @@ def evidence(db, predicate, params, limit=128, _expand_ranges=True):
         db,
         f"""SELECT o.point,c.name AS file,o.capture_id,o.frame,
         'frame.number == ' || o.frame AS display_filter,o.ts AS observed_time,o.corrected AS corrected_time,
-        o.vendor,o.packet_key,o.flow,o.proto,o.src,o.dst,o.sport,o.dport,o.ipid,o.raw_seq AS seq,o.raw_ack AS ack,o.seq AS canonical_seq,o.ack AS canonical_ack,o.translation_reason,o.flags,o.length,
+        o.vendor,o.path_fields,o.packet_key,o.flow,o.proto,o.src,o.dst,o.sport,o.dport,o.ipid,o.raw_seq AS seq,o.raw_ack AS ack,o.seq AS canonical_seq,o.ack AS canonical_ack,o.translation_reason,o.flags,o.length,
         o.dns_id,o.icmp_id,o.icmp_seq,o.icmp_type
         FROM obs o JOIN captures c ON c.id=o.capture_id WHERE {predicate}
         ORDER BY o.corrected NULLS LAST,o.point,o.frame LIMIT {int(limit)}""",
@@ -194,5 +214,6 @@ def evidence(db, predicate, params, limit=128, _expand_ranges=True):
             item["filter_note"] += (
                 " The stage is an external file tag; preserve the original file provenance when merging."
             )
+        item["tunnel"] = json.loads(e.get("path_fields") or "{}").get("tunnel")
         result.append(item)
     return result

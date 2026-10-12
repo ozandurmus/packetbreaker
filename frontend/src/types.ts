@@ -34,6 +34,7 @@ export type Point = {
   vendor_stage?: string | null;
   vendor_interface?: string | null;
   inspection_complete?: boolean;
+  matching_layer?: "inner" | "outer" | null;
   source_cidr: string | null;
   payload_transform?: "none" | "proxy" | "alg" | "ssl_inspection";
   translation: string;
@@ -239,6 +240,7 @@ export type Report = {
     }[];
   };
   offload_points?: { point: string; large_frames: number; note: string }[];
+  tunnel_points?: {point: string; selected: number; unselected: number; layer: string | null; truncated_inner: number}[];
   sequence_translations?: {
     ingress: string;
     egress: string;

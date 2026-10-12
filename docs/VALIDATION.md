@@ -905,3 +905,13 @@ PR close-out: [PR #10 checks](https://github.com/ozandurmus/packetbreaker/pull/1
 The final run URL and completed matrix results are recorded in the PR validation section.
 The initial run on `a5b3be2` was deliberately cancelled for the partial-path correction after all
 three native packaging jobs passed; it is not claimed as final full-matrix acceptance.
+
+## Phase 4 / Part 2 — working checkpoints
+
+Baseline: PR #10 merged at `7482180`; branch `phase4-part2`. Layer negative test first failed
+collection because the new module did not exist. Seven fast layer tests pass in 6.69 s: ERSPAN
+II/III, GRE, VXLAN and GENEVE fields match a separate plain-file tshark ingest, including mixed
+IPv4/IPv6 envelopes. Content filters are executed by tshark. A six-point FW/LB topology contains
+a deliberate outer-address/inner-port collision distractor; ERSPAN defaults inner, VXLAN stays
+unknown until selected, and outer selection retains UDP ports. ERSPAN truncation is visible.
+TypeScript/Vite build passes. No real capture is used.
