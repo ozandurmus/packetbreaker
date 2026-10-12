@@ -77,6 +77,9 @@ def generate(
     ipv6=False,
     fault_location="FW",
 ):
+    if scenario == "security":
+        from .security_synthetic import generate as generate_security
+        return generate_security(directory, fault_location, ip_id, ipv6)
     if scenario in ("integrity_multi", "integrity_multi_asym"):
         from .attribution_synthetic import generate_attribution
 

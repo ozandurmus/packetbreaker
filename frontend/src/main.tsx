@@ -1,5 +1,6 @@
 import { CasePreflight } from "./CasePreflight";
 import type { TopologyOverlay } from "./types";
+import { Sessions } from "./Sessions";
 import { Microbursts } from "./Microbursts";
 import { Heatmap } from "./Heatmap";
 import type { TimeSeries, Finding } from "./types";
@@ -670,7 +671,10 @@ function App() {
             <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />
           )}
           {tab === "Overview" && report?.microbursts && (
-            <Microbursts data={report.microbursts} onEvidence={setEvidence} />
+            <>
+              <Sessions data={report.sessions} onEvidence={setEvidence} />
+              <Microbursts data={report.microbursts} onEvidence={setEvidence} />
+            </>
           )}
           {report?.fragment_points?.map((p) => (
             <p className="hint" key={p.point + p.status}>
@@ -2143,6 +2147,21 @@ function App() {
                         setTopology({
                           ...topology,
                           min_eligible_ratio: Number(e.target.value) / 100,
+                        })
+                      }
+                    />
+                  </label>
+                  <label title="Observed half-open expiry, not a measurement of the device session-table timer.">
+                    Half-open observation timeout (seconds)
+                    <input
+                      type="number"
+                      min={1}
+                      max={300}
+                      value={topology.session_timeout_seconds ?? 10}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          session_timeout_seconds: Number(e.target.value),
                         })
                       }
                     />

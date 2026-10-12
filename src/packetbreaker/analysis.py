@@ -883,6 +883,8 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         progress(state="building time series")
         time_window = dict(start=start, end=end, common_start=common_start, common_end=common_end)
         timeseries = build_timeseries(db, topology, segments, coverage, time_window)
+        from .security import build_lifecycle
+        sessions = build_lifecycle(db, topology, coverage, timeseries, time_window)
         onsets = add_onsets(db, topology, segments)
         restrict_onset_domains(onsets, points, models)
         microbursts = build_microbursts(db, topology, models, onsets, start, end)
@@ -922,6 +924,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             tunnel_points=tunnel_report(db),
             fragment_points=fragment_quality,
             microbursts=microbursts,
+            sessions=sessions,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,

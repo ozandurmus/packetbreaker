@@ -506,3 +506,10 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 - Prepared fixture handles skip repeated initialization only after a real worker build/analysis or
   a closed database copy. Source creation, schema migration and explicit cached reopen acceptance
   continue using the real Project constructor; this is not a production fast-open path.
+
+## Phase 4 / Part 4
+
+- Require the full sequence-consistent local handshake; an ACK flag alone is not establishment.
+  Count SYN retries once, and do not manufacture sessions where the SYN was not captured.
+- Use a configurable 10-second observation expiry for half-open occupancy. This is neither a
+  measured device timer nor its internal session-table occupancy. FIN means closure has started.

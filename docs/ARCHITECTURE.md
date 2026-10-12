@@ -723,3 +723,13 @@ point structs. Fragment normalization materializes a replacement for affected po
 physical wire table retains all captured frames. The first-pass transport marker also proves TLS
 probe coverage when JSON merge removes known-null keys. Application generations without a needed
 probe clear previous protocol state; visible TLS/legacy/proxy cases retain the dissector path.
+
+## Phase 4 / Part 4 — observed TCP lifecycle
+
+`security.py` builds `session_lifecycle` from eligible SYN-anchored local streams and
+sequence-consistent SYN/ACK/final ACK evidence, then persists `session_buckets` on the existing
+time grid. Retries are attempts within one session. Half-open occupancy is an observation model
+with configurable expiry, not the device table; FIN records closure initiation. Missing SYN or
+unaligned/partial coverage stays unknown. Supported blocked-handshake and positive drop-stage
+control events reuse the existing stopping-hop frame evidence. UI and offline exports include
+per-point counts, occupancy buckets and failed-handshake stopping hops.

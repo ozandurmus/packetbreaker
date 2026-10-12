@@ -1084,3 +1084,10 @@ Second CI run: Windows 3.12 passed the duration gate, and Windows 3.11 passed al
 closed current-schema databases instead of repeating migrations in the parent/clone path. Real
 constructor/reopen tests remain unchanged. Local regression after this test-only optimization:
 438 passed / 166 deselected in 86.51 s. Production ingest/analysis and benchmark budgets are unchanged.
+
+## Phase 4 / Part 4 — lifecycle and security heuristics
+
+PR #12 was merged at `478c85b` before creating `phase4-part4`. Lifecycle negative tests were
+written first (initial collection failed because the implementation did not exist). They reject
+invented sessions after capture misses, duplicate occupancy for SYN retries, zero occupancy with
+unknown clocks/coverage, and establishment inferred from an ACK flag with inconsistent sequence.

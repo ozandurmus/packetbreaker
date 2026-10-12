@@ -51,6 +51,7 @@ export type Mapping = {
 };
 export type Topology = {
   bucket_seconds?: number;
+  session_timeout_seconds?: number;
   microburst_window_ms?: number;
   dns_timeout_ms?: number;
   report_timezone?: string | null;
@@ -241,6 +242,7 @@ export type Report = {
     }[];
   };
   offload_points?: { point: string; large_frames: number; note: string }[];
+  sessions?: import("./Sessions").SessionReport;
   microbursts?: import("./Microbursts").MicroburstReport;
   fragment_points?: {
     point: string;
