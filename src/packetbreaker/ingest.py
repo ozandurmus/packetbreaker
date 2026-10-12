@@ -30,10 +30,14 @@ PATH_FIELDS = """ipv6.tclass.dscp tcp.options tcp.options.wscale.shift tcp.optio
  tcp.options.timestamp.tsval tcp.options.timestamp.tsecr ip.flags.df icmp.code icmp.mtu
  icmpv6.code icmpv6.mtu tls.record.content_type""".split()
 FIELDS += PATH_FIELDS
+TRANSPORT_FIELDS = """tcp.analysis.window_full tcp.analysis.duplicate_ack tcp.analysis.zero_window_probe
+ tcp.analysis.bytes_in_flight tcp.analysis.rto tcp.analysis.rto_frame tcp.options.sack_le tcp.options.sack_re http.request.method""".split()
+FIELDS += TRANSPORT_FIELDS
+FIELDS += "dns.qry.name dns.qry.type dns.qry.class dns.flags.rcode dns.count.queries".split()
 BASE_FIELDS = FIELDS.copy()
 FIELDS += VENDOR_FIELDS
 CAPLEN_INDEX = list(PACKET_COLUMNS).index("caplen")
-PARSER_VERSION = 10
+PARSER_VERSION = 12
 csv.field_size_limit(16 * 1024 * 1024)
 
 
@@ -181,6 +185,22 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         vendor=decoded_vendor(d),
         path_fields=json.dumps(
             {
+                "transport_index": 1,
+                "dns_index": 1,
+                "dns_name": g("dns.qry.name") or None,
+                "dns_type": number(g("dns.qry.type"), None),
+                "dns_class": number(g("dns.qry.class"), None),
+                "dns_questions": number(g("dns.count.queries"), None),
+                "dns_rcode": number(g("dns.flags.rcode"), None),
+                "http_method": g("http.request.method") or None,
+                "window_full": bool(g("tcp.analysis.window_full")),
+                "duplicate_ack": bool(g("tcp.analysis.duplicate_ack")),
+                "zero_probe": bool(g("tcp.analysis.zero_window_probe")),
+                "bytes_in_flight": number(g("tcp.analysis.bytes_in_flight"), None),
+                "rto_seconds": float(g("tcp.analysis.rto")) if g("tcp.analysis.rto") else None,
+                "rto_frame": number(g("tcp.analysis.rto_frame"), None),
+                "sack_left": number(g("tcp.options.sack_le"), None),
+                "sack_right": number(g("tcp.options.sack_re"), None),
                 "quoted": quoted,
                 "tls_record_type": number(g("tls.record.content_type"), None),
                 "window_scale": number(g("tcp.options.wscale.shift"), None),

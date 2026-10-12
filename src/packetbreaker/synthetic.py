@@ -85,6 +85,9 @@ def generate(
         from .integrity_synthetic import generate_integrity
 
         return generate_integrity(directory, scenario, ipv6=ipv6, ip_id=ip_id)
+    if scenario == "diagnostics":
+        from .diagnostic_synthetic import generate as generate_diagnostics
+        return generate_diagnostics(directory,ip_id,ipv6)
     if scenario == "offload":
         from .offload_synthetic import generate_offload
 

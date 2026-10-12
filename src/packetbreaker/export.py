@@ -132,6 +132,12 @@ def export_data(project, *, findings_only=False):
                 flow_filters=[],
             ).model_dump(mode="json", include={"schema_name", "schema_version", "engine_version", "findings"})
         snapshot = dict(report)
+        from .transport import export_profiles
+
+        snapshot["transport"] = export_profiles(project)
+        from .dns import dns_page
+
+        snapshot["dns"] = dns_page(project, limit=200)
         snapshot.pop("findings", None)
         snapshot["field_diffs"] = field_diffs(db, Topology.model_validate(project.get(db, "topology")))
         return FindingsExport(
@@ -211,12 +217,14 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <p>This file contains capture metadata, addresses and evidence filters. It embeds no packet payloads. Treat it with the same care as an investigation summary.</p>
 <nav><a href="#summary">Summary</a><a href="#onset">Onset</a><a href="#heatmap">Heatmap</a><a href="#findings">Findings</a><a href="#segments">Segments</a><a href="#filters">Flow filters</a></nav>
 <section id="summary"><h2>{h(report["verdict"])}</h2><p>{h(onset.get("summary"))}</p>{details(report["window"], "Analysis window (Unix seconds)")}{details(report["clocks"], "Clock uncertainty")}{details(report.get("limitations", []), "Interpretation limits")}</section>
+<section id="transport"><h2>Network or application?</h2>{"".join(f'<article><h3>{h(d["flow"])} · {h(d["direction"])} · {h(d["classification"])}</h3><p title="{h(d["tooltip"])}">{h(d["reason"])}</p>{details(d["metrics"], "Transport evidence metrics")}<ul>{refs(d["evidence"])}</ul></article>' for d in report.get("transport", {}).get("items", []))}</section>
 <section id="onset"><h2>Onset</h2>{onsets or "<p>No supported onset detected. See per-segment status.</p>"}{details(onset.get("segments", onset), "Per-segment onset status")}</section>
 <section id="heatmap"><h2>Path × time</h2><label>Metric <select id="metric"></select></label><p id="metric-note"></p><p>Grey = not capturing; amber = unknown/partial. Black markers = detected onsets. Hover for time, value and coverage.</p><div class="scroll"><canvas id="map" aria-label="Path by time heatmap"></canvas></div><p id="tip" role="status"></p><noscript>Enable JavaScript for the offline heatmap; summary, findings and evidence remain readable.</noscript></section>
 <section id="findings"><h2>Findings ({len(data["findings"])})</h2>{findings or "<p>No findings.</p>"}</section>
 <section id="segments"><h2>Segments</h2>{segments}</section>
 <section id="proxies"><h2>Full-proxy requests and TCP legs</h2>{details(report.get("proxies", {}), "Request pairings, dwell uncertainty, evidence and independent-leg classifications")}</section>
 <section id="tls"><h2>TLS interception evidence</h2>{details(report.get("tls", []), "Visible certificate chains and unknown encrypted handshakes")}{details(report.get("application_status", []), "Application decoder status")}</section>
+<section id="dns"><h2>DNS turnaround and deadline evidence</h2>{details(report.get("dns", {}).get("summary", []), "Per-resolver/point latency distribution")}{"".join(f'<article><h3>{h(d["question"])} · {h(d["resolver"])} · {h(d["status"])}</h3><p title="{h(d["tooltip"])}">{h(d["reason"])}</p><p>{h(d.get("location"))}; latency {h(d.get("latency_ms"))} ms</p><ul>{refs(d["evidence"])}</ul></article>' for d in report.get("dns", {}).get("items", []))}</section>
 <section id="field-diffs"><h2>Matched packet field differences</h2>{h(report.get("field_diffs", {}).get("note"))}{differences}</section>
 <section id="filters"><h2>Per-file flow filters</h2>{details(data["flow_filters"], "Copy filters for original or re-saved files")}</section>
 <script id="report-data" type="application/json">{encoded}</script><script>{HEATMAP_SCRIPT}</script></body></html>"""

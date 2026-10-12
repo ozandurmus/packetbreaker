@@ -15,7 +15,7 @@ from .ingest import find_tshark
 from .metadata import metadata as capture_metadata
 from .store import rows
 
-VERSION = 5
+VERSION = 7
 MAX_EVENTS = 10000
 MAX_JSON = 4 * 1024 * 1024
 
@@ -117,7 +117,19 @@ def event_rows(packet):
         return []
     frame = integer(first(layers.get("frame", {}), "frame.number"))
     parts = [integer(v) for v in values(layers, "tcp.segment")] or [frame]
-    tcp = layers.get("tcp", {})
+    tcp = {}
+
+    def collect(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                tcp.setdefault(key, []).extend(value if isinstance(value, list) else [value])
+                collect(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect(value)
+
+    # Visit tshark's TCP tree once; dense flight/ACK state needs many of its fields.
+    collect(layers.get("tcp", {}))
     stamp = first(layers.get("frame", {}), "frame.time_epoch")
     observed = (
         float(stamp) if "T" not in stamp else datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
@@ -126,21 +138,35 @@ def event_rows(packet):
         observed=observed,
         local_frame=frame,
         components=parts,
-        protocol_stream=integer(first(tcp, "tcp.stream"), -1),
+        protocol_stream=integer(tcp.get("tcp.stream", [None])[0], -1),
         src=first(layers.get("ip", {}), "ip.src") or first(layers.get("ipv6", {}), "ipv6.src"),
-        raw_seq=integer(first(tcp, "tcp.seq_raw")),
-        tcp_len=integer(first(tcp, "tcp.len")),
+        raw_seq=integer(tcp.get("tcp.seq_raw", [None])[0]),
+        tcp_len=integer(tcp.get("tcp.len", [None])[0]),
     )
     result = []
     analysis = {
-        name: bool(values(tcp, "tcp.analysis." + field))
+        name: bool(tcp.get("tcp.analysis." + field))
         for name, field in (
             ("retrans", "retransmission"),
             ("fast_retrans", "fast_retransmission"),
             ("spurious", "spurious_retransmission"),
+            ("out_of_order", "out_of_order"),
+            ("zero_window", "zero_window"),
+            ("duplicate_ack", "duplicate_ack"),
+            ("window_full", "window_full"),
+            ("zero_probe", "zero_window_probe"),
         )
     }
-    if any(analysis.values()):
+    for name, field in (("rtt", "tcp.analysis.ack_rtt"), ("rto_seconds", "tcp.analysis.rto")):
+        value = tcp.get(field, [None])[0]
+        analysis[name] = float(value) if value else None
+    analysis.update(
+        bytes_in_flight=integer(tcp.get("tcp.analysis.bytes_in_flight", [None])[0], None),
+        rto_frame=integer(tcp.get("tcp.analysis.rto_frame", [None])[0], None),
+        sack_left=integer(tcp.get("tcp.options.sack_le", [None])[0], None),
+        sack_right=integer(tcp.get("tcp.options.sack_re", [None])[0], None),
+    )
+    if any(analysis.values()) or analysis["bytes_in_flight"] is not None:
         result.append({**common, "components": [frame], "kind": "tcp_analysis", "metadata": analysis})
     http = layers.get("http", {})
     if values(http, "http.request.method"):
@@ -304,6 +330,10 @@ def index_applications(project, db, topology, cancel=None, progress=None):
     db.execute(
         "CREATE TABLE IF NOT EXISTS app_protocol_cache(point VARCHAR PRIMARY KEY,identity VARCHAR,reason VARCHAR)"
     )
+    db.execute("CREATE TABLE IF NOT EXISTS tcp_point_analysis(point VARCHAR,frame BIGINT,metadata VARCHAR)")
+    db.execute(
+        "CREATE OR REPLACE TEMP TABLE tcp_state_raw(point VARCHAR,local_frame BIGINT,src VARCHAR,raw_seq BIGINT,tcp_len BIGINT,observed DOUBLE,metadata VARCHAR)"
+    )
     needed = (
         any(p.translation == "full_proxy" for p in topology.points)
         or db.execute(
@@ -347,6 +377,19 @@ def index_applications(project, db, topology, cancel=None, progress=None):
         inventory = json.loads(capture[2])
         reason = None
         events = []
+        state_buffer = []
+
+        def flush_state():
+            if state_buffer:
+                schema = '[{"point":"VARCHAR","local_frame":"BIGINT","src":"VARCHAR","raw_seq":"BIGINT","tcp_len":"BIGINT","observed":"DOUBLE","metadata":"VARCHAR"}]'
+                db.execute(
+                    "INSERT INTO tcp_state_raw SELECT r.* FROM (SELECT unnest(from_json(?,?)) r)",
+                    [json.dumps(state_buffer), schema],
+                )
+                state_buffer.clear()
+
+        db.execute("DELETE FROM tcp_state_raw WHERE point=?", [point.id])
+        db.execute("DELETE FROM tcp_point_analysis WHERE point=?", [point.id])
         db.execute("DELETE FROM app_protocol WHERE point=?", [point.id])
         try:
             source = Path(capture[0])
@@ -408,9 +451,13 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                     "-r",
                     str(selected),
                     "-Y",
-                    "tcp && (http.request or http.response or tls.handshake or tcp.analysis.retransmission or tcp.analysis.fast_retransmission or tcp.analysis.spurious_retransmission)",
+                    "tcp && !(vxlan || geneve || gre || icmp || icmpv6)",
                     "-o",
                     "tcp.desegment_tcp_streams:TRUE",
+                    "-o",
+                    "ip.defragment:FALSE",
+                    "-o",
+                    "ipv6.defragment:FALSE",
                     "-o",
                     "tcp.reassemble_out_of_order:TRUE",
                     "-o",
@@ -428,7 +475,23 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                 errors.truncate()
                 with running(command, errors, environment, cancel) as proc:
                     for packet in json_packets(proc.stdout):
-                        events.extend(event_rows(packet))
+                        for event in event_rows(packet):
+                            if event["kind"] == "tcp_analysis":
+                                state_buffer.append(
+                                    dict(
+                                        point=point.id,
+                                        local_frame=event["local_frame"],
+                                        src=event["src"],
+                                        raw_seq=event["raw_seq"],
+                                        tcp_len=event["tcp_len"],
+                                        observed=event["observed"],
+                                        metadata=json.dumps(event["metadata"]),
+                                    )
+                                )
+                                if len(state_buffer) >= 1000:
+                                    flush_state()
+                            else:
+                                events.append(event)
                         if len(events) > MAX_EVENTS:
                             raise ValueError(
                                 "Application index exceeds 10,000 events per point; narrow capture"
@@ -439,12 +502,35 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                 if code:
                     errors.seek(0)
                     raise ValueError("Application tshark decode failed: " + errors.read(4000))
+            flush_state()
+            db.execute(
+                """CREATE OR REPLACE TEMP TABLE tcp_state_mapping AS SELECT point,frame,src,ts,raw_seq,length,
+                row_number() OVER(ORDER BY frame) AS local_frame FROM obs WHERE point=?""",
+                [point.id],
+            )
+            invalid = db.execute(
+                """SELECT count(*) FROM tcp_state_raw s LEFT JOIN tcp_state_mapping m USING(point,local_frame)
+                WHERE s.point=? AND (m.frame IS NULL OR s.src<>m.src OR s.raw_seq<>m.raw_seq OR s.tcp_len<>m.length OR abs(s.observed-m.ts)>1e-6)""",
+                [point.id],
+            ).fetchone()[0]
+            if invalid:
+                raise ValueError("Isolated TCP state mapping disagrees with packet index")
+            db.execute(
+                """INSERT INTO tcp_point_analysis SELECT s.point,m.frame,
+                json_merge_patch(s.metadata,json_object('rto_frame',reference.frame))
+                FROM tcp_state_raw s JOIN tcp_state_mapping m USING(point,local_frame)
+                LEFT JOIN tcp_state_mapping reference ON reference.point=s.point AND reference.local_frame=try_cast(json_extract_string(s.metadata,'$.rto_frame') AS BIGINT)
+                WHERE s.point=?""",
+                [point.id],
+            )
             ordinals = set()
             for event in events:
                 ordinals.update(event["components"])
                 ordinals.add(event["local_frame"])
                 if event["metadata"].get("request_in"):
                     ordinals.add(event["metadata"]["request_in"])
+                if event["metadata"].get("rto_frame"):
+                    ordinals.add(event["metadata"]["rto_frame"])
             mapped = (
                 rows(
                     db,
@@ -475,6 +561,8 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                 reference = meta.get("request_in")
                 if reference:
                     meta["request_in"] = mapping[reference]["frame"] if reference in mapping else None
+                if meta.get("rto_frame"):
+                    meta["rto_frame"] = mapping.get(meta["rto_frame"], {}).get("frame")
                 records.append(
                     dict(
                         point=point.id,
@@ -497,6 +585,7 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                 raise InterruptedError("Application indexing cancelled")
             reason = str(exc)
             db.execute("DELETE FROM app_protocol WHERE point=?", [point.id])
+            db.execute("DELETE FROM tcp_point_analysis WHERE point=?", [point.id])
         db.execute("INSERT OR REPLACE INTO app_protocol_cache VALUES (?,?,?)", [point.id, identity, reason])
         if reason is None:
             apply_tcp_analysis(db, point.id)
@@ -506,12 +595,21 @@ def index_applications(project, db, topology, cancel=None, progress=None):
 
 def apply_tcp_analysis(db, point):
     # A merged multi-point file makes tshark mistake traveling copies for retransmissions.
-    # Only successful isolated-point decodes can replace these three analysis flags.
-    db.execute("UPDATE obs SET retrans=false,fast_retrans=false,spurious=false WHERE point=?", [point])
+    # Replace stateful TCP fields only after a successful isolated decode.
+    db.execute(
+        """UPDATE obs SET retrans=false,fast_retrans=false,spurious=false,out_of_order=false,
+        zero_window=false,rtt=NULL,path_fields=json_merge_patch(path_fields,
+        '{"duplicate_ack":false,"window_full":false,"zero_probe":false,"rto_seconds":null,"rto_frame":null,"bytes_in_flight":null}') WHERE point=?""",
+        [point],
+    )
     db.execute(
         """UPDATE obs SET retrans=try_cast(json_extract_string(a.metadata,'$.retrans') AS BOOLEAN),
         fast_retrans=try_cast(json_extract_string(a.metadata,'$.fast_retrans') AS BOOLEAN),
-        spurious=try_cast(json_extract_string(a.metadata,'$.spurious') AS BOOLEAN)
-        FROM app_protocol a WHERE obs.point=a.point AND obs.frame=a.frame AND a.kind='tcp_analysis' AND a.point=?""",
+        spurious=try_cast(json_extract_string(a.metadata,'$.spurious') AS BOOLEAN),
+        out_of_order=try_cast(json_extract_string(a.metadata,'$.out_of_order') AS BOOLEAN),
+        zero_window=try_cast(json_extract_string(a.metadata,'$.zero_window') AS BOOLEAN),
+        rtt=try_cast(json_extract_string(a.metadata,'$.rtt') AS DOUBLE),
+        path_fields=json_merge_patch(obs.path_fields,a.metadata)
+        FROM tcp_point_analysis a WHERE obs.point=a.point AND obs.frame=a.frame AND a.point=?""",
         [point],
     )

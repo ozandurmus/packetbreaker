@@ -1,8 +1,8 @@
-# Original brief coverage — Phase 3 / Part 3
+# Original brief coverage — Phase 4 / Part 1
 
 This is a report, not an implementation plan or a certification of arbitrary real captures.
 Scope: the original **Codex Brief: PacketBreaker — Multi-Hop PCAP Correlation and Path Analysis
-Tool**, assessed against this branch (engine 0.2.1). The original requirements are identified
+Tool**, assessed against this branch (engine 0.3.0). The original requirements are identified
 below by section and phrase; the private pasted attachment is not copied into the repository.
 
 **done** means the specified behavior exists, with the named source/test evidence, within its
@@ -11,7 +11,8 @@ stated bounds. **partial** means a useful subset exists but the missing part is 
 not proof of a metric, detector or UI. Code-reviewed UI coverage is distinguished from tested
 backend behavior. CI proves synthetic portability, not production correctness on every format.
 All paths below are repository-relative. Tests marked slow remain part of acceptance on the one
-macOS/Python 3.12 job; they are not omitted from this assessment. No audit gap was implemented.
+macOS/Python 3.12 job; they are not omitted from this assessment. This part implements only the
+transport/DNS/stream gaps requested for Phase 4 / Part 1; remaining gaps stay explicit.
 
 ## 1. Platform and stack (context)
 
@@ -107,8 +108,8 @@ macOS/Python 3.12 job; they are not omitted from this assessment. No audit gap w
 | Canonical/NAT flow table, bytes/duration/loss/retrans/stall/sorting/quick filters | partial | `analysis.py::flow_page`, `main.tsx` Flows; five-file/API/range tests. Per-hop tuples/handshake halves appear in drilldown. Reset origin and handshake RTT are not complete table columns/sort keys. Proxy legs deliberately stay separate rows. |
 | Multi-hop ladder, missing X, retrans color and clickable evidence | done | `Charts.tsx::LadderChart`, `analysis.py::ladder`; `test_api.py`, `test_analysis.py`, `test_timeseries.py`. Paginated evidence, not millions of browser objects. |
 | Handshake + HTTP/1.x waterfall, links/dwell/server processing/return | done | `waterfall.py`, `proxy_waterfall.py`, `Waterfall.tsx`; `test_waterfall.py`, `test_proxy_integration.py`. Clock-uncertain bars are unknown. Other application protocols/opaque boundaries are unavailable. |
-| tcptrace-style per-hop sequence/time graphs | missing | Ladder is packet transit vs point, not TCP sequence vs time; no such chart component. |
-| Per-flow per-hop RTT/throughput graphs | missing | Segment heatmap/RTT summaries exist, but not the requested flow-specific chart pair. |
+| tcptrace-style per-hop sequence/time graphs | done | `stream_charts.py`, `TransportCharts.tsx`, `test_stream_charts.py`: per-point/direction data spans, cumulative ACK, negotiated window edge and retry markers. Bounded packet rendering, frame clicks and brush; absent scale suppresses window line. |
+| Per-flow per-hop RTT/throughput graphs | done | `stream_charts.py`, `TransportCharts.tsx`: full-population ACK RTT/payload-rate buckets for each flow/point/data direction, brush/evidence links, partial/not-capturing rates null. RTT includes ACK delay; unaligned clocks have a local-only brush. |
 | Packet field diff: tuple/TTL/DSCP/MSS/window/options/offset/hash | done | `field_diff.py`, `FieldDiff.tsx`; `test_field_diff.py`, integrity tests, `test_export.py`; full vs prefix hash distinction and unknowns preserved. |
 | File/frame + content + per-file post-NAT display filters | done | `evidence.py`; `test_evidence.py`, export/API tests. Content filters survive renumbering but can select multiple identical occurrences; tokenized AI preview filters are intentionally not usable filters. |
 | Standalone HTML and versioned JSON; optional PDF | done | `export.py`, CLI/UI exports; `test_export.py::test_offline_export_schema_escape_and_all_findings` rejects external asset references. Schema 4 includes integrity/proxy/TLS evidence. PDF is optional and absent; live per-flow waterfalls are not batch-exported. |
@@ -121,13 +122,13 @@ macOS/Python 3.12 job; they are not omitted from this assessment. No audit gap w
 |---|---|---|
 | Handshake halves at each point | done | `analysis.py::ladder` local handshake metrics, `waterfall.py`; `test_waterfall.py`, `test_timeseries.py::test_handshake_retries_do_not_count_as_new_failed_connections`. Incomplete captures remain unknown. |
 | Ongoing data/ACK RTT and TCP timestamp RTT | partial | tshark `tcp.analysis.ack_rtt` in `ingest.py`, segment RTT/local maximum in `timeseries.py`/ladder. Timestamp options are exported for diffs; no independent TSval/TSecr RTT estimator. |
-| Fast/RTO/spurious/SACK-driven retransmission breakdown | partial | `ingest.py` stores retrans/fast/spurious flags; loss recovery and stall rules exist. No complete user-visible subtype series/RTO calculation/SACK-driven recovery attribution. |
-| Duplicate ACKs, reordering and first reordering hop | partial | tshark out-of-order flag is stored. No duplicate-ACK counter/sequence evidence model or supported first-hop-reordering detector. Storage alone is not a diagnosis. |
-| Zero windows, full windows, shrinking receive windows | partial | Raw advertised window/zero-window observations and onset in `ingest.py`, `timeseries.py`, `onset.py`; `test_onset.py::test_tcp_signal_counts_and_frame_evidence`. Window-full/shrink progression and effective scaled receive-window analysis are not implemented. |
-| Receiver/app slow vs network slow | missing | No causal receive-window/ACK/service-time discriminator. Zero-window counters or high RTT do not establish this distinction. |
+| Fast/RTO/spurious/SACK-driven retransmission breakdown | partial | `ingest.py` stores retrans/fast/spurious flags; loss recovery and stall rules exist. Per-flow/point/segment exclusive fast, spurious, SACK-backed and RTO-compatible counters plus duplicate ACKs now exist in `retransmissions.py`, `Diagnosis.tsx`; wire tests assert all subtypes. Actual kernel timers and unsupported recovery algorithms are not observable; short/ambiguous timers stay unknown. |
+| Duplicate ACKs, reordering and first reordering hop | partial | tshark out-of-order flag is stored. `retransmissions.py` counts ACKs by acknowledged data direction and compares matched original sequence-neighbour arrival order; `test_diagnostics_wire.py` asserts FW/LB/link, excluding retry-only hints and capture misses. State/coverage/translation ambiguity remains unknown. |
+| Zero windows, full windows, shrinking receive windows | done | `ingest.py`, `transport.py`, `stream_charts.py`, `test_diagnostics_wire.py`: captured handshake scale, unscaled SYN window, window shrink/full/zero traces and demand/flight comparison. Missing negotiation is unknown; idle zero windows are not receiver limitation. |
+| Receiver/app slow vs network slow | done | `transport.py`, `Diagnosis.tsx`, `test_diagnosis.py`, `test_diagnostics_wire.py`: per-leg/data-direction corroboration of negotiated window, flight/demand, receiver ACK delay, matched path/loss and bounded visible service time. One counter, absent handshake/endpoints, insufficient clock/coverage or competing causes stay unknown. Pacing does not prove a physical bandwidth cap. |
 | Server/app response vs network time | partial | HTTP/1.x last-request-byte → first-response-byte processing and separate links/return/proxy dwell in `waterfall.py`; `test_waterfall.py`, `test_proxy_integration.py::test_exact_request_dwell_and_waterfall`. No generic L7, opaque TLS request timing or fleet/application aggregates. |
 | RTP jitter and sequence loss | missing | No RTP tshark export, sequence-gap accounting, interarrival jitter metric or tests. Generic UDP disappearance is not RTP quality. |
-| DNS query/response timing | partial | DNS transaction ID/response matching proves identity/delivery (`ingest.py`, `analysis.py`, `test_realistic.py`). No query-response latency distribution, timed-out-query metric or DNS timeline/UI. |
+| DNS query/response timing | done | `dns.py`, `DNS.tsx`, `test_dns.py`, `test_diagnostics_wire.py`: scoped question/tuple/protocol/ID ownership, per-resolver/point p50/p95/max, configurable deadlines, timeout vs query/response disappearance, and HTML/JSON evidence. One complete unicast question/message per indexed frame; ambiguous retries or incomplete deadline/endpoint coverage are unknown. |
 | Generic UDP request/response pairing/jitter | missing | UDP payload/tuple matching and covered disappearance exist; no application transaction pairing or jitter measurement. |
 | Throughput and pps per hop/direction | done | `timeseries.py`; `test_timeseries.py::test_coverage_and_exact_bucket_rates`. Wire-byte observations include retransmissions; no unseen traffic estimates. |
 | Bursts/microbursts | missing | Adjustable average-rate buckets are not a burst detector. No sub-bucket peak/burst duration/interarrival detector or microburst acceptance fixtures. |

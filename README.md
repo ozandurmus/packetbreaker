@@ -3,7 +3,7 @@
 A local desktop web app for correlating packet captures along a traffic path.
 Attach captures, draw capture points, and inspect **which segment first loses an
 original packet**, how it is recovered, and the frame evidence supporting that
-conclusion. Runs offline after installation. Phase 2 / Parts 1–5: robust ingest, explainable onset detection, a path × time heatmap, translation-aware TCP matching, waterfalls, vendor inputs and offline exports. Phase 3 adds conservative path/security checks, request-level full-proxy correlation, TLS-chain comparison, native executables and a local AI placeholder. Remaining brief gaps are listed in [BRIEF_COVERAGE.md](docs/BRIEF_COVERAGE.md).
+conclusion. Runs offline after installation. Phase 2 / Parts 1–5: robust ingest, explainable onset detection, a path × time heatmap, translation-aware TCP matching, waterfalls, vendor inputs and offline exports. Phase 3 adds conservative path/security checks, request-level full-proxy correlation, TLS-chain comparison, native executables and a local AI placeholder. Phase 4 / Part 1 adds evidence-led flow limitation profiles, recovery subtypes, DNS timing and brushable TCP charts. Remaining brief gaps are listed in [BRIEF_COVERAGE.md](docs/BRIEF_COVERAGE.md).
 
 ## Install on macOS (Intel or Apple Silicon)
 
@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.2.1-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.3.0-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -167,6 +167,42 @@ loss start time, added delay, NAT hop and capture-miss point. It writes ground
 truth and topology JSON next to the captures. Part 2 adds `onset_loss`, `onset_delay`,
 `onset_propagation` and `onset_capture_miss`: 40-second fixtures with explicit
 hop/time ground truth, also available with `--ip-id zero|constant` and `--ipv6`.
+
+## Network or application? (Phase 4 / Part 1)
+
+In **Flows**, select a TCP conversation. **Network or application?** reports each data direction:
+receiver-limited, sender/application-limited, network-limited (loss/RTT), or unknown. Read its
+reason and open the evidence. A captured zero window or high RTT alone is insufficient; missing
+handshake negotiation, endpoint capture or trustworthy path timing keeps the result unknown.
+The retry table separates fast, SACK-driven, ACK-corroborated spurious, RTO-compatible and unknown
+recovery; the reordering section names the first matched-pair order reversal at a device or link.
+RTO-compatible is not a measured OS timer, and sender pacing does not prove a bandwidth cap.
+
+Below the waterfall, select a capture point/direction in **TCP sequence, RTT and throughput**.
+Data byte spans, ACK and scaled receive-window edge share the sequence/time graph. Brush any
+chart to narrow the investigation; click a packet or rate/RTT bucket for frame filters.
+Unaligned clocks use a local brush only. Rendering is bounded; the shown/total count explains
+omitted points, while rate buckets use the full population. Partial coverage has unknown rates.
+
+**DNS** separates populations by observation point and resolver, with p50/p95/max turnaround,
+unique answered queries, deadline timeouts and unknown cases. The default point is the client;
+change it to see another vantage. Configure the deadline in **Settings** (default 2,000 ms).
+An unanswered client query can be a missing return response: only independently supported path
+evidence names its disappearance hop. Resolver-side observation cannot prove internal cause.
+HTML/JSON exports include bounded transport profiles and DNS evidence; interactive per-flow TCP
+charts remain in the running application. Older indexes require one reattach for parser-12 fields.
+
+For an adversarial, wholly synthetic six-point demo with concurrent distractor flows:
+
+```sh
+packetbreaker demo demo/diagnostics --scenario diagnostics --ip-id zero
+packetbreaker --project demo/diagnostics/project
+```
+
+Its `ground-truth.json` records the receiver-window pressure, slow HTTP service (max 720 ms),
+paced sender, FW/LB/link loss and reordering, and DNS resolver timeout versus lost return response.
+Use `--ip-id constant` or `--ipv6` for alternate identities. Healthy, capture-miss-only, idle-zero
+and receiver-delayed-ACK flows are deliberately present and must not become network diagnoses.
 
 ## What PacketBreaker measures, estimates and leaves unknown
 

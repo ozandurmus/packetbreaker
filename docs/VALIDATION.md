@@ -826,3 +826,82 @@ holding `server.log` (WinError 32). Windows smoke now terminates that process tr
 asserts the loopback port is closed; it does not ignore cleanup failures. Failed server readiness
 also prints its log before temporary files are removed. The subsequent final-head checks above
 include this fix and the dynamic UI version badge.
+
+## Phase 4 / Part 1 — working checkpoints
+
+Baseline: green PR #9 merged at `a74b34f`; work on `phase4-part1`. Negative limitation tests were
+written first (initial collection failed because the new module did not exist). Single-counter,
+missing-handshake/index/sender, untrusted TCP state, receiver ACK delay and competing-cause cases
+reject a naive diagnosis. Initial limitation guards plus real five-file healthy profile: 3 passed
+in 2.13 s. Final wire fixture assertions, complete fast suite and CI are recorded at close-out.
+
+Recovery negative tests reject no-RTT/short timers, untrusted decode, spurious flags without ACK
+coverage and retries with competing ACK triggers. Positive subtype contracts cover fast,
+SACK-backed fast, ACK-corroborated spurious and RTO-compatible recovery. Recovery/diagnosis/proxy
+integration checkpoint: 45 passed in 15.64 s; no tests marked slow. Full wire-location assertions
+are supplied by the shared adversarial corpus in item 5.
+
+DNS negative contracts reject incomplete questions, ambiguous ownership, insufficient deadline or
+resolver coverage and unsupported far-response attribution. The tiny real-tshark same-ID/same-name
+fixture uses distinct clients: only the owning client's response yields 50 ms; the distractor stays
+unanswered. DNS/native/export checkpoint: 8 passed in 7.54 s. Export preserves DNS evidence and the
+HTML section. A cached profile regression exposed a temporary edge table; generation-cached edges
+are now persistent. Dense isolated TCP state is streamed separately from bounded HTTP/TLS events.
+
+Chart tests verify packet limits, complete-population throughput, negotiated window lines,
+point/flow-scoped evidence and brush bounds. The first brush test caught a partial selected
+bucket divided by a full second; selected-range/capture boundaries now both gate known rates.
+Chart/diagnosis/export/waterfall checkpoint: 10 passed in 12.47 s; TypeScript/Vite pass.
+
+
+### Adversarial diagnostic corpus and regression fixes
+
+`diagnostic_synthetic.py` generates six independent client/FW/LB/server captures with 17 TCP
+and 9 DNS conversations on every point. `test_diagnostics_wire.py` checks exact directional
+receiver/service/pacing/loss evidence, FW/LB/link loss and reordering origins, RTO/fast/spurious/
+SACK recovery, and same-ID/name concurrent DNS owners. Each runs with IPv4 zero/constant IDs
+and IPv6 zero/constant labels. Negative controls include fully acknowledged idle zero windows,
+receiver-delayed high RTT, missing handshake, healthy traffic, one pure capture miss, unknown
+clocks, missing endpoint roles and insufficient DNS deadline coverage. No new test is slow.
+
+The first wire retry test exposed a neighbouring `rto_frame` that tshark attached to an original
+reordered packet. Original-range validation now prevents calling that RTO; matched original
+arrival-order pairs still locate the correct FW/LB/link boundary. No assertion was weakened.
+An API boundary check also exercises point/flow frame scoping and oversized/invalid requests.
+
+Two actual in-process mutants were run without editing source: zero-window-only classification
+fails `test_single_counter_and_quality_guards_first`; removing original-range corroboration fails
+`test_unknown_timer_and_untrusted_state_first`. Exact location assertions independently reject
+"always FW", downstream-counter-only attribution and DNS-ID-only pairing across clients.
+The diagnostic/proxy/TLS/retry focused regression gate passed 104 tests in 48.45 s.
+
+Manual synthetic UI check observed forward receiver-limited with 7 zero-window observations,
+active flight and a 1 ms matched path, while the reverse direction remained unknown. DNS showed
+9 client-side questions, 3 answers (50 ms), and 6 deadline timeouts, separating FW/LB/link response
+disappearances from resolver-side no-response observations. Three sequence/RTT/throughput charts
+loaded with frame-linked packet points. No real capture was used or tracked; `demo/` is ignored.
+Ruff, TypeScript/Vite and local sdist/wheel build (`--no-isolation`) passed.
+
+Fast-suite optimization retains all assertions: report-generation profile/export caching,
+batched recovery evidence/segment lookup, a single decoded TCP-tree visit, and the existing
+bounded two-worker fixture pool prefetching selected independent scenarios/proxy datasets.
+The earlier sequential-preparation run took 161.38 s; intermediate runs remained above the
+120 s target (130.02 s / 133.97 s). Final timing and PR CI acceptance are recorded below.
+
+Final local default gate (including partial-path correction): **386 passed, 166 deselected in 95.14 s** (Apple Silicon, Python 3.12),
+versus the 161.38 s earlier run with serial waits. Total acceptance collection is 552 tests,
+including 26 newly added fast tests; CI skips the existing optional local-only sample if absent.
+The fast test gate remains below two minutes without moving diagnostic tests to `slow`.
+Brief coverage audit now records 70 done, 15 partial and 9 missing rows, with explicit scope limits.
+Full six-target portability plus three native packaging jobs remain the PR close-out gate.
+
+Post-PR negative check: a healthy partial path plus sender gaps previously returned an application
+hypothesis. The single-counter/quality guard failed before the fix; profiles now require at least
+three timing pairs per drawn TCP-leg edge to attest a healthy monitored path. A wire clone with
+only firewall clocks unavailable must remain unknown, even with healthy timing elsewhere.
+
+
+PR close-out: [PR #10 checks](https://github.com/ozandurmus/packetbreaker/pull/10/checks).
+The final run URL and completed matrix results are recorded in the PR validation section.
+The initial run on `a5b3be2` was deliberately cancelled for the partial-path correction after all
+three native packaging jobs passed; it is not claimed as final full-matrix acceptance.

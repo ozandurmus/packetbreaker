@@ -598,6 +598,61 @@ are preserved. Neither a provider client nor credentials nor outbound connection
 
 `BRIEF_COVERAGE.md` maps the original brief item by item to source/test evidence and explicit
 partial/missing behavior. Counters/decoded fields do not count as implemented diagnoses.
-Transport gaps include RTP quality, DNS response-time metrics, receive-window causality,
-microbursts and flood/fan-out/session-pressure heuristics. Existing HTTP waterfalls are bounded
+At the Phase 3 audit checkpoint, transport gaps included RTP quality, DNS response-time metrics,
+receive-window causality, microbursts and flood/fan-out/session-pressure heuristics. Existing HTTP waterfalls are bounded
 visible HTTP/1.x measurements. No missing feature is implemented as part of this report.
+
+## Phase 4 / Part 1 — transport evidence
+
+Transport profiles are prepared lazily from the analyzed `obs` index and cached against the
+report generation. DuckDB joins SYN/SYN-ACK/ACK anchors, negotiated scale, reverse-direction
+advertisements, sequence coverage/flight, cumulative ACK arrival and corrected matched transit.
+All calculations stay within a logical TCP leg/session. Unknown handshake scale is never replaced
+with a guessed factor. Per-point ACK delay is distinct from end-to-end ACK RTT.
+
+A flow/direction limitation requires window/demand evidence plus independent timing/path signals.
+A zero-window on an idle flow or high RTT alone produces unknown. Competing supported causes
+remain unknown. Sender pacing describes observed idle gaps with available window and healthy
+monitored path; it does not measure the sender's physical bandwidth cap. Existing clock-aware
+HTTP byte-completion waterfall bars supply visible service-time evidence. `/api/flows/{flow}/diagnosis`
+returns metrics, reasons, tooltips and original frame/content/flow filters; stream UI and bounded
+offline exports expose the same profiles. Schema-6 packet storage remains compatible; parser 12
+adds tshark transport fields in `path_fields`. Old indexes require reattachment for these fields.
+
+Recovery breakdowns use isolated tshark fast/spurious/duplicate-ACK/SACK flags, with explicit
+ACK coverage and retry-interval corroboration. Exclusive classes are spurious, SACK-backed fast,
+fast, RTO-compatible and unknown. The conservative retry bound is max(1 s, median prior RTT +
+4 standard deviations); it is not a measured kernel RTO. Duplicate ACKs are attributed to the
+acknowledged data direction. Per-point and upstream-per-segment counts remain observations.
+Matched original sequence neighbours establish an arrival-order reversal: in order upstream,
+out-of-order downstream, with all four frame refs. No packet identity crosses a full proxy.
+Receiver ACK timing accepts explicit SACK coverage so a missing cumulative ACK hole is not
+misinterpreted as a slow receiver. Flight uses tshark's estimate; sequence span is separate.
+
+DNS query ownership uses point/flow/reversed tuple + ID + question name/type/class, with mutually
+unique response candidates inside a configurable deadline. Local latency populations are kept
+separate by resolver and point. Missing deadline coverage/endpoint/clock/translation evidence or
+ambiguous retries remain unknown. Existing independently classified disappearance events identify
+query/response loss hops; a response visible upstream is not labelled a resolver timeout.
+`/api/dns` is paginated, and the DNS UI/export contains original frame filters. Parser 12 adds
+DNS question fields. Supported scope is one complete unicast question/message per indexed frame.
+
+Stream charts use SYN-relative sequence bytes (first observed byte when SYN is absent), data
+byte spans, reverse cumulative ACK and negotiated receive-window edges. RTT and payload bit/s
+buckets use the full indexed population, while packet points are capped at 2,000 (max 5,000);
+the UI exposes the shown/total count and narrowing brush. Partial/not-capturing buckets have
+unknown throughput, never invented zero. All three charts brush the aligned investigation;
+unaligned clocks use a point-local brush and an explicit uncertainty note. Packet/bucket clicks
+query original flow/point/frame filters. The chart endpoint is bounded and same-origin.
+
+
+The shared diagnostic corpus uses six independent captures and 26 overlapping conversations,
+including FW/LB/link faults and negative capture/endpoint/clock controls in four ID/IP modes.
+Production profile/export caches are report-generation scoped. TCP state lookup visits tshark's
+decoded tree once; recovery evidence/segment lookup is batched using the existing frame helper.
+The fast-suite fixture pool also prefetches the existing independent proxy datasets, without
+changing production ingest defaults or moving diagnostic tests to the slow suite.
+
+An application/sender hypothesis requires timing pairs on every drawn edge between the leg's
+captured sender and receiver. A healthy partial path does not prove network health; report
+generation caching includes the directional profile schema version to invalidate earlier results.

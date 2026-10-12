@@ -85,6 +85,7 @@ class Override(BaseModel):
 
 
 class Topology(BaseModel):
+    dns_timeout_ms: float = Field(default=2000, ge=100, le=60000, allow_inf_nan=False)
     bucket_seconds: float = Field(default=1, ge=0.1, le=3600, allow_inf_nan=False)
     report_timezone: str | None = None
     points: list[Point] = Field(default_factory=list, max_length=64)

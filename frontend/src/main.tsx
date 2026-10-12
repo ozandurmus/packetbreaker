@@ -6,6 +6,9 @@ import { api, num, time, reverseTuple } from "./api";
 import { FieldDiff, type FieldDiffData } from "./FieldDiff";
 import { ProxyEvidence } from "./ProxyEvidence";
 import { Assistant } from "./Assistant";
+import { Diagnosis } from "./Diagnosis";
+import { DNS } from "./DNS";
+import { TransportCharts } from "./TransportCharts";
 import { Waterfall } from "./Waterfall";
 import { Coverage, LadderChart } from "./Charts";
 import { TopologyEditor } from "./TopologyEditor";
@@ -435,17 +438,19 @@ function App() {
         </div>
         <div className="workspace-label">LOCAL WORKSPACE</div>
         <nav>
-          {["Overview", "Captures", "Path", "Flows", "Settings"].map((x, i) => (
-            <button
-              key={x}
-              className={tab === x ? "active" : ""}
-              onClick={() => setTab(x)}
-            >
-              <span>{["◈", "▤", "⌘", "≋", "⚙"][i]}</span>
-              {x}
-              {x === "Captures" && <b>{state.captures.length}</b>}
-            </button>
-          ))}
+          {["Overview", "Captures", "Path", "Flows", "DNS", "Settings"].map(
+            (x, i) => (
+              <button
+                key={x}
+                className={tab === x ? "active" : ""}
+                onClick={() => setTab(x)}
+              >
+                <span>{["◈", "▤", "⌘", "≋", "⇄", "⚙"][i]}</span>
+                {x}
+                {x === "Captures" && <b>{state.captures.length}</b>}
+              </button>
+            ),
+          )}
         </nav>
         <div className="sidebar-bottom">
           <span className="local-dot" /> Local processing only
@@ -454,7 +459,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 3 / PART 3 · v{state.version}</small>
+          <small>PHASE 4 / PART 1 · v{state.version}</small>
         </div>
       </aside>
       <main>
@@ -472,7 +477,9 @@ function App() {
                     ? "Map the traffic path"
                     : tab === "Flows"
                       ? "Follow a conversation"
-                      : "Workspace settings"}
+                      : tab === "DNS"
+                        ? "DNS investigation"
+                        : "Workspace settings"}
             </h1>
             <p>
               {tab === "Overview"
@@ -483,7 +490,9 @@ function App() {
                     ? "Your diagram is the authority. Connect capture points in traffic order."
                     : tab === "Flows"
                       ? "Trace packets across every point and verify the original frames."
-                      : "Local tools, analysis thresholds and clock overrides."}
+                      : tab === "DNS"
+                        ? "Separate resolver turnaround from query or response disappearance."
+                        : "Local tools, analysis thresholds and clock overrides."}
             </p>
           </div>
           <div className="header-actions">
@@ -621,6 +630,9 @@ function App() {
               </p>
               <button onClick={() => selectRange(null)}>Clear selection</button>
             </section>
+          )}
+          {tab === "DNS" && (
+            <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />
           )}
           {tab === "Overview" && (
             <>
@@ -1663,10 +1675,26 @@ function App() {
                 </div>
               </section>
               {selectedFlow && (
+                <Diagnosis
+                  key={selectedFlow.flow + "-diagnosis"}
+                  flow={selectedFlow.flow}
+                  onEvidence={setEvidence}
+                />
+              )}
+              {selectedFlow && (
                 <Waterfall
                   key={selectedFlow.flow}
                   flow={selectedFlow.flow}
                   rangeQuery={rangeQuery}
+                  onEvidence={setEvidence}
+                />
+              )}
+              {selectedFlow && (
+                <TransportCharts
+                  key={selectedFlow.flow + "-charts"}
+                  flow={selectedFlow.flow}
+                  rangeQuery={rangeQuery}
+                  onRange={setRange}
                   onEvidence={setEvidence}
                 />
               )}
@@ -2015,6 +2043,21 @@ function App() {
                         setTopology({
                           ...topology,
                           stall_ms: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label title="DNS response deadline at each observation point; incomplete coverage stays unknown. Re-analyze after changing it.">
+                    DNS timeout (ms)
+                    <input
+                      type="number"
+                      min="100"
+                      max="60000"
+                      value={topology.dns_timeout_ms ?? 2000}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          dns_timeout_ms: Number(e.target.value),
                         })
                       }
                     />

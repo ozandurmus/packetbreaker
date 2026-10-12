@@ -382,3 +382,56 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   from phase completion. Record partial UI brush/table/graph and transport/security semantics.
 - Keep audit gaps report-only. The owner chooses the next independent objective from
   `BRIEF_COVERAGE.md`; no next phase, signing service, provider or detector is started here.
+
+## Phase 4 / Part 1
+
+- Diagnose each flow/direction independently using multiple signals. Do not promote an idle
+  zero window, isolated high RTT or pacing gap into a cause. Keep competing limitations unknown.
+- Require captured handshake negotiation for scaled windows; retain SYN windows unscaled.
+  Use tshark's bytes-in-flight estimate; retain canonical unacknowledged span separately, not a congestion-window guess.
+- Use receiver-side local ACK timing to separate it from matched path transit and sender RTT.
+  Reuse existing validated HTTP waterfall completion/clock bounds for service time.
+- Per-point TCP state must be isolated. A multi-point file without a successful isolated tshark
+  cache has unknown transport classification rather than contaminated analysis flags.
+- Keep profiles/series lazy and generation-cached, so ordinary packet analysis need not build
+  every flow chart. Bound offline profile samples and keep complete selected-flow evidence local.
+
+- Keep fast/spurious/SACK and timer-compatible retry interpretations separate. A generic
+  retransmission flag is not sufficient RTO evidence, nor does the one-second conservative
+  threshold reproduce every OS TCP timer. Short/unsupported mechanisms remain unknown.
+- A first reordering hop needs a matched original pair that reverses arrival order and trustworthy
+  independently decoded TCP state. A downstream out-of-order counter alone cannot name a device.
+- Extend the existing isolated tshark cache to all required stateful fields; remap RTO frame
+  references to original evidence. Never use merged tap copies as independent TCP state.
+
+- DNS ID alone cannot identify a transaction. Require tuple/protocol/question identity and unique
+  response ownership; do not pick the nearest retry. Separate local timeout observation from its
+  possible resolver/path/capture cause, and retain unknown when the resolver side is not covered.
+- Reuse supported path events for DNS disappearance. Do not treat an observed downstream response
+  capture miss as network loss or join resolver populations from different points into one latency.
+- Stream isolated TCP state into a separate bounded-batch native cache. Dense ACK/flight fields
+  must not consume the existing 10,000 HTTP/TLS application-event budget or require whole-capture
+  Python mapping. Validate ordinal/tuple/sequence/length/time mapping in SQL.
+
+- Plot byte spans and normalized ACK/window edge, not packet counts. Unknown handshake scale
+  suppresses the window line. A local unaligned clock must not silently filter another point.
+- Keep packet rendering bounded while rate/RTT aggregates include all observations. Mark partial
+  buckets unknown and expose omitted-point counts. Link actual frame evidence on chart clicks.
+- Reuse the existing HTTP boundary checks once per flow for service hypotheses instead of
+  rebuilding ten complete waterfalls during every profile/export. Pipelining ambiguity suppresses
+  service association for the flow, rather than shifting responses.
+
+- A tshark `rto_frame` may point at a neighbouring packet in a first-appearance reordered trace.
+  Require that frame to contain the retry's sequence range before calling it RTO-compatible.
+  Reordering still needs the original matched-pair reversal; a generic tshark retry hint alone
+  cannot identify a loss or ordering cause.
+- Keep selected-flow and bounded export results cached by report generation. Batch retry-frame
+  evidence and segment lookup rather than performing one SQL query for every observed retry.
+  Skip HTTP service scans when prerequisites already force an unknown limitation result.
+- Unknown diagnoses retain representative frame evidence. Exact timing, a sender's physical
+  bandwidth cap, encrypted application service and short/unobservable TCP timer mechanisms
+  remain outside what these captures prove.
+
+- A sender/application hypothesis needs matched timing evidence across every drawn edge of its
+  captured TCP leg. Healthy surviving edges cannot vouch for an unmeasurable hop. Supported local
+  receiver pressure or a separately supported loss cause remains independent of that path claim.

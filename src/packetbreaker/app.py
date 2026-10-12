@@ -129,6 +129,48 @@ def create_app(project_path):
     def health():
         return {"status": "ok", "version": __version__}
 
+    @app.get("/api/flows/{flow}/diagnosis")
+    def flow_diagnosis(flow: str):
+        from .transport import profiles
+
+        return profiles(project, flow)
+
+    @app.get("/api/flows/{flow}/charts")
+    def stream_charts(
+        flow: str,
+        point: str | None = None,
+        direction: str = Query("forward", pattern="^(forward|reverse)$"),
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
+        limit: int = Query(2000, ge=1, le=5000),
+        local: bool = False,
+    ):
+        idle()
+        from .stream_charts import charts
+
+        return charts(project, flow, point, direction, start, end, limit, local)
+
+    @app.get("/api/flows/{flow}/frames")
+    def chart_evidence(flow: str, point: str, frames: list[int] = Query(min_length=1, max_length=8)):
+        if any(frame < 1 for frame in frames):
+            raise HTTPException(status_code=422, detail="Frame numbers must be positive")
+        from .stream_charts import frame_evidence
+
+        return frame_evidence(project, flow, point, frames)
+
+    @app.get("/api/dns")
+    def dns(
+        point: str | None = None,
+        resolver: str | None = None,
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=200),
+    ):
+        from .dns import dns_page
+
+        return dns_page(project, point, resolver, start, end, offset, limit)
+
     @app.get("/api/state")
     def state():
         with project.connect() as db:

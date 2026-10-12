@@ -27,6 +27,21 @@ def build_scenario_fixture(name, kwargs, directory, tshark):
     return str(project.path), truth, topology, report
 
 
+def build_proxy_fixture(mode, directory, tshark):
+    from packetbreaker.ingest import ingest
+    from proxy_fixtures import make_fixture
+
+    file, topology, truth = make_fixture(directory, ipv6=mode[1], ip_id=mode[0])
+    project = Project(directory / "project")
+    capture_id = ingest(project, file, tshark=tshark)
+    bind_capture_ids(topology, {file.name: capture_id})
+    report = analyze(project, topology)
+    return str(project.path), truth, topology, report
+
+
+_proxy_futures = {}
+
+
 @pytest.fixture(scope="session")
 def scenarios(tmp_path_factory, tshark, request):
     from concurrent.futures import ProcessPoolExecutor
@@ -35,11 +50,48 @@ def scenarios(tmp_path_factory, tshark, request):
     cache = {}
     futures = {}
 
-    # Prefetch only selected multi-device datasets, with two background processes.
-    # It overlaps independent synthetic fixture preparation with other tests, without new dependencies.
     planned = {}
+    # Reuse the same two-worker pool for selected, statically identifiable tiny scenarios.
+    # This removes serial tshark startup waits without dropping assertions or marking tests slow.
+    import ast
+    import inspect
+    import textwrap
+
+    seen = set()
     for item in request.session.items:
         params = getattr(getattr(item, "callspec", None), "params", {})
+        key = (item.obj, repr(params))
+        if key in seen:
+            continue
+        seen.add(key)
+        tree = ast.parse(textwrap.dedent(inspect.getsource(item.obj)))
+        for call in ast.walk(tree):
+            if not (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Name)
+                and call.func.id == "scenarios"
+                and len(call.args) == 1
+            ):
+                continue
+
+            def literal(node):
+                return params[node.id] if isinstance(node, ast.Name) else ast.literal_eval(node)
+
+            try:
+                name = literal(call.args[0])
+                kwargs = {k.arg: literal(k.value) for k in call.keywords if k.arg is not None}
+                if any(k.arg is None for k in call.keywords):
+                    continue
+            except (ValueError, KeyError):
+                continue
+            planned[(name, repr(kwargs))] = (name, kwargs)
+    for item in request.session.items:
+        params = getattr(getattr(item, "callspec", None), "params", {})
+        if item.originalname == "test_wire_negative_first_and_naive_rules":
+            mode = params["mode"]
+            kwargs = dict(ip_id=mode[0], ipv6=mode[1])
+            planned[("diagnostics", repr(kwargs))] = ("diagnostics", kwargs)
+            continue
         if item.originalname != "test_exact_integrity_location":
             continue
         mode, location = params["mode"], params["location"]
@@ -54,6 +106,11 @@ def scenarios(tmp_path_factory, tshark, request):
             key: pool.submit(build_scenario_fixture, name, kwargs, directories[key], tshark)
             for key, (name, kwargs) in planned.items()
         }
+
+    if pool and any("proxy_capture" in getattr(item, "fixturenames", []) for item in request.session.items):
+        for mode in [("zero", False), ("constant", False), ("zero", True)]:
+            directory = tmp_path_factory.mktemp("proxy_wire")
+            _proxy_futures[mode] = pool.submit(build_proxy_fixture, mode, directory, tshark)
 
     def run(name, **kwargs):
         key = (name, repr(kwargs))
@@ -121,9 +178,7 @@ _proxy_wire_cache = {}
 @pytest.fixture(scope="session", params=[("zero", False), ("constant", False), ("zero", True)])
 def proxy_capture(request, tmp_path_factory, tshark):
     from concurrent.futures import ThreadPoolExecutor
-    from packetbreaker.ingest import ingest
     from packetbreaker.topology import Topology
-    from proxy_fixtures import make_fixture
 
     modes = [("zero", False), ("constant", False), ("zero", True)]
     directories = (
@@ -131,13 +186,12 @@ def proxy_capture(request, tmp_path_factory, tshark):
     )
 
     def build(mode):
-        directory = directories[mode]
-        file, topology, truth = make_fixture(directory, ipv6=mode[1], ip_id=mode[0])
-        project = Project(directory / "project")
-        capture_id = ingest(project, file, tshark=tshark)
-        bind_capture_ids(topology, {file.name: capture_id})
-        report = analyze(project, topology)
-        return project, Topology.model_validate(topology), truth, report
+        path, truth, topology, report = (
+            _proxy_futures[mode].result()
+            if mode in _proxy_futures
+            else build_proxy_fixture(mode, directories[mode], tshark)
+        )
+        return Project(path), Topology.model_validate(topology), truth, report
 
     if not _proxy_wire_cache:
         # Independent tiny files; amortize tshark startup, without a large matrix or shared DB writers.
