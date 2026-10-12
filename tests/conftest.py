@@ -10,6 +10,32 @@ from packetbreaker.store import Project
 from packetbreaker.synthetic import generate, bind_capture_ids
 
 
+# Tiny Windows fixture queries otherwise create competing two-thread pools in each process.
+# This affects tests only; production/large benchmarks retain the two-thread SQL budget.
+import sys
+import duckdb
+
+if sys.platform == "win32":
+    _fixture_connect = duckdb.connect
+
+    def fixture_connect(*args, **kwargs):
+        kwargs["config"] = {**kwargs.get("config", {}), "threads": "1"}
+        return _fixture_connect(*args, **kwargs)
+
+    duckdb.connect = fixture_connect
+
+
+def prepared_fixture_project(path):
+    # Only closed, current-schema databases built above or copied by clone_project qualify.
+    # Production initialization/reopen is still exercised explicitly by its acceptance tests.
+    import threading
+
+    project = object.__new__(Project)
+    project.path = Path(path).resolve()
+    project.lock = threading.RLock()
+    return project
+
+
 @pytest.fixture(scope="session")
 def tshark():
     # Missing tshark is a failed acceptance gate, not a silent skip.
@@ -77,6 +103,15 @@ def scenarios(tmp_path_factory, tshark, request):
     import inspect
     import textwrap
 
+    defaults = {
+        k: p.default
+        for k, p in inspect.signature(generate).parameters.items()
+        if k not in ("directory", "scenario")
+    }
+
+    def scenario_key(name, kwargs):
+        return name, repr(sorted({**defaults, **kwargs}.items()))
+
     seen = set()
     for item in request.session.items:
         params = getattr(getattr(item, "callspec", None), "params", {})
@@ -104,13 +139,13 @@ def scenarios(tmp_path_factory, tshark, request):
                     continue
             except (ValueError, KeyError):
                 continue
-            planned[(name, repr(kwargs))] = (name, kwargs)
+            planned[scenario_key(name, kwargs)] = (name, kwargs)
     for item in request.session.items:
         params = getattr(getattr(item, "callspec", None), "params", {})
         if item.originalname == "test_wire_negative_first_and_naive_rules":
             mode = params["mode"]
             kwargs = dict(ip_id=mode[0], ipv6=mode[1])
-            planned[("diagnostics", repr(kwargs))] = ("diagnostics", kwargs)
+            planned[scenario_key("diagnostics", kwargs)] = ("diagnostics", kwargs)
             continue
         if item.originalname != "test_exact_integrity_location":
             continue
@@ -118,9 +153,19 @@ def scenarios(tmp_path_factory, tshark, request):
         asymmetric = params["case"] == "asymmetric_return"
         name = "integrity_multi_asym" if asymmetric else "integrity_multi"
         kwargs = dict(fault_location=location if asymmetric else "all", ip_id=mode[0], ipv6=mode[1])
-        planned[(name, repr(kwargs))] = (name, kwargs)
+        planned[scenario_key(name, kwargs)] = (name, kwargs)
     directories = {key: tmp_path_factory.mktemp(name) for key, (name, _) in planned.items()}
-    pool = ProcessPoolExecutor(max_workers=2, mp_context=get_context("spawn")) if planned else None
+    import os
+    import psutil
+
+    # A third tiny-fixture worker only on roomy hosts; two-core hosted runners retain two.
+    workers = (
+        3
+        if (os.cpu_count() or 1) >= (4 if sys.platform == "win32" else 6)
+        and psutil.virtual_memory().available >= 6 * 1024**3
+        else 2
+    )
+    pool = ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) if planned else None
     if pool:
         futures = {
             key: pool.submit(build_scenario_fixture, name, kwargs, directories[key], tshark)
@@ -151,7 +196,7 @@ def scenarios(tmp_path_factory, tshark, request):
             _proxy_futures[mode] = pool.submit(build_proxy_fixture, mode, directory, tshark)
 
     def run(name, **kwargs):
-        key = (name, repr(kwargs))
+        key = scenario_key(name, kwargs)
         if key not in cache:
             result = (
                 futures[key].result()
@@ -159,7 +204,7 @@ def scenarios(tmp_path_factory, tshark, request):
                 else build_scenario_fixture(name, kwargs, tmp_path_factory.mktemp(name), tshark)
             )
             project_path, truth, topology, report = result
-            cache[key] = Project(project_path), truth, topology, report
+            cache[key] = prepared_fixture_project(project_path), truth, topology, report
         return cache[key]
 
     try:
@@ -205,7 +250,7 @@ def clone_project(tmp_path_factory):
         destination = tmp_path_factory.mktemp("integrity_view")
         # The fixture database is closed/checkpointed; source captures remain shared read-only.
         copyfile(project.path / "project.duckdb", destination / "project.duckdb")
-        return Project(destination)
+        return prepared_fixture_project(destination)
 
     return clone
 
@@ -229,7 +274,7 @@ def proxy_capture(request, tmp_path_factory, tshark):
             if mode in _proxy_futures
             else build_proxy_fixture(mode, directories[mode], tshark)
         )
-        return Project(path), Topology.model_validate(topology), truth, report
+        return prepared_fixture_project(path), Topology.model_validate(topology), truth, report
 
     if not _proxy_wire_cache:
         # Independent tiny files; amortize tshark startup, without a large matrix or shared DB writers.

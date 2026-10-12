@@ -77,8 +77,9 @@ def test_transient_unmatchability_is_not_zero_loss(scenarios):
     assert "Insufficient matchable" in bucket["reason"]
 
 
-def test_unaligned_clock_coverage_is_unknown_not_not_capturing(scenarios):
-    project, _, topology, _ = scenarios("healthy", rounds=16)
+def test_unaligned_clock_coverage_is_unknown_not_not_capturing(scenarios, clone_project):
+    project, _, topology, _ = scenarios("healthy")
+    project = clone_project(project)
     with project.connect() as db:
         db.execute("DELETE FROM packets WHERE sport=443")
     analyze(project, topology)

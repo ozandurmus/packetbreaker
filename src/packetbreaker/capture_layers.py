@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from datetime import datetime
 
-from .application_index import first, values, json_packets, read_filter, running
+from .application_index import first, values, json_packets, read_filter, running, can_decode_source
 from .ingest import FIELDS, find_tshark, number, parse_packet, packet_signature, tuple_id
 from .metadata import metadata
 from .store import PACKET_COLUMNS, rows
@@ -226,33 +226,37 @@ def apply_layers(project, db, point, cancel=None):
                 tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors,
             ):
                 selected = Path(directory) / "point.pcapng"
-                select = [
-                    binary,
-                    "-n",
-                    "-r",
-                    str(source),
-                    "-Y",
-                    read_filter(selection, inventory),
-                    "-w",
-                    str(selected),
-                    "-F",
-                    "pcapng",
-                    "-o",
-                    "ip.defragment:FALSE",
-                    "-o",
-                    "ipv6.defragment:FALSE",
-                ]
-                if inventory.get("frame_limit") is not None:
-                    select += ["-c", str(inventory["frame_limit"])]
-                with running(select, errors, environment, cancel, subprocess.DEVNULL) as proc:
-                    code = proc.wait()
-                if cancel and cancel.is_set():
-                    raise InterruptedError("Layer indexing cancelled")
-                if code and not inventory.get("damaged_tail"):
-                    raise ValueError("tshark point selection failed")
-                expected = db.execute("SELECT count(*) FROM layer_frames").fetchone()[0]
-                if metadata(selected, cancel)["complete_records"] != expected:
-                    raise ValueError("Layer frame mapping differs from validated index")
+                count = db.execute("SELECT count(*) FROM layer_frames").fetchone()[0]
+                if can_decode_source(selection, inventory, count):
+                    selected = source
+                else:
+                    select = [
+                        binary,
+                        "-n",
+                        "-r",
+                        str(source),
+                        "-Y",
+                        read_filter(selection, inventory),
+                        "-w",
+                        str(selected),
+                        "-F",
+                        "pcapng",
+                        "-o",
+                        "ip.defragment:FALSE",
+                        "-o",
+                        "ipv6.defragment:FALSE",
+                    ]
+                    if inventory.get("frame_limit") is not None:
+                        select += ["-c", str(inventory["frame_limit"])]
+                    with running(select, errors, environment, cancel, subprocess.DEVNULL) as proc:
+                        code = proc.wait()
+                    if cancel and cancel.is_set():
+                        raise InterruptedError("Layer indexing cancelled")
+                    if code and not inventory.get("damaged_tail"):
+                        raise ValueError("tshark point selection failed")
+                    expected = db.execute("SELECT count(*) FROM layer_frames").fetchone()[0]
+                    if metadata(selected, cancel)["complete_records"] != expected:
+                        raise ValueError("Layer frame mapping differs from validated index")
                 cmd = [
                     binary,
                     "-n",

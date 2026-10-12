@@ -13,6 +13,27 @@ from packetbreaker.analysis import analyze
 from capture_realism_fixtures import tunnel
 
 
+@pytest.fixture(scope="session")
+def plain_decodes(tmp_path_factory, tshark):
+    cache = {}
+
+    def decode(ipv6):
+        if ipv6 not in cache:
+            src, dst = ("2001:db8:1::1", "2001:db8:2::2") if ipv6 else ("10.1.0.1", "10.2.0.2")
+            folder = tmp_path_factory.mktemp("plain_decode")
+            original = folder / "plain.pcap"
+            write_pcap(
+                original, [(1700000000, tcp_packet(src, dst, 41001, 80, 1001, 2001, 24, b"x" * 180, 0))]
+            )
+            project = Project(folder / "project")
+            ingest(project, original, tshark=tshark)
+            with project.connect() as db:
+                cache[ipv6] = dict(zip(PACKET_COLUMNS, db.execute("SELECT * FROM packets").fetchone()))
+        return cache[ipv6]
+
+    return decode
+
+
 def test_mixed_or_missing_layer_is_unknown_first():
     assert decoded_layers({"frame": {"frame.protocols": "eth:ip:gre:ip:tcp"}, "ip": {"ip.src": "192.0.2.1"}})[
         "reason"
@@ -22,13 +43,11 @@ def test_mixed_or_missing_layer_is_unknown_first():
 @pytest.mark.parametrize(
     "kind,ipv6", [("erspan2", False), ("erspan3", True), ("gre", True), ("vxlan", False), ("geneve", True)]
 )
-def test_inner_outer_fields_and_content_filter_against_tshark(tmp_path, tshark, kind, ipv6):
+def test_inner_outer_fields_and_content_filter_against_tshark(tmp_path, tshark, kind, ipv6, plain_decodes):
     src, dst = ("2001:db8:1::1", "2001:db8:2::2") if ipv6 else ("10.1.0.1", "10.2.0.2")
     plain = tcp_packet(src, dst, 41001, 80, 1001, 2001, 24, b"x" * 180, 0)
     path = tmp_path / "wrapped.pcap"
-    original = tmp_path / "plain.pcap"
     write_pcap(path, [(1700000000, tunnel(plain, kind, outer6=not ipv6))])
-    write_pcap(original, [(1700000000, plain)])
     result = subprocess.run(
         [tshark, "-n", "-r", str(path), "-T", "json", "-x", "--no-duplicate-keys"],
         capture_output=True,
@@ -39,10 +58,7 @@ def test_inner_outer_fields_and_content_filter_against_tshark(tmp_path, tshark, 
     assert reason is None
     inner = next(r["packet"] for r in records if r["layer"] == "inner")
     outer = next(r["packet"] for r in records if r["layer"] == "outer")
-    project = Project(tmp_path / "project")
-    ingest(project, original, tshark=tshark)
-    with project.connect() as db:
-        expected = dict(zip(PACKET_COLUMNS, db.execute("SELECT * FROM packets").fetchone()))
+    expected = plain_decodes(ipv6)
     for field in (
         "src",
         "dst",

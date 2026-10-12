@@ -528,6 +528,9 @@ def ingest(
                     )
                     profile[cid] = metrics
                 done.set()
+                # Release a cancelled reader's pipe before waiting, so tshark cannot block
+                # flushing stdout until the termination timeout expires.
+                proc.stdout.close()
                 if proc.poll() is None:
                     proc.terminate()
                     try:
@@ -535,5 +538,4 @@ def ingest(
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait()
-                proc.stdout.close()
                 watcher.join(timeout=1)

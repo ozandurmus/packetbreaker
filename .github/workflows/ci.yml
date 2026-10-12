@@ -43,7 +43,10 @@ jobs:
         run: python -c "from packetbreaker.ingest import find_tshark; import subprocess; p=find_tshark(); print(p); subprocess.run([p,'--version'],check=True)"
       - run: ruff check src tests tools
       - name: Fast portability suite
-        run: pytest -m "not slow" -q
+        run: pytest -m "not slow" -q --durations=20 --junitxml=fast-suite.xml
+      - name: Hosted Windows fast-suite budget
+        if: runner.os == 'Windows'
+        run: python -c "import xml.etree.ElementTree as E; seconds=sum(float(s.attrib['time']) for s in E.parse('fast-suite.xml').getroot().iter('testsuite')); print(f'Fast suite {seconds:.2f}s / 240s'); assert seconds < 240, 'Windows fast suite exceeds four minutes'"
       - name: Slow real-tshark acceptance matrix
         if: github.event_name != 'push' && matrix.os == 'macos-14' && matrix.python == '3.12'
         run: pytest -m slow -q
