@@ -397,6 +397,8 @@ export type State = {
   job: Job;
 };
 export type Flow = {
+  reset_origin?: string | null;
+  handshake_rtt_ms?: number | null;
   matching_unknown_reason?: string | null;
   flow: string;
   tuple: string;
@@ -463,4 +465,24 @@ export type TimeSeries = {
     coverage: string;
     reason: string | null;
   } & Record<string, number | string | null>)[];
+};
+
+export type TopologyOverlay = {
+  segments: {
+    id: string;
+    loss_percent: number | null;
+    p95_ms: number | null;
+    retrans_observations: number;
+    reason: string | null;
+    classes: Record<string, number>;
+  }[];
+  nodes: {
+    device: string;
+    observations: number;
+    retrans_observations: number;
+    supported_loss_events: number;
+    confirmed_device_drops: number;
+    findings: number;
+  }[];
+  note: string;
 };

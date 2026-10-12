@@ -344,6 +344,24 @@ def create_app(project_path):
     def timeseries():
         return timeseries_page(project)
 
+    @app.get("/api/topology/overlay")
+    def overlay(start: float | None = Query(None, allow_inf_nan=False),
+                end: float | None = Query(None, allow_inf_nan=False)):
+        from .pilot import topology_overlay
+        return topology_overlay(project, start, end)
+
+    @app.get("/api/topology/inspect")
+    def inspect(point: str | None = None, segment: str | None = None,
+                start: float | None = Query(None, allow_inf_nan=False),
+                end: float | None = Query(None, allow_inf_nan=False)):
+        from .pilot import topology_inspect
+        if bool(point) == bool(segment):
+            raise HTTPException(422, "Choose exactly one point or segment")
+        try:
+            return topology_inspect(project, point, segment, start, end)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     @app.get("/api/flows")
     def flows(
         offset: int = Query(0, ge=0),
