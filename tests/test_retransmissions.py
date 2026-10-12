@@ -5,6 +5,7 @@ from packetbreaker.retransmissions import RETRY_KIND
 def retry(**changes):
     values = dict(
         trusted=True,
+        original_range=True,
         indexed=True,
         spurious=False,
         delivered=False,
@@ -27,6 +28,7 @@ def retry(**changes):
 
 
 def test_unknown_timer_and_untrusted_state_first():
+    assert retry(original_range=False, rto_seconds=2, prior_rtts=8) == "unknown"
     assert retry(rto_seconds=0.4, prior_rtts=8) == "unknown"
     assert retry(rto_seconds=2, prior_rtts=0) == "unknown"
     assert retry(trusted=False, fast_retrans=True) == "unknown"

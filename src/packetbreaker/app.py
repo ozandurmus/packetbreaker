@@ -153,7 +153,7 @@ def create_app(project_path):
     @app.get("/api/flows/{flow}/frames")
     def chart_evidence(flow: str, point: str, frames: list[int] = Query(min_length=1, max_length=8)):
         if any(frame < 1 for frame in frames):
-            raise ValueError("Frame numbers must be positive")
+            raise HTTPException(status_code=422, detail="Frame numbers must be positive")
         from .stream_charts import frame_evidence
 
         return frame_evidence(project, flow, point, frames)

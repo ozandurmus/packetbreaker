@@ -2,12 +2,13 @@
 
 from .store import rows
 from .evidence import evidence
+from .application_evidence import frame_lookup
 
 RETRY_KIND = """CASE WHEN NOT trusted OR NOT indexed THEN 'unknown'
     WHEN spurious AND delivered THEN 'spurious'
     WHEN sack_hole AND fast_retrans AND duplicate_acks>=2 THEN 'sack'
     WHEN fast_retrans THEN 'fast'
-    WHEN rto_seconds>=rto_bound AND prior_rtts>=3 AND duplicate_acks=0 AND NOT sack_hole THEN 'rto'
+    WHEN original_range AND rto_seconds>=rto_bound AND prior_rtts>=3 AND duplicate_acks=0 AND NOT sack_hole THEN 'rto'
     ELSE 'unknown' END"""
 REASONS = {
     "unknown": "Recovery mechanism unknown: missing trustworthy timer/ACK/SACK evidence",
@@ -20,19 +21,21 @@ REASONS = {
 
 def prepare(db):
     db.execute("""CREATE OR REPLACE TABLE transport_retry_signals AS
-        SELECT r.*,s.relative_seq,s.seq_end,h.prior_rtts,greatest(1,coalesce(h.prior_median+4*h.variation,1)) AS rto_bound,
+        SELECT r.*,s.relative_seq,s.seq_end,h.prior_rtts,
+        EXISTS(SELECT 1 FROM transport_tcp original WHERE original.point=r.point AND original.flow=r.flow AND original.frame=r.rto_frame
+            AND (r.raw_seq-original.raw_seq+4294967296)%4294967296+r.length<=original.length) AS original_range,greatest(1,coalesce(h.prior_median+4*h.variation,1)) AS rto_bound,
         coalesce(a.delivered,false) AS delivered,coalesce(a.sack_hole,false) AS sack_hole,coalesce(a.duplicate_acks,0) AS duplicate_acks,a.ack_trigger_frame,a.delivered_frame
         FROM transport_tcp r LEFT JOIN transport_samples s ON r.point=s.point AND r.flow=s.flow AND r.frame=s.frame
         LEFT JOIN LATERAL(SELECT count(*) AS prior_rtts,median(rtt) AS prior_median,stddev_pop(rtt) AS variation
-            FROM transport_acks t WHERE t.flow=r.flow AND t.point=r.point AND t.direction=r.direction AND t.ts<r.ts AND t.rtt IS NOT NULL) h ON true
+            FROM transport_acks t WHERE t.flow=r.flow AND t.point=r.point AND t.direction=r.direction AND t.ts<(SELECT min(x.ts) FROM transport_tcp x WHERE x.point=r.point AND x.flow=r.flow AND x.direction=r.direction AND (x.retrans OR x.fast_retrans OR x.spurious)) AND t.rtt IS NOT NULL) h ON true
         LEFT JOIN LATERAL(SELECT bool_or(t.ack_end>=s.seq_end) AS delivered,
-            bool_or(t.sack_left IS NOT NULL AND (t.sack_left-r.raw_seq+4294967296)%4294967296 BETWEEN 1 AND 2147483647
+            bool_or(t.ts>=r.ts-.05 AND t.sack_left IS NOT NULL AND (t.sack_left-r.raw_seq+4294967296)%4294967296 BETWEEN 1 AND 2147483647
                 AND t.ack_end<=s.relative_seq) AS sack_hole,
             count(*) FILTER(WHERE t.duplicate_ack AND t.ts>=r.ts-.05) AS duplicate_acks,
             arg_max(t.frame,t.ts) FILTER(WHERE t.duplicate_ack OR t.sack_left IS NOT NULL) AS ack_trigger_frame,
             arg_min(t.frame,t.ts) FILTER(WHERE t.ack_end>=s.seq_end) AS delivered_frame
             FROM transport_acks t WHERE t.flow=r.flow AND t.point=r.point AND t.direction=r.direction AND t.ts<r.ts
-            AND t.ts>=r.ts-greatest(.05,coalesce(r.rto_seconds,0))) a ON true
+) a ON true
         WHERE r.retrans OR r.fast_retrans OR r.spurious""")
     db.execute(
         "CREATE OR REPLACE TABLE transport_retries AS SELECT *,"
@@ -46,12 +49,12 @@ def prepare(db):
     db.execute("""CREATE OR REPLACE TABLE transport_reordering AS
         SELECT a.flow,e.direction,e.hop,a.point,a.frame,b.point AS downstream,b.frame AS downstream_frame,
         c.frame AS neighbor_frame,d.frame AS downstream_neighbor_frame,b.corrected AS time,
-        'Original matched byte ranges changed arrival order across this edge; tshark out-of-order downstream and in order upstream' AS reason
+        'Original matched byte ranges changed arrival order across this edge; in order upstream and reversed downstream; a generic first-appearance retransmission hint is resolved by the original pair' AS reason
         FROM transport_edges e JOIN transport_order_neighbors a ON a.point=e.a AND a.direction=e.direction AND NOT a.out_of_order
-        JOIN transport_tcp b ON b.point=e.b AND b.flow=a.flow AND b.packet_key=a.packet_key AND b.out_of_order AND b.trusted AND b.indexed AND b.eligible
+        JOIN transport_tcp b ON b.point=e.b AND b.flow=a.flow AND b.packet_key=a.packet_key AND (b.out_of_order OR (b.retrans AND NOT EXISTS(SELECT 1 FROM transport_tcp old WHERE old.point=b.point AND old.flow=b.flow AND old.frame=b.rto_frame AND (b.raw_seq-old.raw_seq+4294967296)%4294967296+b.length<=old.length))) AND NOT b.fast_retrans AND NOT b.spurious AND b.trusted AND b.indexed AND b.eligible
         JOIN transport_tcp c ON c.point=e.a AND c.flow=a.flow AND c.packet_key=a.next_key AND c.direction=a.direction
         JOIN transport_tcp d ON d.point=e.b AND d.flow=a.flow AND d.packet_key=a.next_key AND d.direction=a.direction AND d.trusted AND d.indexed AND d.eligible
-        WHERE a.ts<c.ts AND b.ts>d.ts AND b.ts-d.ts<2
+        WHERE a.ts<c.ts AND b.ts>d.ts AND b.ts-d.ts<.1 AND b.corrected-a.corrected BETWEEN 0 AND .1
         QUALIFY row_number() OVER(PARTITION BY a.flow,e.direction,a.packet_key ORDER BY b.corrected,e.hop)=1""")
 
 
@@ -86,33 +89,39 @@ def report(db, topology, flow=None):
             "Mutually exclusive recovery counts at one capture point. RTO is timer-compatible, not a measured kernel timer. Retransmission here can be a sender symptom of downstream loss."
         )
         p["reason"] = None if p["usable"] else "Missing independently decoded TCP state/index; counts unknown"
-    segments = []
-    for p in points:
-        for edge in db.execute(
-            "SELECT hop FROM transport_edges WHERE a=? AND direction=?", [p["point"], p["direction"]]
-        ).fetchall():
-            segments.append({**p, "hop": edge[0]})
+    edges = rows(db, "SELECT a,direction,hop FROM transport_edges")
+    segments = [
+        {**p, "hop": edge["hop"]}
+        for p in points
+        for edge in edges
+        if p["point"] == edge["a"] and p["direction"] == edge["direction"]
+    ]
     events = rows(
         db,
         """SELECT flow,point,frame,rto_frame,retry_kind,rto_seconds,rto_bound,prior_rtts,duplicate_acks,sack_hole,ack_trigger_frame,delivered_frame FROM transport_retries
         WHERE trusted AND indexed AND (? IS NULL OR flow=?) ORDER BY ts,point,frame LIMIT 200""",
         [flow, flow],
     )
+    keys = {
+        (e["point"], e[field])
+        for e in events
+        for field in ("frame", "rto_frame", "ack_trigger_frame", "delivered_frame")
+        if e[field] is not None
+    }
+    lookup = frame_lookup(db, keys)
     for event in events:
         event["reason"] = REASONS[event["retry_kind"]]
-        event["evidence"] = evidence(
-            db,
-            "o.point=? AND o.flow=? AND o.frame IN (?,?,?,?)",
-            [
-                event["point"],
-                event["flow"],
-                event["frame"],
-                event["rto_frame"],
-                event["ack_trigger_frame"],
-                event["delivered_frame"],
-            ],
-            4,
-        )
+        event["evidence"] = [
+            lookup[key]
+            for key in sorted(
+                {
+                    (event["point"], event[field])
+                    for field in ("frame", "rto_frame", "ack_trigger_frame", "delivered_frame")
+                    if event[field] is not None
+                }
+            )
+            if key in lookup
+        ]
     reorder = rows(
         db,
         "SELECT * FROM transport_reordering WHERE (? IS NULL OR flow=?) ORDER BY time,hop LIMIT 200",

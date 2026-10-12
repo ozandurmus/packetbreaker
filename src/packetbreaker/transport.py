@@ -1,5 +1,6 @@
 """Evidence-led TCP limitation profiles. Packet joins/aggregation run in DuckDB."""
 
+import json
 from collections import defaultdict
 
 from .evidence import evidence
@@ -95,7 +96,7 @@ def classify(m):
 
 
 def prepare(db, project, topology, report):
-    generation = [report["generated_at"], 4]
+    generation = [report["generated_at"], 5]
     if project.get(db, "transport_generation") == generation:
         return
     db.execute("CREATE OR REPLACE TEMP TABLE transport_points(point VARCHAR,kind VARCHAR,label VARCHAR)")
@@ -233,6 +234,18 @@ def profiles(project, flow=None, include_service=True):
             return {"items": [], "reason": "Run analysis first", "tooltip": TOOLTIP}
         topology = Topology.model_validate(raw_topology)
         prepare(db, project, topology, report)
+        cache_generation = json.dumps([report["generated_at"], 6])
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS transport_profile_cache(flow VARCHAR PRIMARY KEY,generation VARCHAR,value VARCHAR)"
+        )
+        if flow is not None and include_service:
+            cached = db.execute(
+                "SELECT value FROM transport_profile_cache WHERE flow=? AND generation=?",
+                [flow, cache_generation],
+            ).fetchone()
+            if cached:
+                return json.loads(cached[0])
+
         data = rows(
             db,
             """SELECT f.*,p.path_samples,p.path_p95_ms,p.path_degraded,r.rtt_ms,r.rtt_degraded
@@ -248,7 +261,7 @@ def profiles(project, flow=None, include_service=True):
             db,
             """SELECT flow,direction,count(*) AS loss_count,max(coalesce(recovery_ms,impact_ms)) AS loss_stall_ms,
             arg_max(direction||':'||point_a||':'||point_b,coalesce(recovery_ms,impact_ms)) AS loss_hop
-            FROM events WHERE kind IN('recovered_loss','impactful_loss','unrecovered_loss','handshake_blocked','confirmed_device_drop') GROUP BY ALL""",
+            FROM events WHERE direction||':'||point_a||':'||point_b IN(SELECT hop FROM transport_edges) AND kind IN('recovered_loss','impactful_loss','unrecovered_loss','handshake_blocked','confirmed_device_drop') GROUP BY ALL""",
         )
         lossmap = {(r["flow"], r["direction"]): r for r in losses}
         items = []
@@ -300,7 +313,16 @@ def profiles(project, flow=None, include_service=True):
             metrics["path_degraded"] = bool(metrics["path_degraded"])
             metrics["rtt_degraded"] = bool(metrics["rtt_degraded"])
             service_refs = []
-            if include_service and direction == "reverse" and flow is not None:
+            if (
+                include_service
+                and direction == "reverse"
+                and flow is not None
+                and all(
+                    metrics.get(k)
+                    for k in ("indexed", "trusted", "handshake", "sender_captured", "receiver_captured")
+                )
+                and metrics["samples"] >= 6
+            ):
                 service = service_times(project, fid)
                 valid = service["items"]
                 metrics["service_samples"] = len(valid)
@@ -317,11 +339,15 @@ def profiles(project, flow=None, include_service=True):
                 16,
             )
             # Add pressure/timing extremes, not only the first packets of the handshake.
-            signal = rows(
-                db,
-                """SELECT point,frame,ack_frame,window_frame FROM transport_samples WHERE flow=? AND direction=?
+            signal = (
+                []
+                if decision["classification"] == "unknown"
+                else rows(
+                    db,
+                    """SELECT point,frame,ack_frame,window_frame FROM transport_samples WHERE flow=? AND direction=?
                 ORDER BY zero_probe DESC,window_full DESC,gap_ms DESC NULLS LAST,ack_delay_ms DESC NULLS LAST LIMIT 6""",
-                [fid, direction],
+                    [fid, direction],
+                )
             )
             for p in {s["point"] for s in signal} if decision["classification"] != "unknown" else set():
                 frames = list(
@@ -351,7 +377,7 @@ def profiles(project, flow=None, include_service=True):
             )
         from .retransmissions import report as retry_report
 
-        return dict(
+        result = dict(
             items=items,
             retransmissions=retry_report(db, topology, flow),
             point_metrics=data,
@@ -360,9 +386,23 @@ def profiles(project, flow=None, include_service=True):
             note="Same-capture ACK/service timing; hop timing retains clock uncertainty. Sender pacing does not measure physical capacity. Missing/ambiguous evidence is unknown.",
         )
 
+        if flow is not None and include_service:
+            db.execute("DELETE FROM transport_profile_cache WHERE generation<>?", [cache_generation])
+            db.execute(
+                "INSERT OR REPLACE INTO transport_profile_cache VALUES (?,?,?)",
+                [flow, cache_generation, json.dumps(result)],
+            )
+        return result
+
 
 def export_profiles(project, limit=200):
     """Export bounded profiles; enrich visible HTTP flows with existing waterfall evidence."""
+    with project.connect() as db:
+        report = project.get(db, "report")
+        generation = [report["generated_at"], 6, limit] if report else None
+        cached = project.get(db, "transport_export_cache")
+        if cached and cached["generation"] == generation:
+            return cached["value"]
     result = profiles(project, include_service=False)
     with project.connect() as db:
         http_flows = [
@@ -383,4 +423,6 @@ def export_profiles(project, limit=200):
     result["note"] += (
         " Export shows at most 200 directional profiles; inspect another flow locally for its full evidence."
     )
+    with project.connect() as db:
+        project.set(db, "transport_export_cache", {"generation": generation, "value": result})
     return result

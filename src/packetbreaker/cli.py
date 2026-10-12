@@ -27,6 +27,7 @@ def main():
         "--scenario",
         default="demo",
         choices=[
+            "diagnostics",
             "onset_intermittent_2",
             "onset_intermittent_3",
             "onset_intermittent_4",

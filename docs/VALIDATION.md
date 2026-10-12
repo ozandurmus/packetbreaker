@@ -852,3 +852,45 @@ Chart tests verify packet limits, complete-population throughput, negotiated win
 point/flow-scoped evidence and brush bounds. The first brush test caught a partial selected
 bucket divided by a full second; selected-range/capture boundaries now both gate known rates.
 Chart/diagnosis/export/waterfall checkpoint: 10 passed in 12.47 s; TypeScript/Vite pass.
+
+
+### Adversarial diagnostic corpus and regression fixes
+
+`diagnostic_synthetic.py` generates six independent client/FW/LB/server captures with 17 TCP
+and 9 DNS conversations on every point. `test_diagnostics_wire.py` checks exact directional
+receiver/service/pacing/loss evidence, FW/LB/link loss and reordering origins, RTO/fast/spurious/
+SACK recovery, and same-ID/name concurrent DNS owners. Each runs with IPv4 zero/constant IDs
+and IPv6 zero/constant labels. Negative controls include fully acknowledged idle zero windows,
+receiver-delayed high RTT, missing handshake, healthy traffic, one pure capture miss, unknown
+clocks, missing endpoint roles and insufficient DNS deadline coverage. No new test is slow.
+
+The first wire retry test exposed a neighbouring `rto_frame` that tshark attached to an original
+reordered packet. Original-range validation now prevents calling that RTO; matched original
+arrival-order pairs still locate the correct FW/LB/link boundary. No assertion was weakened.
+A API boundary check also exercises point/flow frame scoping and oversized/invalid requests.
+
+Two actual in-process mutants were run without editing source: zero-window-only classification
+fails `test_single_counter_and_quality_guards_first`; removing original-range corroboration fails
+`test_unknown_timer_and_untrusted_state_first`. Exact location assertions independently reject
+"always FW", downstream-counter-only attribution and DNS-ID-only pairing across clients.
+The diagnostic/proxy/TLS/retry focused regression gate passed 104 tests in 48.45 s.
+
+Manual synthetic UI check observed forward receiver-limited with 7 zero-window observations,
+active flight and a 1 ms matched path, while the reverse direction remained unknown. DNS showed
+9 client-side questions, 3 answers (50 ms), and 6 deadline timeouts, separating FW/LB/link response
+disappearances from resolver-side no-response observations. Three sequence/RTT/throughput charts
+loaded with frame-linked packet points. No real capture was used or tracked; `demo/` is ignored.
+Ruff, TypeScript/Vite and local sdist/wheel build (`--no-isolation`) passed.
+
+Fast-suite optimization retains all assertions: report-generation profile/export caching,
+batched recovery evidence/segment lookup, a single decoded TCP-tree visit, and the existing
+bounded two-worker fixture pool prefetching selected independent scenarios/proxy datasets.
+The earlier sequential-preparation run took 161.38 s; intermediate runs remained above the
+120 s target (130.02 s / 133.97 s). Final timing and PR CI acceptance are recorded below.
+
+Final local default gate: **386 passed, 166 deselected in 93.45 s** (Apple Silicon, Python 3.12),
+versus the 161.38 s earlier run with serial waits. Total acceptance collection is 552 tests,
+including 26 newly added fast tests; CI skips the existing optional local-only sample if absent.
+The fast test gate remains below two minutes without moving diagnostic tests to `slow`.
+Brief coverage audit now records 70 done, 15 partial and 9 missing rows, with explicit scope limits.
+Full six-target portability plus three native packaging jobs remain the PR close-out gate.

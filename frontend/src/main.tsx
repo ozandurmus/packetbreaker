@@ -477,7 +477,9 @@ function App() {
                     ? "Map the traffic path"
                     : tab === "Flows"
                       ? "Follow a conversation"
-                      : "Workspace settings"}
+                      : tab === "DNS"
+                        ? "DNS investigation"
+                        : "Workspace settings"}
             </h1>
             <p>
               {tab === "Overview"
@@ -488,7 +490,9 @@ function App() {
                     ? "Your diagram is the authority. Connect capture points in traffic order."
                     : tab === "Flows"
                       ? "Trace packets across every point and verify the original frames."
-                      : "Local tools, analysis thresholds and clock overrides."}
+                      : tab === "DNS"
+                        ? "Separate resolver turnaround from query or response disappearance."
+                        : "Local tools, analysis thresholds and clock overrides."}
             </p>
           </div>
           <div className="header-actions">

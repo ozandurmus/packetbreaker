@@ -68,6 +68,18 @@ def test_api_ingest_analysis_report(tmp_path):
         assert len(trace["items"][0]["evidence"]) == 5
         timeline = client.get("/api/flows/" + flows["items"][0]["flow"] + "/waterfall").json()
         assert {item["kind"] for item in timeline["items"]} == {"handshake", "http"}
+        fid = flows["items"][0]["flow"]
+        diagnosis = client.get(f"/api/flows/{fid}/diagnosis")
+        assert diagnosis.status_code == 200 and diagnosis.json()["items"]
+        graph = client.get(f"/api/flows/{fid}/charts?point=p0&limit=1").json()
+        assert len(graph["packets"]) == 1 and graph["total"] > 1
+        frame = graph["packets"][0]["frame"]
+        refs = client.get(f"/api/flows/{fid}/frames?point=p0&frames={frame}").json()
+        assert refs and all(r["point"] == "p0" and r["frame"] == frame for r in refs)
+        assert client.get(f"/api/flows/{fid}/frames?point=p0&frames=0").status_code == 422
+        assert client.get(f"/api/flows/{fid}/charts?limit=5001").status_code == 422
+        assert client.get("/api/dns?limit=201").status_code == 422
+        assert client.get("/api/dns").json()["items"] == []
         exported = client.get("/api/export?format=json")
         assert exported.status_code == 200 and "attachment" in exported.headers["content-disposition"]
         assert exported.json()["schema_name"] == "packetbreaker.findings"

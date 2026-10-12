@@ -117,7 +117,19 @@ def event_rows(packet):
         return []
     frame = integer(first(layers.get("frame", {}), "frame.number"))
     parts = [integer(v) for v in values(layers, "tcp.segment")] or [frame]
-    tcp = layers.get("tcp", {})
+    tcp = {}
+
+    def collect(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                tcp.setdefault(key, []).extend(value if isinstance(value, list) else [value])
+                collect(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect(value)
+
+    # Visit tshark's TCP tree once; dense flight/ACK state needs many of its fields.
+    collect(layers.get("tcp", {}))
     stamp = first(layers.get("frame", {}), "frame.time_epoch")
     observed = (
         float(stamp) if "T" not in stamp else datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
@@ -126,14 +138,14 @@ def event_rows(packet):
         observed=observed,
         local_frame=frame,
         components=parts,
-        protocol_stream=integer(first(tcp, "tcp.stream"), -1),
+        protocol_stream=integer(tcp.get("tcp.stream", [None])[0], -1),
         src=first(layers.get("ip", {}), "ip.src") or first(layers.get("ipv6", {}), "ipv6.src"),
-        raw_seq=integer(first(tcp, "tcp.seq_raw")),
-        tcp_len=integer(first(tcp, "tcp.len")),
+        raw_seq=integer(tcp.get("tcp.seq_raw", [None])[0]),
+        tcp_len=integer(tcp.get("tcp.len", [None])[0]),
     )
     result = []
     analysis = {
-        name: bool(values(tcp, "tcp.analysis." + field))
+        name: bool(tcp.get("tcp.analysis." + field))
         for name, field in (
             ("retrans", "retransmission"),
             ("fast_retrans", "fast_retransmission"),
@@ -146,13 +158,13 @@ def event_rows(packet):
         )
     }
     for name, field in (("rtt", "tcp.analysis.ack_rtt"), ("rto_seconds", "tcp.analysis.rto")):
-        value = first(tcp, field)
+        value = tcp.get(field, [None])[0]
         analysis[name] = float(value) if value else None
     analysis.update(
-        bytes_in_flight=integer(first(tcp, "tcp.analysis.bytes_in_flight"), None),
-        rto_frame=integer(first(tcp, "tcp.analysis.rto_frame"), None),
-        sack_left=integer(first(tcp, "tcp.options.sack_le"), None),
-        sack_right=integer(first(tcp, "tcp.options.sack_re"), None),
+        bytes_in_flight=integer(tcp.get("tcp.analysis.bytes_in_flight", [None])[0], None),
+        rto_frame=integer(tcp.get("tcp.analysis.rto_frame", [None])[0], None),
+        sack_left=integer(tcp.get("tcp.options.sack_le", [None])[0], None),
+        sack_right=integer(tcp.get("tcp.options.sack_re", [None])[0], None),
     )
     if any(analysis.values()) or analysis["bytes_in_flight"] is not None:
         result.append({**common, "components": [frame], "kind": "tcp_analysis", "metadata": analysis})

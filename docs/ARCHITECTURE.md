@@ -598,8 +598,8 @@ are preserved. Neither a provider client nor credentials nor outbound connection
 
 `BRIEF_COVERAGE.md` maps the original brief item by item to source/test evidence and explicit
 partial/missing behavior. Counters/decoded fields do not count as implemented diagnoses.
-Transport gaps include RTP quality, DNS response-time metrics, receive-window causality,
-microbursts and flood/fan-out/session-pressure heuristics. Existing HTTP waterfalls are bounded
+At the Phase 3 audit checkpoint, transport gaps included RTP quality, DNS response-time metrics,
+receive-window causality, microbursts and flood/fan-out/session-pressure heuristics. Existing HTTP waterfalls are bounded
 visible HTTP/1.x measurements. No missing feature is implemented as part of this report.
 
 ## Phase 4 / Part 1 — transport evidence
@@ -616,7 +616,7 @@ remain unknown. Sender pacing describes observed idle gaps with available window
 monitored path; it does not measure the sender's physical bandwidth cap. Existing clock-aware
 HTTP byte-completion waterfall bars supply visible service-time evidence. `/api/flows/{flow}/diagnosis`
 returns metrics, reasons, tooltips and original frame/content/flow filters; stream UI and bounded
-offline exports expose the same profiles. Schema-6 packet storage remains compatible; parser 11
+offline exports expose the same profiles. Schema-6 packet storage remains compatible; parser 12
 adds tshark transport fields in `path_fields`. Old indexes require reattachment for these fields.
 
 Recovery breakdowns use isolated tshark fast/spurious/duplicate-ACK/SACK flags, with explicit
@@ -644,3 +644,11 @@ the UI exposes the shown/total count and narrowing brush. Partial/not-capturing 
 unknown throughput, never invented zero. All three charts brush the aligned investigation;
 unaligned clocks use a point-local brush and an explicit uncertainty note. Packet/bucket clicks
 query original flow/point/frame filters. The chart endpoint is bounded and same-origin.
+
+
+The shared diagnostic corpus uses six independent captures and 26 overlapping conversations,
+including FW/LB/link faults and negative capture/endpoint/clock controls in four ID/IP modes.
+Production profile/export caches are report-generation scoped. TCP state lookup visits tshark's
+decoded tree once; recovery evidence/segment lookup is batched using the existing frame helper.
+The fast-suite fixture pool also prefetches the existing independent proxy datasets, without
+changing production ingest defaults or moving diagnostic tests to the slow suite.
