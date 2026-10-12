@@ -468,3 +468,41 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 
 - Layer overlays replace identity fields only; preserve original frame identity/hash and ingest
   timestamp precision. Secondary tshark JSON timestamps are mapping checks, not replacement clocks.
+
+## Phase 4 / Part 3 — bounded pilot readiness
+
+- Keep original captures in place and write the case project beside the capture folder. Preserve
+  manual topology edits on resume; do not infer order from file names or silently omit unreadable
+  capture names. Ctrl-C signals ingest workers before executor shutdown; completed batches remain.
+- Reuse a source capture for additional tshark indexes only when it exactly represents the selected
+  point: one interface, no point/vendor/source filters, all records usable, no damaged/zero tail.
+  Filtered/invalid-time/tail cases retain isolated decode and validation. tshark remains the dissector.
+- Cache a genuinely absent optional pandas import once. DuckDB otherwise repeats filesystem searches
+  for every scalar parameter. Installed/imported pandas is untouched; installing pandas in an already
+  running process requires restart. Join evidence flow filters instead of querying twice per frame.
+- Session fixtures share identical generator arguments after canonicalizing defaults/order. Tests
+  that mutate healthy captures clone the shared database; exact-window and scenario-specific fixtures
+  keep their original population. Plain IPv4/IPv6 reference decodes are shared across tunnel variants.
+  No assertions are removed or weakened and no test is moved to the slow suite.
+- Topology node aggregates are observation counts and adjacent segment events, not per-device fault
+  totals. Arrow retransmissions cannot override supported loss attribution. Reset-origin cells accept
+  supported findings only; an absent/ambiguous origin remains unknown. Full-exchange/selected-packet
+  scope is explicitly labelled where brushing must not hide causal evidence.
+- Keep the 512 MB DuckDB budget. Wide layer structs are joined in batches of 5,000 physical frames;
+  the full-point UPDATE and full-point hash-join prototypes both failed the new corpus. Logical
+  fragment replacement preserves the separate physical wire table and capture evidence identity.
+- A missing null TLS key after JSON merge does not mean the probe was absent: `transport_index=1`
+  proves the first-pass field coverage. Visible TLS, legacy coverage and declared full proxies still
+  decode. Clear old protocol state when a new generation needs no application index.
+- Use a separate same-input plain-path control when the older engine cannot complete the new
+  tunnel/fragment path. Report that failure explicitly; never turn it into a completed baseline
+  time or compare unlike functionality as a regression percentage. The successful control remains
+  below 20% elapsed/RSS regression; full new-path analysis and cached opening are separate gates.
+
+- Windows case labels use portable relative separators; native file paths remain unchanged.
+  Tiny Windows test SQL uses one thread per process and can prefetch three fixtures on four-core
+  hosts with 6 GiB available RAM. Production concurrency/memory budgets are unchanged.
+
+- Prepared fixture handles skip repeated initialization only after a real worker build/analysis or
+  a closed database copy. Source creation, schema migration and explicit cached reopen acceptance
+  continue using the real Project constructor; this is not a production fast-open path.

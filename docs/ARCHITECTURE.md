@@ -697,3 +697,29 @@ they are a small fraction of otherwise matchable traffic. Outer versus inner/pla
 likewise cannot support a disappearance claim. The selected outer UDP view no longer retains an
 inner tunnel's exclusion marker. Complete datagrams use reconstructed logical IP lengths for
 ICMP signatures, while physical captured lengths remain unchanged.
+
+## Phase 4 / Part 3: pilot workflow
+
+`packetbreaker case CAPTURE_FOLDER` indexes supported captures recursively in place and creates
+`CAPTURE_FOLDER.packetbreaker` beside the inputs. The editor initially lists unconnected capture
+points: file names do not establish device ownership, path order or client direction. Existing
+engineer decisions survive a repeated case command; the identity cache prevents tshark re-parsing.
+Per-file preflight exposes usable timestamps, tail/truncation/drop warnings and tunnel-layer hints.
+Raw inventory overlap is a setup warning, not an assertion that clocks are synchronized.
+
+`pilot.py` aggregates topology measurements in native SQL over the heatmap interval. Device totals
+are observations across all assigned ingress/egress points and can count a packet more than once.
+Arrow/node inspection returns associated findings and a bounded flow page. Loss and latency remain
+unknown without the classifier's quality gates or complete selected capture coverage. Retransmission
+counts describe observed sender symptoms, not fault attribution. The flow inventory stores supported
+reset explanations and same-point SYN-to-SYN/ACK timing at the client-most configured point. Its
+handshake timing includes endpoint turnaround and remains unknown when evidence is missing.
+
+Waterfall selection retains complete exchange timing; field differences retain all appearances of
+the selected packet. Both disclose this scope in the UI. Overlay/flow/findings/ladder are brushed.
+
+Layer overlays parse and join bounded batches of selected physical frame IDs, not whole decoded
+point structs. Fragment normalization materializes a replacement for affected points while the
+physical wire table retains all captured frames. The first-pass transport marker also proves TLS
+probe coverage when JSON merge removes known-null keys. Application generations without a needed
+probe clear previous protocol state; visible TLS/legacy/proxy cases retain the dissector path.

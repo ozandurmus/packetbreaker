@@ -569,3 +569,34 @@ returned or persisted. Metrics and finding structure remain visible. The preview
 refresh it after analysis changes. It is not a complete anonymization of other metadata (such as
 local paths, device labels or organization names), and tokenized filters cannot be pasted into
 Wireshark. Original filters remain in the ordinary report. Nothing is sent or copied automatically.
+
+## First real case
+
+Put the incident's captures in one folder (subfolders are supported), then run:
+
+```sh
+packetbreaker case "/path/to/incident-captures"
+```
+
+This creates `/path/to/incident-captures.packetbreaker` beside the captures and opens **Path**.
+Inputs are indexed in place; keep them available. Re-running the command resumes interrupted files
+and reuses completed indexes. `--no-browser` leaves the local server running for manual access.
+
+1. Review the inventory **before analysis**: time ranges, partial/zero tails, captured-byte truncation,
+   reported interface/OS drops and tunnel layer warnings. Missing drop counters mean unknown.
+   Non-overlapping raw time ranges need investigation; clock offsets can explain them.
+2. Assign each file/inspection stage to the correct point, name the two sides of each firewall as
+   the same device, and draw the forward and return paths, including switch/server/LB points.
+   Select client CIDRs, tunnel layers and declared NAT/proxy/inspection behavior. File names alone
+   establish none of these. Confirm inferred NAT mappings and review clock confidence.
+3. Analyze, then brush the heatmap around the incident. In **Path**, each arrow shows loss, p95 added
+   transit latency and retransmission observations for that interval. Click an arrow or device point
+   to inspect findings and conversations. Device totals can include repeated observations at in/out.
+4. In **Flows**, sort by supported reset origin or handshake RTT and open the ladder, evidence,
+   waterfall and field differences. Handshake RTT includes server turnaround. Waterfall bars retain
+   the complete exchange; field differences retain all appearances of the selected packet; their
+   scope notes explain the brush behavior. Unknown results are evidence limits, not zero loss.
+5. Export offline HTML/JSON for review. Keep the case project outside version control and share
+   captures only under your incident-handling policy; PacketBreaker runs locally without telemetry.
+
+To reopen without importing files: `packetbreaker --project "/path/to/incident-captures.packetbreaker"`.
