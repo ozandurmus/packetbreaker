@@ -689,3 +689,11 @@ episodes; Settings exposes window size. Loss association uses first-event frame 
 upstream point of an already supported next-segment loss onset, inside 100 ms plus clock bounds.
 Unknown clock uncertainty suppresses association; overlapping uncertainty leaves order unknown.
 Every association says corroboration_only, with cause unknown. UI and HTML/JSON share these data.
+
+### Capture-realism validation boundaries
+
+Unselected/undecodable tunnel observations make adjacent segment loss rates unknown, even if
+they are a small fraction of otherwise matchable traffic. Outer versus inner/plain selections
+likewise cannot support a disappearance claim. The selected outer UDP view no longer retains an
+inner tunnel's exclusion marker. Complete datagrams use reconstructed logical IP lengths for
+ICMP signatures, while physical captured lengths remain unchanged.

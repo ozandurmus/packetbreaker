@@ -460,7 +460,7 @@ function App() {
             <br />
             Your captures stay on this computer.
           </p>
-          <small>PHASE 4 / PART 1 · v{state.version}</small>
+          <small>PHASE 4 / PART 2 · v{state.version}</small>
         </div>
       </aside>
       <main>

@@ -28,7 +28,14 @@ def test_burst_is_never_a_proven_loss_cause_and_clock_order_is_unknown():
 
 
 @pytest.fixture(scope="module", params=[(False, "zero"), (True, "constant")])
-def burst_capture(request, tmp_path_factory):
+def burst_capture(request, tmp_path_factory, scenarios):
+    from conftest import _burst_futures
+    from packetbreaker.store import Project
+
+    future = _burst_futures.get(request.param)
+    if future:
+        path, truth, topology, report = future.result()
+        return Project(path), truth, topology, report
     return burst_path(tmp_path_factory.mktemp("bursts"), *request.param)
 
 

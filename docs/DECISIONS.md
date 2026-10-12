@@ -458,3 +458,10 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 - Bursts and supported next-segment loss onsets are temporally associated only. A burst with no
   loss produces no cause finding, and uncertain clocks cannot assert precedence. Never use this
   association to promote the burst point to a loss suspect.
+
+- A selected outer view must actually become eligible. Strip tunnel markers only from the chosen
+  IP/L4 field view, retain outer metadata, and mark incompatible adjacent matching layers unknown.
+- Keep logical datagram IP length separate from the final fragment's physical IP length; otherwise
+  ICMP reassembly silently changes the match signature. Validate TCP, UDP and ICMP in both families.
+- Batch microburst frame evidence once, and use the existing two-worker test fixture pool for the
+  new independent datasets. Keep every new test fast; do not hide runtime regressions with marks.

@@ -106,3 +106,64 @@ def test_fragment_evidence_filters_and_unknown_clocks(fragment_capture, tshark):
 
         missing_clock = [{**s, "loss_percent": None} for s in report["segments"]]
         assert fragment_findings(db, Topology.model_validate(topology), missing_clock)[0] == []
+
+
+@pytest.mark.parametrize("ipv6,protocol", [(False, 17), (False, 1), (True, 17), (True, 58)])
+def test_datagram_length_and_identity_for_udp_and_icmp(tmp_path, tshark, ipv6, protocol):
+    import json
+    import socket
+    import struct
+    import subprocess
+    from packetbreaker.synthetic import write_pcap, checksum
+    from packetbreaker.realistic import datagram
+    from packetbreaker.capture_layers import layer_rows
+    from packetbreaker.ingest import ingest
+    from packetbreaker.store import Project, PACKET_COLUMNS
+    from capture_realism_fixtures import fragments
+
+    src, dst = ("2001:db8:1::1", "2001:db8:2::2") if ipv6 else ("10.1.0.1", "10.2.0.2")
+    body = (
+        struct.pack("!HHHH", 41000, 5555, 188, 0) + b"u" * 180
+        if protocol == 17
+        else struct.pack("!BBHHH", 128 if ipv6 else 8, 0, 0, 77, 4) + b"i" * 180
+    )
+    if protocol != 17:
+        pseudo = (
+            socket.inet_pton(socket.AF_INET6, src)
+            + socket.inet_pton(socket.AF_INET6, dst)
+            + struct.pack("!I3xB", len(body), 58)
+            if ipv6
+            else b""
+        )
+        body = body[:2] + struct.pack("!H", checksum(pseudo + body)) + body[4:]
+    packet = datagram(src, dst, protocol, body, 0)
+    plain = tmp_path / "plain.pcap"
+    split = tmp_path / "split.pcap"
+    write_pcap(plain, [(1700000000, packet)])
+    write_pcap(split, [(1700000000 + i * 0.001, p) for i, p in enumerate(fragments(packet, fragment_id=0))])
+    decoded = subprocess.run(
+        [
+            tshark,
+            "-n",
+            "-2",
+            "-r",
+            str(split),
+            "-Y",
+            "ip.reassembled.length || ipv6.reassembled.length",
+            "-T",
+            "json",
+            "-x",
+            "--no-duplicate-keys",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    parsed, _ = layer_rows(json.loads(decoded.stdout)[0]["_source"]["layers"], "test", 64)
+    result = parsed[0]["packet"]
+    project = Project(tmp_path / "project")
+    ingest(project, plain, tshark=tshark)
+    with project.connect() as db:
+        expected = dict(zip(PACKET_COLUMNS, db.execute("SELECT * FROM packets").fetchone()))
+    assert result["signature"] == expected["signature"]
+    assert result["length"] == expected["length"] and result["tuple_key"] == expected["tuple_key"]

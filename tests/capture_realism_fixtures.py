@@ -104,7 +104,7 @@ def fragment_path(directory, ipv6=False, ip_id="zero"):
                 stamp = 1700000000 + t + (i if forward else 5 - i) * 0.001
                 if target and i >= start:
                     parts = fragments(
-                        packet, fragment_id=(900 + n if ipv6 else pid), overlap=fault == "overlap"
+                        packet, fragment_id=pid, overlap=fault == "overlap"
                     )
                     for j, part in enumerate(parts):
                         if j == 1 and ((fault == "loss" and i >= 4) or (fault == "capture_miss" and i == 3)):

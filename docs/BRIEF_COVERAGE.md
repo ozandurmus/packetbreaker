@@ -1,8 +1,8 @@
-# Original brief coverage — Phase 4 / Part 1
+# Original brief coverage — Phase 4 / Part 2
 
 This is a report, not an implementation plan or a certification of arbitrary real captures.
 Scope: the original **Codex Brief: PacketBreaker — Multi-Hop PCAP Correlation and Path Analysis
-Tool**, assessed against this branch (engine 0.3.0). The original requirements are identified
+Tool**, assessed against this branch (engine 0.3.1). The original requirements are identified
 below by section and phrase; the private pasted attachment is not copied into the repository.
 
 **done** means the specified behavior exists, with the named source/test evidence, within its
@@ -12,7 +12,7 @@ not proof of a metric, detector or UI. Code-reviewed UI coverage is distinguishe
 backend behavior. CI proves synthetic portability, not production correctness on every format.
 All paths below are repository-relative. Tests marked slow remain part of acceptance on the one
 macOS/Python 3.12 job; they are not omitted from this assessment. This part implements only the
-transport/DNS/stream gaps requested for Phase 4 / Part 1; remaining gaps stay explicit.
+transport/DNS/stream gaps requested for Phase 4 / Part 2; remaining gaps stay explicit.
 
 ## 1. Platform and stack (context)
 
@@ -43,7 +43,7 @@ transport/DNS/stream gaps requested for Phase 4 / Part 1; remaining gaps stay ex
 |---|---|---|
 | pcap / pcapng | done | `metadata.py`, `ingest.py`; `test_ingest.py`, `test_ingest_tails.py` test both containers, partial tails, padding and invalid timestamps. |
 | Ethernet, raw IP, Linux SLL/SLL2, VLAN/QinQ | done | tshark field ingest; `test_ingest.py::test_common_link_types_and_vlan` constructs all five cases, including stacked VLAN. |
-| Optional VXLAN/GRE/GENEVE inner decapsulation | missing | `test_ingest.py::test_tunnel_identity_is_not_mixed_with_inner_transport` proves conservative exclusion, not decapsulation. No layer-selection UI/normalization. |
+| Optional VXLAN/GRE/GENEVE inner decapsulation | done | `capture_layers.py`, `Point.matching_layer`, `TopologyEditor.tsx`; `test_capture_layers.py` compares ERSPAN II/III, GRE, VXLAN and GENEVE with separately decoded plain packets, mixed IP versions and collision distractors. ERSPAN defaults inner; other tunnels require a choice. Outer metadata and layer-scoped filters persist. Nested/incomplete IP envelopes and tunnel+vendor adapters remain unknown. |
 | Check Point snoop i/I/o/O and e/E/oe/OE mappings | done | `vendors.py`, `metadata.py`, `device_drops.py`, editor; `test_checkpoint.py::test_snoop_adapter_matches_tshark_and_stage_drop`. Conditional local sample test is skipped when absent; synthetic expectations come from tshark. |
 | F5 trailer: split legs and peer-flow pairing | done | `vendors.py`, `vendors.py`; `test_f5.py::test_f5_decode_pair_request_dwell_and_reset`, including peer reuse. tshark decodes trailers; trailer forwarding markers are bounded HTTP evidence. |
 | Palo Alto receive/firewall/transmit/drop stages | done | `topology.py` stage mapping, `device_drops.py`; `test_paloalto.py::test_paloalto_drop_is_positive_without_path_coverage`. Positive drop-stage evidence names the node. |
@@ -73,7 +73,7 @@ transport/DNS/stream gaps requested for Phase 4 / Part 1; remaining gaps stay ex
 | Full proxy: separate TCP legs, HTTP/XFF/SNI/F5 request associations | done | `proxy_matching.py`, `proxy_analysis.py`, `vendors.py`; `test_proxy_pairing.py::test_request_pooling_and_xff_beat_nearest_time`, `test_proxy_integration.py`. One-to-one request graph; pooled connections stay separate. SNI means TLS setup only, not encrypted HTTP request correlation. |
 | Proxy per-request request/response dwell | done | `proxy_waterfall.py`, `proxy_resets.py`; `test_proxy_integration.py::test_exact_request_dwell_and_waterfall`, missing/streaming/clock guards. Bounded visible HTTP/1.x; opaque HTTP/2/3/chunked/coalesced boundaries remain unknown. |
 | TSO/GSO/GRO/LRO sequence byte ranges and visible offload note | done | `byte_ranges.py`, `analysis.py`, Overview offload notes; `test_byte_ranges.py::test_gso_gro_wrap_loss_and_capture_miss_are_not_multiplied` (64,000-byte frames). Counts are affected source frames/bytes, not invented wire segments; derived-range budget applies. |
-| Fragment reassembly and first fragmentation hop | missing | `ingest.py` disables IP reassembly for packet identity and excludes fragmented observations. There is no reassembled datagram matcher or fragmentation-origin finding. |
+| Fragment reassembly and first fragmentation hop | done | Point-isolated tshark reassembly in `capture_layers.py`; SQL span/membership validation and datagram normalization in `fragments.py`. `test_fragments.py`: IPv4/IPv6, zero/constant IDs, FW/LB/link origins, one lost middle fragment = one datagram, overlap unknown, capture miss guards, UDP/ICMP identity and executable frame filters. Incomplete ID reuse and ambiguous associations stay unknown. |
 
 ### 3.3 Clocks
 
@@ -131,7 +131,7 @@ transport/DNS/stream gaps requested for Phase 4 / Part 1; remaining gaps stay ex
 | DNS query/response timing | done | `dns.py`, `DNS.tsx`, `test_dns.py`, `test_diagnostics_wire.py`: scoped question/tuple/protocol/ID ownership, per-resolver/point p50/p95/max, configurable deadlines, timeout vs query/response disappearance, and HTML/JSON evidence. One complete unicast question/message per indexed frame; ambiguous retries or incomplete deadline/endpoint coverage are unknown. |
 | Generic UDP request/response pairing/jitter | missing | UDP payload/tuple matching and covered disappearance exist; no application transaction pairing or jitter measurement. |
 | Throughput and pps per hop/direction | done | `timeseries.py`; `test_timeseries.py::test_coverage_and_exact_bucket_rates`. Wire-byte observations include retransmissions; no unseen traffic estimates. |
-| Bursts/microbursts | missing | Adjustable average-rate buckets are not a burst detector. No sub-bucket peak/burst duration/interarrival detector or microburst acceptance fixtures. |
+| Bursts/microbursts | done | `microbursts.py`, `Microbursts.tsx`, Settings and exports; `test_microbursts.py` checks 1–10 ms rolling windows, independent tshark peak-rate calculation, SPAN-copy rejection, bursts without loss and correct next-segment onset associations. Rates describe captured bytes, not physical line capacity. Timing uncertainty, offload and timestamp batching limit interpretation; no causal loss claim. |
 
 ### Path integrity / middleboxes
 
@@ -184,9 +184,8 @@ transport/DNS/stream gaps requested for Phase 4 / Part 1; remaining gaps stay ex
 
 ## Decision inputs for the next part
 
-The largest unimplemented transport/security areas are RTP quality, DNS latency, generic UDP
-transactions, receive-window causality, microbursts, SYN-flood/fan-out heuristics and session-pressure
-correlation. Separate missing correlation/UI items are fragment reassembly, selectable tunnel
-decapsulation and flow-specific sequence/RTT/throughput graphs. Current HTTP waterfalls provide a
-bounded server-vs-network breakdown, not a universal application latency diagnosis. The partial
-items above are explicit limits, not silently fulfilled by existing counters.
+The largest unimplemented transport/security areas are RTP quality, generic UDP transaction
+semantics, SYN-flood/fan-out heuristics and session-pressure correlation. Remaining partial rows
+include application/protocol breadth, encrypted visibility and topology/path ambiguity. Tunnel,
+fragment and microburst support is bounded as described above; it does not turn capture timing
+into proof of queue overflow or identify unseen devices. The owner chooses the next part.

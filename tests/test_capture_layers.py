@@ -97,7 +97,7 @@ def test_erspan_default_vxlan_opt_in_and_collision_guard(tmp_path, tshark):
             )
         )
     topology = dict(
-        points=points, forward=[p["id"] for p in points], client_cidrs=["10.1.0.0/16", "192.0.2.0/24"]
+        points=points, forward=[p["id"] for p in points], client_cidrs=["10.1.0.0/16", "192.0.2.10/32"]
     )
     report = analyze(project, topology)
     with project.connect() as db:
@@ -107,6 +107,11 @@ def test_erspan_default_vxlan_opt_in_and_collision_guard(tmp_path, tshark):
         wrapped = db.execute("SELECT signature,tuple_key FROM obs WHERE point='fw_in' AND frame=1").fetchone()
         assert original == wrapped
         assert db.execute("SELECT unsupported FROM obs WHERE point='lb_in' AND frame=1").fetchone()[0]
+    assert all(
+        s["loss_percent"] is None and "Tunnel matching layer" in s["reason"]
+        for s in report["segments"]
+        if "lb_in" in (s["point_a"], s["point_b"])
+    )
     assert any(p["point"] == "fw_in" and p["truncated_inner"] == 1 for p in report["tunnel_points"])
     topology["points"][3]["matching_layer"] = "inner"
     analyze(project, topology)
@@ -118,8 +123,11 @@ def test_erspan_default_vxlan_opt_in_and_collision_guard(tmp_path, tshark):
         a, b = db.execute("SELECT tuple_key FROM obs WHERE point='lb_in' ORDER BY frame").fetchall()
         assert a != b
     topology["points"][3]["matching_layer"] = "outer"
-    analyze(project, topology)
+    changed = analyze(project, topology)
+    adjacent = [s for s in changed["segments"] if "lb_in" in (s["point_a"], s["point_b"])]
+    assert adjacent and all("matching layers" in s["reason"] and s["loss_percent"] is None for s in adjacent)
     with project.connect() as db:
+        assert not db.execute("SELECT unsupported FROM obs WHERE point='lb_in' AND frame=1").fetchone()[0]
         assert db.execute("SELECT proto,sport FROM obs WHERE point='lb_in' AND frame=1").fetchone() == (
             "UDP",
             32000,

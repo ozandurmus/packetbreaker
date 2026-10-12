@@ -13,7 +13,7 @@ from .ingest import FIELDS, find_tshark, number, parse_packet, packet_signature,
 from .metadata import metadata
 from .store import PACKET_COLUMNS, rows
 
-VERSION = 2
+VERSION = 3
 TUNNELS = {"gre", "vxlan", "geneve"}
 
 
@@ -86,7 +86,7 @@ def decoded_layers(layers):
                     data.update(flat(layers.get(p, {})))
         if "ipv6.fraghdr" in stack[pos:end]:
             scope["ipv6.fraghdr"] = stack[:end].count("ipv6.fraghdr")
-        data["frame.protocols"] = ":".join(stack[pos:end])
+        data["frame.protocols"] = ":".join(p for p in stack[pos:end] if p not in TUNNELS and p != "erspan")
         raw = layers.get(family + "_raw")
         raw = raw[scope[family] - 1] if raw and isinstance(raw[0], list) else raw
         result["layers"][choice] = dict(fields=data, scope=scope, raw=raw, ip=ip, family=family)
@@ -101,6 +101,13 @@ def layer_rows(layers, cid, prefix_bytes):
         stamp = data["frame.time_epoch"]
         if "T" in stamp:
             data["frame.time_epoch"] = str(datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp())
+        fragment = fragment_metadata(layer)
+        if fragment and fragment["complete"]:
+            reassembled = number(first(layer["ip"], layer["family"] + ".reassembled.length", "0"))
+            if layer["family"] == "ip":
+                data["ip.len"] = str(reassembled + number(data.get("ip.hdr_len", "0")))
+            else:
+                data["ipv6.plen"] = str(reassembled)
         row = dict(zip(PACKET_COLUMNS, parse_packet([data.get(k, "") for k in FIELDS], cid, prefix_bytes)))
         if choice == "outer" and decoded["tunnel"]["kind"] in ("gre", "erspan"):
             # Raw spans/offsets are supplied by tshark, not inferred by a packet parser.
@@ -135,7 +142,6 @@ def layer_rows(layers, cid, prefix_bytes):
         meta = json.loads(row["path_fields"])
         if info:
             meta["tunnel"] = info
-        fragment = fragment_metadata(layer)
         if fragment:
             meta["fragment"] = fragment
             if fragment["complete"] and not fragment["invalid"]:
@@ -291,7 +297,7 @@ def apply_layers(project, db, point, cancel=None):
     if reason:
         db.execute(
             "UPDATE obs SET unsupported=? WHERE point=? AND (unsupported LIKE 'Tunnel encapsulation%' OR unsupported LIKE 'Fragmented packet%')",
-            [reason, point.id],
+            ["Capture layer decode unavailable: " + reason, point.id],
         )
         return
     chosen = point.matching_layer

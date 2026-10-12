@@ -48,14 +48,12 @@ def associations(burst, onsets, model):
     return result
 
 
-def wire_evidence(db, point, frames):
+def wire_evidence(lookup, point, frames):
     result = []
-    for r in rows(
-        db,
-        """SELECT w.*,c.name AS file FROM wire_observations w JOIN captures c ON c.id=w.capture_id
-        WHERE point=? AND frame IN (SELECT unnest(?::BIGINT[])) ORDER BY ts,frame""",
-        [point, list(set(frames))],
-    ):
+    for frame in sorted(set(frames) - {None}):
+        r = lookup.get((point, frame))
+        if r is None:
+            continue
         result.append(
             dict(
                 point=point,
@@ -131,6 +129,26 @@ def build_microbursts(db, topology, models, onsets, start=None, end=None):
         LEFT JOIN(SELECT point,count(*) AS n,max(duration_ms) AS duration_ms FROM microbursts GROUP BY point) x USING(point)
         GROUP BY w.point ORDER BY w.point""",
     )
+    total = db.execute("SELECT count(*) FROM microbursts").fetchone()[0]
+    items = rows(db, "SELECT * FROM microbursts ORDER BY peak_mbps DESC,point,start LIMIT 200")
+    keys = {
+        (r["point"], r[field])
+        for r in points + items
+        for field in ("first_frame", "peak_frame", "last_frame")
+        if r[field] is not None
+    }
+    import json
+
+    proof = {
+        (r["point"], r["frame"]): r
+        for r in rows(
+            db,
+            """SELECT w.*,c.name AS file FROM wire_observations w
+        JOIN (SELECT unnest(from_json(?, '[{"point":"VARCHAR","frame":"BIGINT"}]')) k) refs
+        ON w.point=refs.k.point AND w.frame=refs.k.frame JOIN captures c ON c.id=w.capture_id""",
+            [json.dumps([dict(point=p, frame=f) for p, f in keys])],
+        )
+    }
     bypoint = {p.id: p for p in topology.points}
     for p in points:
         p["burst_count"] = p["burst_count"] or 0
@@ -138,12 +156,10 @@ def build_microbursts(db, topology, models, onsets, start=None, end=None):
         p["label"] = bypoint[p["point"]].label
         p["window_ms"] = topology.microburst_window_ms
         p["tooltip"] = NOTE
-        p["evidence"] = wire_evidence(db, p["point"], [p["first_frame"], p["peak_frame"], p["last_frame"]])
+        p["evidence"] = wire_evidence(proof, p["point"], [p["first_frame"], p["peak_frame"], p["last_frame"]])
         if p["peak_observed_mbps"] is None:
             p["burst_count"] = p["frequency_hz"] = None
             p["tooltip"] += " No complete, non-offload measurement window; rate/burst absence unknown."
-    total = db.execute("SELECT count(*) FROM microbursts").fetchone()[0]
-    items = rows(db, "SELECT * FROM microbursts ORDER BY peak_mbps DESC,point,start LIMIT 200")
     for item in items:
         model = models.get(bypoint[item["point"]].capture_id, ClockModel())
         item.update(
@@ -153,7 +169,7 @@ def build_microbursts(db, topology, models, onsets, start=None, end=None):
             corrected_end=model.correct(item["end"]),
             clock_uncertainty_ms=model.uncertainty * 1000 if model.uncertainty is not None else None,
             evidence=wire_evidence(
-                db, item["point"], [item["first_frame"], item["peak_frame"], item["last_frame"]]
+                proof, item["point"], [item["first_frame"], item["peak_frame"], item["last_frame"]]
             ),
         )
         item["loss_associations"] = associations(item, onsets.get("items", []), model)

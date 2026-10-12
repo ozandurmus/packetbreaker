@@ -932,3 +932,35 @@ recomputed from tshark's frame lengths/timestamps. Configurable 10 ms windows an
 pass. The initial association check correctly rejected unverified manual clock uncertainty; the
 positive fixture now exercises fitted bidirectional clocks rather than pretending an override is
 a measured bound. Unknown-clock negative assertions remain intact.
+
+### Adversarial close-out
+
+Three in-process naive implementation mutants were executed without changing source files, and
+all were rejected: selecting outer headers as inner identity; counting each fragment as a complete
+packet; and promoting a nearby burst to a proven loss cause. The exact failing tests are
+`test_inner_outer_fields_and_content_filter_against_tshark`,
+`test_wire_complete_datagrams_exact_first_hop_and_single_loss`, and
+`test_burst_is_never_a_proven_loss_cause_and_clock_order_is_unknown`.
+
+The new matching-layer boundary test failed before the guard was added. That test also exposed
+outer UDP retaining a tunnel exclusion marker; the selected layer now clears only that envelope
+marker. Undecided/undecodable layers and outer-to-inner/plain boundaries have null loss rates.
+UDP and ICMP reassembly identities in both IP families match separate plain-file tshark ingest
+(4 passed in 1.92 s); logical IP length is independent of the last fragment's physical length.
+Layer/quality regression gate: 11 passed in 10.60 s. Ruff and bundled UI/sdist/wheel builds pass.
+
+The initial complete fast run passed 417 tests but took 128.25 s. Batched microburst evidence and
+prefetching the new small fixtures reduced it to 112.06 s without moving any tests to slow.
+The audit now records 73 done, 15 partial and 6 missing rows. Captures are generated in temporary
+directories; no real or third-party capture is tracked. Final gate/CI results follow at close-out.
+
+Final local default gate: **417 passed, 166 deselected in 114.87 s**; 31 new fast tests, 583 total.
+After strengthening IPv6 fragment-ID collisions to use zero/constant IDs across clients as well,
+the focused fragment gate passed **17 tests in 24.20 s**. No assertion was weakened and no new
+case was marked slow. Layer/quality guard recheck: 11 passed in 10.60 s. Three naive mutants fail.
+The local browser showed 12 burst episodes, 161.66 Mbps peak, 0.46 ms maximum duration and 0.07 Hz
+frequency on the synthetic six-point capture. Point buttons opened frame-number and content
+filters. Path exposed Auto/Inner/Outer matching choices. The temporary server/tab were closed.
+Full six-target portability plus three native packaging jobs are the PR close-out gate; final run
+URL and completed matrix results are recorded in the PR validation section to avoid another CI
+cycle solely for a post-run documentation edit.
