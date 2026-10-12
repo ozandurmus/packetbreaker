@@ -54,6 +54,7 @@ export type Topology = {
   security_scan_window_seconds?: number;
   security_scan_targets?: number;
   security_scan_failed_ratio?: number;
+  security_half_open_floor?: number;
   security_syn_rate?: number;
   security_completion_ratio?: number;
   security_min_sources?: number;

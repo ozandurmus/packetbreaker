@@ -19,23 +19,25 @@ def build_lifecycle(db, topology, coverage, series, window):
         seq,src,dst,sport,dport,min(corrected) AS start,arg_min(frame,corrected) AS syn_frame,
         count(*) AS syn_attempts FROM obs WHERE proto='TCP' AND eligible AND (flags&18)=2
         AND corrected IS NOT NULL GROUP BY ALL""")
+    has_syn = db.execute("SELECT 1 FROM session_syns LIMIT 1").fetchone() is not None
+    source = "obs" if has_syn else "(SELECT * FROM obs WHERE FALSE)"
     db.execute(f"""CREATE OR REPLACE TEMP TABLE session_replies AS SELECT s.*,
         min(a.corrected) AS synack,arg_min(a.frame,a.corrected) AS synack_frame,
-        arg_min(a.seq,a.corrected) AS server_seq FROM session_syns s LEFT JOIN obs a
+        arg_min(a.seq,a.corrected) AS server_seq FROM session_syns s LEFT JOIN {source} a
         ON a.point=s.point AND a.flow=s.flow AND a.canon=s.canon_reverse AND a.eligible
         AND (a.flags&18)=18 AND a.ack=(s.seq+1)%4294967296
-        AND a.corrected>=s.start AND a.corrected<s.start+{timeout} GROUP BY ALL""")
+        AND a.corrected>=s.start GROUP BY ALL""")
     db.execute(f"""CREATE OR REPLACE TEMP TABLE session_acks AS SELECT s.*,
         min(a.corrected) AS established,arg_min(a.frame,a.corrected) AS ack_frame
-        FROM session_replies s LEFT JOIN obs a ON a.point=s.point AND a.flow=s.flow
+        FROM session_replies s LEFT JOIN {source} a ON a.point=s.point AND a.flow=s.flow
         AND a.canon=s.canon AND a.eligible AND (a.flags&23)=16
         AND a.seq=(s.seq+1)%4294967296 AND a.ack=(s.server_seq+1)%4294967296
-        AND a.corrected>=s.synack AND a.corrected<s.start+{timeout} GROUP BY ALL""")
+        AND a.corrected>=s.synack GROUP BY ALL""")
     db.execute(f"""CREATE OR REPLACE TABLE session_lifecycle AS WITH ends AS(
         SELECT s.*,min(a.corrected) AS closed,arg_min(a.frame,a.corrected) AS close_frame,
-        bool_or((a.flags&4)>0) AS rst FROM session_acks s LEFT JOIN obs a
+        bool_or((a.flags&4)>0) AS rst FROM session_acks s LEFT JOIN {source} a
         ON a.point=s.point AND a.flow=s.flow AND a.eligible AND (a.flags&5)>0
-        AND a.corrected>=s.start AND a.corrected<s.start+{timeout} GROUP BY ALL)
+        AND a.corrected>=s.start GROUP BY ALL)
         SELECT *,CASE WHEN closed IS NOT NULL THEN 'closed' WHEN established IS NOT NULL THEN 'established'
         ELSE 'half_open' END AS status,least(coalesce(established,start+{timeout}),
             coalesce(closed,start+{timeout}),start+{timeout}) AS half_open_end FROM ends""")
@@ -56,7 +58,7 @@ def build_lifecycle(db, topology, coverage, series, window):
         db.execute(f"""INSERT INTO session_buckets WITH grid AS(
             SELECT p.*,i AS bucket,{origin}+i*{width} AS lo,{origin}+(i+1)*{width} AS hi
             FROM session_points p CROSS JOIN range({count}) r(i)), stats AS(
-            SELECT g.point,g.bucket,g.lo,g.hi,g.start<=g.lo AND g.finish>=g.hi AS covered,
+            SELECT g.point,g.bucket,g.lo,g.hi,g.start<=g.lo AND g.finish>=g.hi AND EXISTS(SELECT 1 FROM session_lifecycle x WHERE x.point=g.point) AS covered,
             count(*) FILTER(WHERE s.start>=g.lo AND s.start<g.hi) AS syns,
             count(*) FILTER(WHERE s.synack>=g.lo AND s.synack<g.hi) AS synacks,
             count(*) FILTER(WHERE s.established>=g.lo AND s.established<g.hi) AS established,
@@ -68,12 +70,19 @@ def build_lifecycle(db, topology, coverage, series, window):
             CASE WHEN covered THEN syns END,CASE WHEN covered THEN synacks END,
             CASE WHEN covered THEN established END,CASE WHEN covered THEN closed END,
             CASE WHEN covered THEN half_open END FROM stats""")
+    lo, hi = window.get("start"), window.get("end")
+    db.execute("CREATE OR REPLACE TEMP TABLE lifecycle_window(lo DOUBLE,hi DOUBLE)")
+    db.execute("INSERT INTO lifecycle_window VALUES (?,?)", [lo, hi])
     points = rows(
         db,
-        """SELECT s.point,count(*) AS syn_sent,count(synack) AS synack_seen,
-        count(established) AS established,count(closed) AS closed,count(*) FILTER(WHERE rst) AS rst_closed,
-        count(*) FILTER(WHERE closed IS NOT NULL AND NOT rst) AS fin_closed,
-        arg_min(syn_frame,start) AS first_frame FROM session_lifecycle s GROUP BY point ORDER BY point""",
+        """SELECT s.point,
+        count(*) FILTER(WHERE (lo IS NULL OR s.start>=lo) AND (hi IS NULL OR s.start<hi)) AS syn_sent,
+        count(*) FILTER(WHERE (lo IS NULL OR synack>=lo) AND (hi IS NULL OR synack<hi) AND synack IS NOT NULL) AS synack_seen,
+        count(*) FILTER(WHERE (lo IS NULL OR established>=lo) AND (hi IS NULL OR established<hi) AND established IS NOT NULL) AS established,
+        count(*) FILTER(WHERE (lo IS NULL OR closed>=lo) AND (hi IS NULL OR closed<hi) AND closed IS NOT NULL) AS closed,
+        count(*) FILTER(WHERE rst AND (lo IS NULL OR closed>=lo) AND (hi IS NULL OR closed<hi)) AS rst_closed,
+        count(*) FILTER(WHERE NOT rst AND closed IS NOT NULL AND (lo IS NULL OR closed>=lo) AND (hi IS NULL OR closed<hi)) AS fin_closed,
+        arg_min(syn_frame,start) AS first_frame FROM session_lifecycle s CROSS JOIN lifecycle_window GROUP BY s.point ORDER BY s.point""",
     )
     # Include points without a SYN: their session population is unknown, not zero.
     indexed = {p["point"]: p for p in points}
@@ -104,11 +113,18 @@ def build_lifecycle(db, topology, coverage, series, window):
             else []
         )
         points.append(p)
+    db.execute("""CREATE OR REPLACE TABLE handshake_stops AS
+        SELECT flow,point_a,point_b,direction,min(ts) AS time,count(*) AS attempts,
+        arg_min(packet_key,ts) AS packet_key FROM events WHERE kind='handshake_blocked' OR
+        (kind='confirmed_device_drop' AND EXISTS(SELECT 1 FROM obs o
+            WHERE o.packet_key=events.packet_key AND (o.flags&2)>0)) GROUP BY ALL""")
     failures = rows(
         db,
-        """SELECT flow,point_a,point_b,direction,min(ts) AS time,count(*) AS attempts,
-        arg_min(packet_key,ts) AS packet_key FROM events WHERE kind='handshake_blocked' OR (kind='confirmed_device_drop' AND EXISTS(SELECT 1 FROM obs o WHERE o.packet_key=events.packet_key AND (o.flags&2)>0)) GROUP BY ALL ORDER BY time LIMIT 200""",
+        """SELECT * EXCLUDE(sample_order) FROM(
+        SELECT *,row_number() OVER(PARTITION BY point_a,point_b,direction ORDER BY time) AS sample_order
+        FROM handshake_stops) ORDER BY sample_order,time LIMIT 200""",
     )
+    failure_count = db.execute("SELECT count(*) FROM handshake_stops").fetchone()[0]
     keys = [f["packet_key"] for f in failures]
     selected = rows(
         db, "SELECT point,frame,packet_key FROM obs WHERE packet_key IN (SELECT unnest(?::VARCHAR[]))", [keys]
@@ -125,6 +141,7 @@ def build_lifecycle(db, topology, coverage, series, window):
         points=points,
         buckets=rows(db, "SELECT * FROM session_buckets ORDER BY point,bucket LIMIT 200000"),
         failed_handshakes=failures,
+        failed_handshake_count=failure_count,
         timeout_seconds=timeout,
         note=LIFECYCLE_NOTE,
         scope="Full saved analysis window; not filtered by the UI brush",
@@ -152,9 +169,9 @@ def finding(
     return dict(
         id=f"security:{kind}:{point}:{start}",
         type=kind,
-        hop=hop or f"forward:{point}:{point}",
+        hop=hop or f"observed:{point}:{point}",
         device=device,
-        direction="forward",
+        direction=hop.split(":")[0] if hop else "observed",
         severity="low" if supported else "unknown",
         confidence="supported" if supported else "unknown",
         time_range=[start, end],
@@ -178,6 +195,7 @@ def security_checks(db, topology, coverage, series, segments, clocks):
         sources=topology.security_min_sources,
         sustained_buckets=topology.security_sustained_buckets,
         observation_timeout_seconds=topology.session_timeout_seconds,
+        half_open_floor=topology.security_half_open_floor,
     )
     bypoint = {c["point"]: c for c in coverage}
     inventories = {r["id"]: json.loads(r["inventory"]) for r in rows(db, "SELECT id,inventory FROM captures")}
@@ -205,6 +223,29 @@ def security_checks(db, topology, coverage, series, segments, clocks):
             notes.append(dict(point=p.id, status="unknown", reason=reason))
         else:
             usable.append(p.id)
+    max_sessions = db.execute(
+        "SELECT coalesce(max(n),0) FROM(SELECT count(*) n FROM session_lifecycle GROUP BY point)"
+    ).fetchone()[0]
+    floor = min(
+        topology.security_scan_targets, topology.security_half_open_floor, topology.security_syn_rate * width
+    )
+    if max_sessions < floor:
+        # No population can meet a pattern/spike floor, even if every observed handshake fails.
+        for table in ("security_cohorts", "security_fanout", "pressure_spikes"):
+            db.execute(f"DROP TABLE IF EXISTS {table}")
+        thresholds.update(
+            scan_window_seconds=topology.security_scan_window_seconds,
+            scan_targets=topology.security_scan_targets,
+            scan_failed_ratio=topology.security_scan_failed_ratio,
+            half_open_floor=topology.security_half_open_floor,
+        )
+        return [], dict(
+            note=SECURITY_NOTE,
+            thresholds=thresholds,
+            quality=notes,
+            status="Below all heuristic event floors",
+            max_observed_syn_sessions_per_point=max_sessions,
+        )
     db.execute("""CREATE OR REPLACE TEMP TABLE security_sessions AS SELECT s.*,
         bool_or(established IS NOT NULL) OVER(PARTITION BY flow,seq) AS completed_elsewhere,
         bool_or(synack IS NOT NULL) OVER(PARTITION BY flow,seq) AS reply_elsewhere
@@ -239,7 +280,7 @@ def security_checks(db, topology, coverage, series, segments, clocks):
         db,
         f"""WITH signal AS(SELECT *,bucket-row_number() OVER(PARTITION BY point ORDER BY bucket) AS run
         FROM security_cohorts WHERE usable AND syn_rate>=? AND sources>=?
-        AND greatest(synack_ratio,established_ratio)<=?), runs AS(
+        AND least(synack_ratio,established_ratio)<=?), runs AS(
         SELECT point,run,min(start) AS start,max("end") AS finish,count(*) AS buckets,
         sum(sessions) AS sessions,min(sources) AS sources,min(syn_rate) AS syn_rate,
         max(synack_ratio) AS synack_ratio,max(established_ratio) AS established_ratio
@@ -267,6 +308,22 @@ def security_checks(db, topology, coverage, series, segments, clocks):
         )
     findings.extend(scan_checks(db, topology, usable, series))
     findings.extend(pressure_checks(db, topology, usable, segments))
+    baseline_points = {r["point"] for r in rows(db, "SELECT point FROM pressure_baseline")}
+    for p in topology.points:
+        if p.kind in ("Firewall", "IPS", "Load Balancer", "Proxy", "WAF") and p.id not in baseline_points:
+            notes.append(
+                dict(
+                    point=p.id,
+                    status="unknown",
+                    reason="Insufficient early healthy cohorts for session-pressure baseline",
+                )
+            )
+    for f in findings:
+        hop_points = set(f["hop"].split(":")[1:])
+        estimates = [clocks.get(points[p].capture_id, {}).get("uncertainty") for p in hop_points]
+        f["metrics"]["clock_uncertainty_ms"] = (
+            sum(estimates) * 1000 if all(v is not None for v in estimates) else None
+        )
     thresholds.update(
         scan_window_seconds=topology.security_scan_window_seconds,
         scan_targets=topology.security_scan_targets,
@@ -344,13 +401,15 @@ def pressure_checks(db, topology, usable, segments):
     db.execute(
         f"""CREATE OR REPLACE TABLE pressure_spikes AS SELECT b.*,p.baseline_rate,p.baseline_half_open,
         greatest({floor},4*p.baseline_rate) AS rate_threshold,
-        greatest(20,4*p.baseline_half_open) AS half_open_threshold
+        greatest({topology.security_half_open_floor},4*p.baseline_half_open) AS half_open_threshold
         FROM session_buckets b JOIN pressure_baseline p USING(point)
         WHERE b.coverage='covered' AND b.point IN (SELECT unnest(?::VARCHAR[]))
         AND (b.syns/{width}>=greatest({floor},4*p.baseline_rate)
-        OR b.half_open>=greatest(20,4*p.baseline_half_open))""",
+        OR b.half_open>=greatest({topology.security_half_open_floor},4*p.baseline_half_open))""",
         [usable],
     )
+    if db.execute("SELECT 1 FROM pressure_spikes LIMIT 1").fetchone() is None:
+        return []
     points = {p.id: p for p in topology.points}
     stateful = {"Firewall", "IPS", "Load Balancer", "Proxy", "WAF"}
     findings = []
@@ -421,7 +480,13 @@ def pressure_checks(db, topology, usable, segments):
                     spike=spike,
                     correlation_window_seconds=width,
                     device_evidence=[
-                        dict(device=p["device"], stage=p["stage"], frame=p["frame"]) for p in positive
+                        dict(
+                            device=p["device"],
+                            stage=p["stage"],
+                            frame=p["frame"],
+                            time_source=p["time_source"],
+                        )
+                        for p in positive
                     ],
                     conclusion="corroboration_only" if supported else "unknown",
                 ),
@@ -432,3 +497,23 @@ def pressure_checks(db, topology, usable, segments):
             )
         )
     return findings
+
+
+def session_evidence(project, point, start, end):
+    if start >= end:
+        raise ValueError("Start must precede end")
+    with project.connect() as db:
+        report = project.get(db, "report")
+        if not report or point not in {p["point"] for p in report.get("sessions", {}).get("points", [])}:
+            raise ValueError("Unknown lifecycle point or no saved analysis")
+        return dict(
+            evidence=evidence(
+                db,
+                """o.point=? AND (o.corrected>=? AND o.corrected<? OR EXISTS(
+            SELECT 1 FROM session_lifecycle s WHERE s.point=o.point AND s.syn_frame=o.frame
+            AND s.start<? AND s.half_open_end>=?))""",
+                [point, start, end, end, start],
+                64,
+            ),
+            note="Representative bucket frames and carried half-open SYNs; stored session_buckets use the complete population.",
+        )

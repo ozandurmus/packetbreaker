@@ -1036,13 +1036,20 @@ function App() {
                         .map((hop) => {
                           const segment = report.segments.find(
                             (s) => s.id === hop,
-                          )!;
+                          );
                           return (
                             <article key={hop} style={{ marginBottom: 20 }}>
                               <h3>
-                                {segment.label} · {segment.direction}
+                                {segment?.label ||
+                                  topology.points.find(
+                                    (p) => p.id === hop.split(":")[1],
+                                  )?.label ||
+                                  hop}{" "}
+                                · {segment?.direction || hop.split(":")[0]}
                               </h3>
-                              {!range && <p>{segment.headline}</p>}
+                              {!range && segment?.headline && (
+                                <p>{segment.headline}</p>
+                              )}
                               {visibleFindings
                                 .filter((f) => f.hop === hop)
                                 .map((f) => (
@@ -2128,6 +2135,20 @@ function App() {
                 <h2>Analysis window and thresholds</h2>
                 <div className="two-col">
                   <label>
+                    Pressure minimum observed half-open sessions
+                    <input
+                      type="number"
+                      min={2}
+                      value={topology.security_half_open_floor ?? 20}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_half_open_floor: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
                     Scan rolling window (s)
                     <input
                       type="number"
@@ -2187,11 +2208,11 @@ function App() {
                     />
                   </label>
                   <label>
-                    Maximum healthy handshake ratio
+                    Maximum completion ratio for SYN pattern
                     <input
                       type="number"
                       min={0}
-                      max={1}
+                      max={0.5}
                       step={0.05}
                       value={topology.security_completion_ratio ?? 0.2}
                       onChange={(e) =>

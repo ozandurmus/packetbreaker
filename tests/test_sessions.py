@@ -55,3 +55,73 @@ def test_ack_flag_alone_does_not_establish_and_counts_match_wire(scenarios, clon
             ).fetchone()[0]
             is None
         )
+
+
+def test_synack_stopping_hop_reuses_reverse_evidence(scenarios):
+    _, truth, _, report = scenarios("security", ip_id="zero", fault_location="FW2")
+    failures = [f for f in report["sessions"]["failed_handshakes"] if f["direction"] == "reverse"]
+    assert failures and {(f["point_a"], f["point_b"]) for f in failures} == {("fw2_out", "fw2_in")}
+    assert all(any(e["point"] == "drop" for e in f["evidence"]) for f in failures)
+
+
+def test_bucket_evidence_api_and_input_validation(scenarios):
+    from fastapi.testclient import TestClient
+    from packetbreaker.app import create_app
+
+    project, truth, _, _ = scenarios("security", ip_id="zero", fault_location="FW2")
+    with TestClient(create_app(project.path), base_url="http://127.0.0.1") as client:
+        result = client.get(
+            f"/api/sessions/evidence?point=client&start={truth['base'] + 16}&end={truth['base'] + 17}"
+        )
+        assert result.status_code == 200
+        assert result.json()["evidence"] and all(e["content_filter"] for e in result.json()["evidence"])
+        assert client.get("/api/sessions/evidence?point=wrong&start=1&end=2").status_code == 422
+        assert client.get("/api/sessions/evidence?point=client&start=nan&end=2").status_code == 422
+        assert client.get("/api/sessions/evidence?point=client&start=3&end=2").status_code == 422
+
+
+def test_established_session_closes_after_observation_timeout(scenarios, clone_project):
+    shared, truth, topology, report = scenarios("security", ip_id="zero", fault_location="FW2")
+    project = clone_project(shared)
+    src = truth["populations"][1][0]["src"]
+    with project.connect() as db:
+        db.execute(
+            "UPDATE obs SET corrected=corrected+12 WHERE point='client' AND (src=? OR dst=?) AND (flags&1)>0",
+            [src, src],
+        )
+        build_lifecycle(db, Topology(**topology), report["coverage"], report["timeseries"], report["window"])
+        assert (
+            db.execute(
+                "SELECT status FROM session_lifecycle WHERE point='client' AND src=?", [src]
+            ).fetchone()[0]
+            == "closed"
+        )
+
+
+def test_no_syn_never_invents_empty_established_or_half_open_state(scenarios, clone_project):
+    shared, _, topology, report = scenarios("healthy")
+    project = clone_project(shared)
+    with project.connect() as db:
+        db.execute("DELETE FROM obs WHERE (flags&2)>0")
+        data = build_lifecycle(
+            db, Topology(**topology), report["coverage"], report["timeseries"], report["window"]
+        )
+        assert db.execute("SELECT count(*) FROM session_lifecycle").fetchone()[0] == 0
+        assert all(p["status"] == "unknown" and p["syn_sent"] is None for p in data["points"])
+        assert all(b["half_open"] is None for b in data["buckets"])
+
+
+def test_late_healthy_handshake_is_counted_after_half_open_expiry(scenarios, clone_project):
+    shared, truth, topology, report = scenarios("security", ip_id="zero", fault_location="FW2")
+    project = clone_project(shared)
+    src = truth["populations"][1][0]["src"]
+    with project.connect() as db:
+        db.execute(
+            "UPDATE obs SET corrected=corrected+12 WHERE point='client' AND (src=? OR dst=?) AND flags<>2",
+            [src, src],
+        )
+        build_lifecycle(db, Topology(**topology), report["coverage"], report["timeseries"], report["window"])
+        assert db.execute(
+            "SELECT established>start+10,synack>start+10 FROM session_lifecycle WHERE point='client' AND src=?",
+            [src],
+        ).fetchone() == (True, True)

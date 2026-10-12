@@ -1101,3 +1101,81 @@ Pressure guards were written before implementation (2 failed / 4 passed). Final 
 6 passed in 5.33 s. A source-spread SYN wave traverses FW1 but is positively dropped at FW2;
 only FW2 receives supported pressure corroboration. Removing device proofs while preserving
 supported handshake disappearance yields unknown, with the missing-device-evidence reason.
+
+Final local default gate: **464 passed / 166 deselected in 112.89 s** (630 collected,
+**26 new fast tests**, none moved to slow). Before the last fixture strengthening: 464 passed
+in 111.42 s. The first complete run was 458 passed / 5 failed in 102.37 s: all failures were
+legacy exact-v5 assertions after the explicit schema-v6 change; their full field-diff, TLS and
+positive-drop assertions remain intact. Focused affected-regression gate: 53 passed in 18.66 s.
+Final new-security/lifecycle gate: 26 passed in 21.15 s. Ruff and TypeScript/Vite pass.
+
+Nine real-tshark synthetic fixtures cover FW1, FW2 and their link × IPv4 zero/constant ID and
+IPv6. Each shares healthy flash-crowd, health-check and NAT-pool distractors with the irregular
+SYN wave and port scan; every NAT pool address independently exceeds the target-count floor
+with successful handshakes. Exact pressure support names only the evidenced device; a link
+has no invented device. Occupancy ground truth is 260 at bucket 16 at the client. Reverse
+SYN/ACK stopping evidence and late FIN closure are independently asserted. The latter failed
+before removing the half-open observation timeout from established-session closure lookup.
+
+Three SQL mutants executed on the same captured populations are rejected by the acceptance
+contracts: `syn_rate >= 50` alone flags the flash crowd; `targets >= 20` alone flags the healthy
+checker/NAT pool; any-drop × all-device-spikes blames both FW1 and FW2. Quality mutations cover
+missing point coverage, unknown clocks, capture drops, unconfirmed translation and local missing
+handshake completion with healthy downstream evidence. Generic disappearance without device
+proof yields unknown pressure. Bucket API validates finite ordered times and point ownership;
+HTML/JSON exports retain frame/content filters and full-window scope.
+
+All captures are generated into test temporary directories or ignored demo storage. None is
+tracked. Coverage audit now has **79 done / 12 partial / 3 missing** rows. Observed lifecycle is
+not an internal device table, and heuristic traffic shape is not intent or resource-exhaustion
+proof. The PR full-matrix acceptance (six OS/Python plus three native packaging jobs, slow suite
+only macos-14/Python 3.12) is the remaining close-out gate. Its final run URL and measured hosted
+Windows duration are recorded in the PR validation section to avoid a matrix just for a URL edit.
+
+Initial PR CI run `38301335270` passed all test assertions, but Windows missed its duration gate
+(3.11: 509.94 s; 3.12: 563.43 s). Its first diagnostic fixture spent 221.60/239.09 s waiting:
+late-used security scenarios were queued ahead of special diagnostic/fragment/proxy builders.
+The existing session prefetch pool now orders **all** work by its first test consumer, retaining
+identical assertions, fixture sharing and process/thread budgets. Final local default after the
+queue repair and irregular SYN cohort counts: **464 passed / 166 deselected in 102.23 s**.
+No new test was marked slow. New-security focused gate: 26 passed in 22.53 s.
+
+Manual localhost UI caught ranked findings assuming every finding belonged to a segment.
+Capture-point heuristics now use point labels/direction when no segment exists, without adding
+fake heatmap segments. The browser verified lifecycle totals, bucket-16 occupancy 260, the
+200-of-261 failure-example notice and clicking occupancy frames/content filters. Temporary
+server/tab were closed. The SYN wave has irregular per-bucket counts 61/79/57/63 and random
+arrival times, preserving exactly 260 half-open sessions. Initial macOS arm packaging failed
+before build due to runner DNS resolution of files.pythonhosted.org; Intel/Windows packaging
+passed. The replacement full matrix on the final source head remains the close-out gate.
+
+The first-consumer repair removed diagnostic starvation, but Windows still took 438.14/446.93 s;
+late security-matrix fixture wait was 64.74/69.30 s. One full default-threshold dataset and its
+strict **260** occupancy assertion remain. Nine compact location/ID/family fixtures configure
+proportional floors: SYN rate 8, sources 5, fan-out 8, half-open floor 5; occupancy is strictly
+**48**. Each healthy NAT-pool address independently reaches the fan-out floor. Thus all signal,
+false-positive, device/link, evidence and coverage assertions remain, without duplicated large
+populations. No case moved to slow and the Windows 240 s gate remains unchanged.
+
+Native maximum-SYN bounds skip joins only when even all observed sessions cannot reach any
+heuristic floor. Tests lower a floor to force the complete detector path and reject an unsafe
+shortcut; a no-SYN guard proves unknown state/occupancy. tshark directly checks the generator's
+increment/random IP-ID choices; zero/constant/IPv6 retain the matrix. Final local default:
+**468 passed / 166 deselected in 93.69 s** (**634 total / 30 new fast tests**). Ruff and bundled
+TypeScript/Vite pass. Final hosted acceptance remains the close-out gate.
+
+After compact fixtures/native event bounds, Windows passed every assertion but still exceeded
+240 seconds (3.12: 295.58 s). `tools/windows_fast_suite.py` now executes the identical complete
+fast collection in two isolated processes **inside** each existing Windows job. It verifies that
+JUnit total equals collected cases and that failures/errors are zero. The 240 s gate measures
+wall time from before collection through process teardown, not summed parallel process duration.
+No case is omitted or marked slow; one fixture worker per process avoids nested oversubscription.
+Partition/coverage negative guards are fast unit tests; full hosted execution is the close-out gate.
+
+A new real-tshark `security_reply` scenario has SYN/ACK replies but no final ACK; its positive
+pattern test failed before changing the erroneous AND of ratios to the requested OR. A late
+sequence-consistent handshake still counts after half-open observation expiry; the timer limits
+occupancy only. Healthy-completion thresholds cannot be configured to include ratio 1.
+Final local default: **473 passed / 166 deselected in 96.14 s** (**639 total / 35 new fast cases**).
+Ruff and TypeScript/Vite pass. The remaining hosted wall-time/full-matrix result is recorded in
+PR #13 before close-out. Large-capture ingest/analysis/RSS was not re-benchmarked in this part.

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { num, time } from "./api";
+import { api, num, time } from "./api";
 import type { Ref } from "./types";
 export type SessionReport = {
   note: string;
@@ -27,6 +27,7 @@ export type SessionReport = {
     closed: number | null;
     half_open: number | null;
   }[];
+  failed_handshake_count: number;
   failed_handshakes: {
     point_a: string;
     point_b: string;
@@ -43,6 +44,7 @@ export function Sessions({
   onEvidence: (refs: Ref[]) => void;
 }) {
   const [point, setPoint] = useState("");
+  const [error, setError] = useState("");
   if (!data) return null;
   const selected = point || data.points[0]?.point;
   return (
@@ -81,6 +83,7 @@ export function Sessions({
           </tbody>
         </table>
       </div>
+      {error && <p role="alert">{error}</p>}
       <details>
         <summary>Half-open occupancy over time</summary>
         <label>
@@ -111,7 +114,23 @@ export function Sessions({
                 .filter((b) => b.point === selected)
                 .map((b) => (
                   <tr key={b.start}>
-                    <td>{time(b.start)}</td>
+                    <td>
+                      <button
+                        onClick={async () => {
+                          try {
+                            const d = await api<{ evidence: Ref[] }>(
+                              `/sessions/evidence?point=${encodeURIComponent(b.point)}&start=${b.start}&end=${b.end}`,
+                            );
+                            setError("");
+                            onEvidence(d.evidence);
+                          } catch (e) {
+                            setError(String(e));
+                          }
+                        }}
+                      >
+                        {time(b.start)}
+                      </button>
+                    </td>
                     <td>{b.coverage}</td>
                     <td>{num(b.syns)}</td>
                     <td>{num(b.synacks)}</td>
@@ -127,7 +146,8 @@ export function Sessions({
       <details>
         <summary>
           Supported failed handshake stopping hops (
-          {data.failed_handshakes.length} shown)
+          {data.failed_handshakes.length} of {data.failed_handshake_count}{" "}
+          shown)
         </summary>
         {data.failed_handshakes.map((f, i) => (
           <p key={i}>

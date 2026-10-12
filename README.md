@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.3.1-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.3.3-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -143,7 +143,7 @@ packetbreaker --project demo/project
 6. **Export HTML / Export JSON:** use the header buttons. HTML opens locally as a
    single file; its metric-selectable heatmap, onset markers and evidence filters
    work without the running app or Internet. JSON follows
-   [findings schema v5](docs/findings-v5.schema.json). Both export the complete
+   [findings schema v6](docs/findings-v6.schema.json). Both export the complete
    saved analysis window, independent of the current brush. Neither embeds packet
    payloads; addresses and filters are still sensitive investigation metadata.
 7. **Settings:** inspect clock estimates/calibration frames, then stop with Ctrl+C.
@@ -600,3 +600,36 @@ and reuses completed indexes. `--no-browser` leaves the local server running for
    captures only under your incident-handling policy; PacketBreaker runs locally without telemetry.
 
 To reopen without importing files: `packetbreaker --project "/path/to/incident-captures.packetbreaker"`.
+
+## Stateful-device/security hints (Phase 4 / Part 4)
+
+In **Overview → TCP lifecycle and security heuristics**, compare SYN sessions, SYN/ACK,
+sequence-consistent establishment and FIN/RST closure at each point. Expand half-open buckets
+and click a bucket for carried SYNs/control-frame filters. The default ten-second observation
+expiry is configurable in **Settings**; it is not the device's internal timer/table occupancy.
+FIN means closure started. Missing SYN/clock/coverage stays unknown. Stopping-hop examples are
+bounded to 200, balanced across boundaries/directions; every failed-handshake boundary is stored
+in DuckDB's `handshake_stops` table, with a total count in the report.
+
+SYN-flood-like and scan-like fan-out findings are **heuristics**, with thresholds and evidence;
+they do not assert intent. Healthy flash crowds, successful health checkers and NAT/LB fan-out
+are excluded by handshake completion. Incomplete observation deadlines or capture quality
+suppress absence-based support. Pressure needs a healthy baseline plus a connection/half-open
+spike and at least three aligned positive drop-stage frames at that **same stateful device**.
+It is corroboration, not proof of session-table exhaustion. Generic packet disappearance leaves
+pressure unknown. Observed IP spread does not establish spoofing; legitimate unsuccessful probes
+cannot be distinguished from malicious intent using these packets.
+
+```sh
+packetbreaker demo demo/security --scenario security --ip-id zero
+packetbreaker --project demo/security/project
+```
+
+The wholly generated six-point FW1/FW2 path includes a healthy flash crowd, irregular SYN wave
+with PA-tagged FW2 drop evidence, real port-scan pattern, healthy checker/NAT-pool distractors,
+SYN retry, capture miss and a reverse SYN/ACK disappearance. `--ip-id constant` and `--ipv6`
+exercise alternate identities. Python fixtures can move the fault to FW1 or the FW1→FW2 link;
+only a positively evidenced device receives a supported pressure hint. JSON schema v6 and offline
+HTML include the lifecycle, heuristic settings/quality notes and evidence; these views describe
+the saved analysis window, while the brush selects overlapping findings rather than recalculating
+heuristic populations.

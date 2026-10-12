@@ -14,3 +14,8 @@ node_modules/
 demo/project/
 *.duckdb
 .DS_Store
+
+.fast-temp-*
+fast-shard-*.log
+fast-suite*.xml
+fast-suite-summary.json

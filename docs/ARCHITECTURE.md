@@ -752,3 +752,23 @@ mostly established cohorts. The excursion floor is 50 new sessions/s or 20 obser
 sessions, and four times baseline. At least three aligned positive vendor-stage proofs must
 belong to that device/boundary near the drop onset. Upstream spikes cannot transfer attribution;
 generic disappearance at a device or link retains an explicit unknown pressure result.
+
+`handshake_stops` preserves all failed-handshake stopping hops. Report examples balance the
+first 200 rows across boundary/direction so a high SYN volume cannot hide returning SYN/ACK
+failures. `GET /api/sessions/evidence` provides bounded control/carried-SYN frame references for
+an occupancy bucket, with validated point/range inputs. Lifecycle/security panels disclose
+full-window scope; brushing selects overlapping heuristic findings without changing their
+population. Settings and reports are cached with the project; no extra tshark pass is introduced.
+
+A native per-point SYN-session bound avoids heuristic joins when no event population can reach
+any scan, SYN-rate or half-open excursion floor. Stale heuristic tables are removed on this
+path, with an explicit below-floor report status; lifecycle accounting remains available. With
+no observed SYN, lifecycle joins use an empty typed source and all state/occupancy remains unknown.
+The half-open excursion floor is configurable (default 20); pressure still needs its independent
+healthy baseline and positive same-device evidence.
+
+SYN-pattern low completion means SYN/ACK **or** establishment is low; the reply/no-final-ACK
+fixture exercises the distinction. Captured late SYN/ACK/final ACK remain establishment evidence
+past half-open expiry. Windows CI partitions whole test files into two isolated processes in the
+same acceptance job, with one fixture worker per process and complete-collection/JUnit checks.
+Default local pytest and the six-target/one-slow-job policy are unchanged.

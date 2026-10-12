@@ -31,6 +31,8 @@ def main():
         "--scenario",
         default="demo",
         choices=[
+            "security",
+            "security_reply",
             "diagnostics",
             "onset_intermittent_2",
             "onset_intermittent_3",

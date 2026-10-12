@@ -340,6 +340,14 @@ def create_app(project_path):
     ):
         return findings_page(project, start, end)
 
+    @app.get("/api/sessions/evidence")
+    def lifecycle_evidence(point: str,start: float=Query(allow_inf_nan=False),end: float=Query(allow_inf_nan=False)):
+        from .security import session_evidence
+        try:
+            return session_evidence(project,point,start,end)
+        except ValueError as exc:
+            raise HTTPException(422,str(exc)) from exc
+
     @app.get("/api/timeseries")
     def timeseries():
         return timeseries_page(project)

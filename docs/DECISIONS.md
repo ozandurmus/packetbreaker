@@ -525,3 +525,27 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   same stateful node, an early healthy baseline, a local connection/occupancy excursion and
   aligned positive device-drop evidence at its onset. Supported packet loss without positive
   device-stage evidence yields unknown. Do not promote upstream SYN symptoms to device faults.
+- Keep every stopping-hop row in DuckDB and balance representative UI evidence across direction
+  and boundary. Bounded examples cannot silently masquerade as the complete failure population.
+- Security fixtures use the same captures for healthy rate/fan-out distractors and supported
+  faults, with two firewalls and an explicit inter-device link. Native SQL mutants execute rate-only,
+  destinations-only and global-drop/spike rules; the acceptance contracts reject all three.
+- Prefetch in first-consumer order across every fixture family. Appending special diagnostic
+  builds after a late heavy matrix creates a test wait, not a detector regression; do not hide
+  it by relaxing assertions, increasing duration gates or moving the new cases to slow.
+- Bound work by the observed event population: if even every SYN-anchored session cannot reach
+  any pattern/spike floor, skip heuristic joins and remove stale heuristic tables. A no-SYN
+  lifecycle uses an empty typed observation source; it cannot manufacture establishment or zeros.
+- Keep one full default-threshold security fixture (including the strict occupancy 260 assertion).
+  The location/ID/IP-family matrix uses compact traffic with proportionally configured floors;
+  healthy distractors still exceed each configured rate/fan-out threshold and every supported/
+  unknown, evidence and exact-location assertion remains. Compact occupancy is independently 48.
+- SYN patterns use low SYN/ACK **or** established ratio, as requested. A fully replying server
+  with no client final ACK is a required wire case; requiring both ratios low would miss it.
+  Completion thresholds cannot include a healthy 100% population (maximum configurable 0.5).
+- Observation expiry only limits half-open occupancy. Late sequence-consistent handshakes and
+  later FIN/RST closure still count; expiry is not a connection lifetime or failure oracle.
+- Keep the six-target CI policy. Windows runs the same complete fast collection in two isolated
+  pytest processes within each existing job, one fixture worker each. Its unchanged 240-second
+  gate measures actual wall time including collection, process startup and teardown. JUnit counts
+  must equal the complete fast collection; failures/errors or missing cases fail the job.

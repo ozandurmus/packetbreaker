@@ -1,8 +1,8 @@
-# Original brief coverage — Phase 4 / Part 2
+# Original brief coverage — Phase 4 / Part 4
 
 This is a report, not an implementation plan or a certification of arbitrary real captures.
 Scope: the original **Codex Brief: PacketBreaker — Multi-Hop PCAP Correlation and Path Analysis
-Tool**, assessed against this branch (engine 0.3.1). The original requirements are identified
+Tool**, assessed against this branch (engine 0.3.3). The original requirements are identified
 below by section and phrase; the private pasted attachment is not copied into the repository.
 
 **done** means the specified behavior exists, with the named source/test evidence, within its
@@ -11,8 +11,7 @@ stated bounds. **partial** means a useful subset exists but the missing part is 
 not proof of a metric, detector or UI. Code-reviewed UI coverage is distinguished from tested
 backend behavior. CI proves synthetic portability, not production correctness on every format.
 All paths below are repository-relative. Tests marked slow remain part of acceptance on the one
-macOS/Python 3.12 job; they are not omitted from this assessment. This part implements only the
-transport/DNS/stream gaps requested for Phase 4 / Part 2; remaining gaps stay explicit.
+macOS/Python 3.12 job; they are not omitted from this assessment. This part adds observed lifecycle and stateful-device/security heuristics; remaining gaps stay explicit.
 
 ## 1. Platform and stack (context)
 
@@ -150,10 +149,10 @@ transport/DNS/stream gaps requested for Phase 4 / Part 2; remaining gaps stay ex
 | RST / ICMP origin using first appearance, endpoint TTL/IP-ID and vendors | done | `integrity.py`, `proxy_resets.py`, `device_drops.py`; `test_integrity_attribution.py::test_false_positive_guards`, F5/Check Point and proxy reset tests. Missing endpoint capture/compatible endpoint TTL cannot become injection. TTL/IP ID are corroboration, not authentication or proof of IPS/policy intent. |
 | Downstream-only injection / undeclared payload modification | done | `integrity.py`, `field_diff.py`; multi-device `test_integrity_attribution.py`, `test_integrity.py::test_declared_alg_and_unknown_clock_do_not_claim_modification`. Coverage, mapping and complete payload evidence gate claims; middlebox vs link attribution stays explicit. |
 | TLS certificate/server-hello differences | partial | `tls_analysis.py`, `application_index.py`; `test_tls_interception.py` exact proxy/link, declared inspection, ambiguity, client-auth and TLS 1.3 guards. Visible server-chain subject/issuer/fingerprint comparison exists. No complete cipher/extension/ServerHello change detector or certificate trust validation; encrypted/absent chains remain unknown. |
-| SYN stops at hop / failed handshakes / half-open accounting | partial | `analysis.py`, blocked-handshake class and distinct-session buckets; `test_control.py`, `test_timeseries.py`. Hop failure supported; no full session-state lifecycle/half-open occupancy model. |
-| SYN-flood-like patterns | missing | New-connection/failed-handshake onsets are available, but no SYN/established ratio or flood heuristic, detector or fixtures. A rate spike alone is not an attack. |
-| Scan-like fan-out | missing | No per-client destination/port fan-out heuristic or supported scan finding. |
-| Session-table-pressure hints | missing | No correlation rule joining connection-rate spikes to confirmed stateful-device drops. Existing charts are inputs, not evidence of session-table capacity/resource cause. |
+| SYN stops at hop / failed handshakes / half-open accounting | done | `security.py`, `session_lifecycle`, `session_buckets`, `handshake_stops`, `Sessions.tsx`; `test_sessions.py`. SYN retries count once; three-way sequence checks; observed half-open expiry, FIN closure initiation and unknown coverage. Per-boundary/direction stopping-hop evidence includes reverse SYN/ACK; UI examples are bounded, full rows persist. Not a device internal table. |
+| SYN-flood-like patterns | done | `security.py::security_checks`, Settings, v6 export; `test_security.py`: sustained SYN rate + low SYN/ACK/established ratios + observed source spread, complete deadlines/quality. Healthy flash crowd is negative. Label is heuristic; no attack/spoofing intent claim. |
+| Scan-like fan-out | done | `security.py::scan_checks`, `test_security.py`: event-anchored per-source IP/port fan-out with predominantly unestablished handshakes. Successful health checks, LB/NAT-pool fan-out and capture misses are negatives. Failed authorized probing/intent is indistinguishable; label remains heuristic. |
+| Session-table-pressure hints | done | `security.py::pressure_checks`, `test_security.py`: early healthy baseline, local connection/half-open spike + aligned positive drop-stage onset at the same stateful device. Exact FW1/FW2/link matrix; upstream spikes cannot transfer attribution. Generic disappearance is unknown; corroboration, never table-capacity/cause proof. |
 
 ### Capture quality
 
@@ -166,7 +165,7 @@ transport/DNS/stream gaps requested for Phase 4 / Part 2; remaining gaps stay ex
 
 | Item | Status | Evidence and limits |
 |---|---|---|
-| Clean findings schema with type/hop/time/metrics/refs/confidence | done | `export.py::FindingsExport`, `docs/findings-v4.schema.json`, `test_export.py`. |
+| Clean findings schema with type/hop/time/metrics/refs/confidence | done | `export.py::FindingsExport`, `docs/findings-v6.schema.json`, `test_export.py`. |
 | Disabled setting/panel, tokenized findings-only preview, no outbound calls | done | `assistant.py`, `app.py`, `Assistant.tsx`; `test_assistant.py`. Consistent ephemeral tokens, no packet data/provider/key/send action. Other free text/local paths/organization names are not guaranteed anonymized. |
 
 ## 8. Testing
@@ -177,7 +176,7 @@ transport/DNS/stream gaps requested for Phase 4 / Part 2; remaining gaps stay ex
 | Seq randomization, full proxies/pooling, MSS/MTU/injected RST/offload fixtures | done | `translation_synthetic.py`, `integrity_synthetic.py`, `tests/proxy_fixtures.py`; `test_translation.py`, `test_proxy_integration.py`, `test_integrity_attribution.py`, `test_byte_ranges.py`. Generated in temporary folders; tshark defines vendor/TLS expected decode. |
 | Negative guards and exact device/link attribution with distractors | done | `test_integrity_attribution.py` FW/LB/link, `test_proxy_pairing.py` nearest-time mutant, `test_tls_interception.py` always-first-proxy mutant; endpoint/capture/clock/ambiguity controls. No real/third-party captures tracked. |
 | Matching/clocks/classification/onset ground-truth unit + integration tests | done | Named tests above plus `test_occurrences.py`; IPv4 zero/constant/random/increment and IPv6 matrices. |
-| Correct hop and onset within one bucket for **every** original generator scenario | partial | `test_onset.py` asserts hop/time for loss/delay/propagation, intermittent/random loss and ID/IPv6 variants. Integrity, vendor, proxy and MTU scenarios assert attribution, but not all define/verify a change-point onset. No onset acceptance for missing RTP/burst/flood features. |
+| Correct hop and onset within one bucket for **every** original generator scenario | partial | `test_onset.py` asserts hop/time for loss/delay/propagation, intermittent/random loss and ID/IPv6 variants. Integrity, vendor, proxy and MTU scenarios assert attribution, but not all define/verify a change-point onset. No complete onset acceptance for missing RTP and all heuristic populations. |
 | Pure capture miss never network loss | done | `test_analysis.py::test_capture_miss_never_network_loss`, slow occurrences/realistic matrices, byte-range/control/proxy/integrity MTU negative cases. Correct unsupported cases may be unknown. |
 | Five-file topology/ingest/JSON end-to-end | done | `test_analysis.py::test_healthy_five_file_e2e_and_reopen`, `test_api.py::test_api_ingest_analysis_report`; native `tools/smoke_binary.py` independently runs five-file zero-ID loss. |
 | Windows/macOS CI with tshark; fast default <2 min | done | `.github/workflows/ci.yml`: six PR/manual OS×Python checks, slow only macos-14/3.12, three packaging smoke jobs. Final measured fast duration and exact CI run are in `VALIDATION.md`; the Windows fast-suite four-minute budget is enforced from JUnit timing; local pilot target is 90 seconds (see measured validation). |
@@ -185,7 +184,8 @@ transport/DNS/stream gaps requested for Phase 4 / Part 2; remaining gaps stay ex
 ## Decision inputs for the next part
 
 The largest unimplemented transport/security areas are RTP quality, generic UDP transaction
-semantics, SYN-flood/fan-out heuristics and session-pressure correlation. Remaining partial rows
+semantics and application breadth. SYN/fan-out and session-pressure heuristics are now bounded
+implementations as described above. Remaining partial rows
 include application/protocol breadth, encrypted visibility and topology/path ambiguity. Tunnel,
 fragment and microburst support is bounded as described above; it does not turn capture timing
 into proof of queue overflow or identify unseen devices. The owner chooses the next part.
