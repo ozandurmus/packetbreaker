@@ -30,6 +30,11 @@ def test_healthy_five_file_e2e_and_reopen(scenarios):
             or reopened.get(db, "topology")["forward"] == topology["forward"]
         )
     page = flow_page(project)
+    with project.connect() as db:
+        assert (
+            page["items"][0]["unique_observations"]
+            == db.execute("SELECT count(DISTINCT packet_key) FROM obs").fetchone()[0]
+        )
     assert page["total"] == 1
     trace = ladder(project, page["items"][0]["flow"], limit=1)
     assert trace["total"] > 300

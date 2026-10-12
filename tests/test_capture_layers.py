@@ -162,3 +162,68 @@ def test_erspan_default_vxlan_opt_in_and_collision_guard(tmp_path, tshark):
             "UDP",
             32000,
         )
+
+
+def test_batched_overlay_keeps_sparse_frames_other_points_and_partial_identity(plain_decodes):
+    import duckdb
+    from packetbreaker.capture_layers import overlay_layers
+
+    expected = plain_decodes(False)
+    with duckdb.connect() as db:
+        schema = ",".join(f'"{key}" {kind}' for key, kind in PACKET_COLUMNS.items())
+        db.execute(f"CREATE TABLE obs({schema},raw_seq BIGINT,raw_ack BIGINT,canon VARCHAR,point VARCHAR)")
+        db.execute("CREATE TABLE layer_packets(point VARCHAR,layer VARCHAR,frame BIGINT,packet VARCHAR)")
+        source = []
+        for point, frame in [("a", 1), ("a", 10001), ("a", 20002), ("decoy", 1)]:
+            packet = {
+                **expected,
+                "capture_id": "source-" + point,
+                "frame": frame,
+                "seq": 19000,
+                "ts": 1700000000 + frame / 1000000,
+            }
+            if frame == 20002:
+                packet["unsupported"] = "Fragmented packet"
+            source.append(
+                [
+                    *[packet[k] for k in PACKET_COLUMNS],
+                    packet["seq"],
+                    packet["ack"],
+                    packet["tuple_key"],
+                    point,
+                ]
+            )
+        db.executemany("INSERT INTO obs VALUES (" + ",".join("?" for _ in source[0]) + ")", source)
+        for frame in [1, 10001, 20002]:
+            decoded = {
+                **expected,
+                "frame": 999999,
+                "capture_id": "private-decoder",
+                "ts": 1700000999,
+                "iface": 999,
+                "frame_hash": "private-hash",
+            }
+            if frame == 20002:
+                decoded["path_fields"] = json.dumps({"fragment": {"complete": False, "id": "42"}})
+            db.execute("INSERT INTO layer_packets VALUES ('a','plain',?,?)", [frame, json.dumps(decoded)])
+        overlay_layers(db, "a", None, batch_size=1)
+        names = [*PACKET_COLUMNS, "raw_seq", "raw_ack", "canon", "point"]
+        actual = [
+            dict(zip(names, r)) for r in db.execute("SELECT * FROM obs ORDER BY point,frame").fetchall()
+        ]
+        assert len(actual) == len(source) == 4
+        for r in actual:
+            original = next(
+                dict(zip(names, row)) for row in source if row[-1] == r["point"] and row[1] == r["frame"]
+            )
+            for key in ("frame", "capture_id", "iface", "frame_hash", "ts"):
+                assert r[key] == original[key]
+            if r["point"] == "decoy":
+                assert r == original
+            elif r["frame"] == 20002:
+                assert r["seq"] == r["raw_seq"] == 19000 and r["unsupported"] == "Fragmented packet"
+                assert json.loads(r["path_fields"])["fragment"]["complete"] is False
+            else:
+                for key in PACKET_COLUMNS.keys() - {"frame", "capture_id", "iface", "frame_hash", "ts"}:
+                    assert r[key] == expected[key]
+                assert r["raw_seq"] == expected["seq"] and r["raw_ack"] == expected["ack"]

@@ -350,11 +350,14 @@ def index_applications(project, db, topology, cancel=None, progress=None):
     needed = (
         any(p.translation == "full_proxy" for p in topology.points)
         or db.execute(
-            "SELECT count(*) FROM obs WHERE proto='TCP' AND (json_extract_string(path_fields,'$.tls_record_type') IN ('20','21','22','23','24') OR NOT coalesce(json_exists(path_fields,'$.tls_record_type'),false))"
+            "SELECT count(*) FROM obs WHERE proto='TCP' AND (json_extract_string(path_fields,'$.tls_record_type') IN ('20','21','22','23','24') OR (NOT coalesce(json_exists(path_fields,'$.tls_record_type'),false) AND NOT coalesce(try_cast(json_extract_string(path_fields,'$.transport_index') AS INTEGER)=1,false)))"
         ).fetchone()[0]
         > 0
     )
     if not needed:
+        # A new non-TLS generation must not reuse certificates/state from older captures.
+        for table in ("app_protocol", "app_protocol_cache", "tcp_point_analysis"):
+            db.execute("DELETE FROM " + table)
         return []
     binary = find_tshark(project.get(db, "preferences", {}).get("tshark"))
     statuses = []

@@ -829,11 +829,11 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             add_unplaced(db, topology, segments, findings)
         db.execute("""CREATE OR REPLACE TABLE flow_summary AS
             WITH base AS (SELECT flow,max(coalesce(translation_reason,range_reason)) AS matching_unknown_reason,min(corrected) AS start,max(corrected) AS "end",count(DISTINCT point) AS points,
-                count(DISTINCT packet_key) AS unique_observations,count(*) FILTER(WHERE retrans) AS retrans_observations,
+                count(*) FILTER(WHERE retrans) AS retrans_observations,
                 bool_or((flags&4)>0) AS has_reset, max(rtt)*1000 AS max_rtt_ms,
                 min(canon) AS tuple, count(*) FILTER(WHERE (flags&2)>0 AND (flags&16)=0) AS syns,
                 count(*) FILTER(WHERE (flags&18)=18) AS synacks FROM obs GROUP BY flow),
-            bytes AS (SELECT flow,sum(length) AS bytes FROM
+            bytes AS (SELECT flow,sum(length) AS bytes,count(packet_key) AS unique_observations FROM
                 (SELECT flow,packet_key,max(length) AS length FROM obs GROUP BY flow,packet_key) GROUP BY flow),
             losses AS (SELECT flow,count(*) FILTER(WHERE kind='impactful_loss') AS impactful_loss,
                 count(*) FILTER(WHERE kind='recovered_loss') AS recovered_loss,
@@ -844,7 +844,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                 count(*) FILTER(WHERE kind='unknown') AS unknown_events,
                 max(greatest(impact_ms,recovery_ms)) AS max_stall_ms
                 FROM events GROUP BY flow)
-            SELECT base.*,NULL::DOUBLE AS handshake_rtt_ms,NULL::VARCHAR AS reset_origin,bytes.bytes,coalesce(impactful_loss,0) AS impactful_loss,
+            SELECT base.*,NULL::DOUBLE AS handshake_rtt_ms,NULL::VARCHAR AS reset_origin,bytes.bytes,bytes.unique_observations,coalesce(impactful_loss,0) AS impactful_loss,
                 coalesce(recovered_loss,0) AS recovered_loss,coalesce(capture_miss,0) AS capture_miss,max_stall_ms,
                 coalesce(unrecovered_loss,0) AS unrecovered_loss,coalesce(handshake_blocked,0) AS handshake_blocked,
                 coalesce(confirmed_device_drop,0) AS confirmed_device_drop,
