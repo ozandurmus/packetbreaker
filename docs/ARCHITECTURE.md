@@ -652,3 +652,7 @@ Production profile/export caches are report-generation scoped. TCP state lookup 
 decoded tree once; recovery evidence/segment lookup is batched using the existing frame helper.
 The fast-suite fixture pool also prefetches the existing independent proxy datasets, without
 changing production ingest defaults or moving diagnostic tests to the slow suite.
+
+An application/sender hypothesis requires timing pairs on every drawn edge between the leg's
+captured sender and receiver. A healthy partial path does not prove network health; report
+generation caching includes the directional profile schema version to invalidate earlier results.

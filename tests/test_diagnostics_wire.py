@@ -163,6 +163,17 @@ def test_missing_clock_endpoint_and_deadline_stay_unknown(diagnostic_wire, clone
     p = clone_project(source)
     with p.connect() as db:
         changed = deepcopy(report)
+        changed["generated_at"] += "-partial-clock"
+        for segment in changed["segments"]:
+            if "fw_in" in segment["id"] or "fw_out" in segment["id"]:
+                segment["loss_percent"] = None
+        p.set(db, "report", changed)
+        db.execute("UPDATE obs SET corrected=NULL WHERE point IN ('fw_in','fw_out')")
+    # A few healthy remaining links do not attest to a healthy complete TCP leg.
+    assert all(d["classification"] == "unknown" for d in profiles(p, flows["paced_sender"])["items"])
+    p = clone_project(source)
+    with p.connect() as db:
+        changed = deepcopy(report)
         changed["generated_at"] += "-coverage-short"
         p.set(db, "report", changed)
         db.execute("DELETE FROM obs WHERE ts>1700000002.8")

@@ -52,7 +52,8 @@ def classify(m):
         and (m["loss_count"] >= 3 and m["loss_stall_ms"] >= stall or m["rtt_degraded"] and m["path_degraded"])
     )
     healthy_path = (
-        m["path_samples"] >= 3
+        m.get("path_complete", False)
+        and m["path_samples"] >= 3
         and m["path_p95_ms"] is not None
         and m["path_p95_ms"] < stall / 4
         and m["loss_count"] == 0
@@ -92,6 +93,10 @@ def classify(m):
             "classification": "sender/application-limited",
             "reason": "Repeated visible server service waits or sender-side idle gaps despite window headroom, prompt ACKs and a healthy monitored path; pacing/physical bandwidth cause is not measured",
         }
+    if not m.get("path_complete", False):
+        result["reason"] = (
+            "Incomplete clock-corrected/matchable path coverage; sender/application cause unknown"
+        )
     return result
 
 
@@ -234,7 +239,7 @@ def profiles(project, flow=None, include_service=True):
             return {"items": [], "reason": "Run analysis first", "tooltip": TOOLTIP}
         topology = Topology.model_validate(raw_topology)
         prepare(db, project, topology, report)
-        cache_generation = json.dumps([report["generated_at"], 6])
+        cache_generation = json.dumps([report["generated_at"], 7])
         db.execute(
             "CREATE TABLE IF NOT EXISTS transport_profile_cache(flow VARCHAR PRIMARY KEY,generation VARCHAR,value VARCHAR)"
         )
@@ -264,6 +269,11 @@ def profiles(project, flow=None, include_service=True):
             FROM events WHERE direction||':'||point_a||':'||point_b IN(SELECT hop FROM transport_edges) AND kind IN('recovered_loss','impactful_loss','unrecovered_loss','handshake_blocked','confirmed_device_drop') GROUP BY ALL""",
         )
         lossmap = {(r["flow"], r["direction"]): r for r in losses}
+        observed_edges = defaultdict(set)
+        for row in rows(
+            db, "SELECT flow,direction,hop FROM transport_transit GROUP BY ALL HAVING count(*)>=3"
+        ):
+            observed_edges[(row["flow"], row["direction"])].add(row["hop"])
         items = []
         for (fid, direction), points in groups.items():
             sender_kind = "Client" if direction == "forward" else "Server"
@@ -293,6 +303,20 @@ def profiles(project, flow=None, include_service=True):
             metrics = dict(sender or points[0])
             metrics["sender_captured"] = sender is not None
             metrics["receiver_captured"] = receiver is not None
+            path = (
+                topology.forward
+                if direction == "forward"
+                else topology.reverse or list(reversed(topology.forward))
+            )
+            expected_edges = set()
+            if sender and receiver and sender["point"] in path and receiver["point"] in path:
+                start, stop = path.index(sender["point"]), path.index(receiver["point"])
+                expected_edges = {
+                    f"{direction}:{a}:{b}" for a, b in zip(path[start:stop], path[start + 1 : stop + 1])
+                }
+            metrics["path_complete"] = (
+                bool(expected_edges) and expected_edges <= observed_edges[(fid, direction)]
+            )
             metrics["receiver_window_evidence"] = bool(
                 receiver and (receiver["zero_windows"] >= 2 or receiver["window_full"] >= 3)
             )
@@ -399,7 +423,7 @@ def export_profiles(project, limit=200):
     """Export bounded profiles; enrich visible HTTP flows with existing waterfall evidence."""
     with project.connect() as db:
         report = project.get(db, "report")
-        generation = [report["generated_at"], 6, limit] if report else None
+        generation = [report["generated_at"], 7, limit] if report else None
         cached = project.get(db, "transport_export_cache")
         if cached and cached["generation"] == generation:
             return cached["value"]

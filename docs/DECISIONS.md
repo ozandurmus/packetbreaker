@@ -431,3 +431,7 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 - Unknown diagnoses retain representative frame evidence. Exact timing, a sender's physical
   bandwidth cap, encrypted application service and short/unobservable TCP timer mechanisms
   remain outside what these captures prove.
+
+- A sender/application hypothesis needs matched timing evidence across every drawn edge of its
+  captured TCP leg. Healthy surviving edges cannot vouch for an unmeasurable hop. Supported local
+  receiver pressure or a separately supported loss cause remains independent of that path claim.

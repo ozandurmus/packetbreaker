@@ -22,6 +22,7 @@ def facts(**changes):
         loss_hop=None,
         path_p95_ms=2,
         path_samples=20,
+        path_complete=True,
         rtt_degraded=False,
         path_degraded=False,
         service_ms=None,
@@ -43,6 +44,7 @@ def test_single_counter_and_quality_guards_first():
         dict(trusted=False, loss_count=5, loss_stall_ms=1200),
         dict(indexed=False),
         dict(sender_captured=False, idle_gaps=8),
+        dict(path_complete=False, idle_gaps=8),
     ]:
         result = classify(facts(**values))
         assert result["classification"] == "unknown", result
