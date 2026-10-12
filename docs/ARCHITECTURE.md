@@ -745,3 +745,10 @@ counts distinct destination IP/port pairs and requires predominantly unestablish
 Established connections closed with FIN/RST do not become failed handshakes. Peak rolling counts
 are distinct from the displayed span of qualifying windows; completion elsewhere suppresses
 capture-miss false positives. UI thresholds and v6 HTML/JSON exports include the heuristic.
+
+Pressure hints join a connection-rate or half-open spike to the first supported drop at the
+same drawn stateful-device boundary. An early healthy baseline needs three covered, mature,
+mostly established cohorts. The excursion floor is 50 new sessions/s or 20 observed half-open
+sessions, and four times baseline. At least three aligned positive vendor-stage proofs must
+belong to that device/boundary near the drop onset. Upstream spikes cannot transfer attribution;
+generic disappearance at a device or link retains an explicit unknown pressure result.

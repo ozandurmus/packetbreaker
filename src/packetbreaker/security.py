@@ -266,6 +266,7 @@ def security_checks(db, topology, coverage, series, segments, clocks):
             )
         )
     findings.extend(scan_checks(db, topology, usable, series))
+    findings.extend(pressure_checks(db, topology, usable, segments))
     thresholds.update(
         scan_window_seconds=topology.security_scan_window_seconds,
         scan_targets=topology.security_scan_targets,
@@ -324,6 +325,109 @@ def scan_checks(db, topology, usable, series):
                     ),
                     "note": "Peak rolling-window counts; displayed interval spans qualifying windows, not one aggregate count.",
                 },
+                refs=refs,
+            )
+        )
+    return findings
+
+
+def pressure_checks(db, topology, usable, segments):
+    width = topology.bucket_seconds
+    floor = topology.security_syn_rate
+    db.execute(f"""CREATE OR REPLACE TEMP TABLE pressure_baseline AS WITH early AS(
+        SELECT point,min(bucket) AS first_bucket FROM security_cohorts GROUP BY point)
+        SELECT b.point,median(b.syns/{width}) AS baseline_rate,median(b.half_open) AS baseline_half_open,
+        count(*) AS baseline_buckets FROM session_buckets b JOIN early e USING(point)
+        JOIN security_cohorts c USING(point,bucket) WHERE b.coverage='covered'
+        AND c.usable AND c.established_ratio>=0.8 AND b.bucket<e.first_bucket+5
+        GROUP BY b.point HAVING count(*)>=3""")
+    db.execute(
+        f"""CREATE OR REPLACE TABLE pressure_spikes AS SELECT b.*,p.baseline_rate,p.baseline_half_open,
+        greatest({floor},4*p.baseline_rate) AS rate_threshold,
+        greatest(20,4*p.baseline_half_open) AS half_open_threshold
+        FROM session_buckets b JOIN pressure_baseline p USING(point)
+        WHERE b.coverage='covered' AND b.point IN (SELECT unnest(?::VARCHAR[]))
+        AND (b.syns/{width}>=greatest({floor},4*p.baseline_rate)
+        OR b.half_open>=greatest(20,4*p.baseline_half_open))""",
+        [usable],
+    )
+    points = {p.id: p for p in topology.points}
+    stateful = {"Firewall", "IPS", "Load Balancer", "Proxy", "WAF"}
+    findings = []
+    # Match the first supported drop appearance at its own drawn boundary, never any nearby device.
+    for segment in segments:
+        a, b = segment["point_a"], segment["point_b"]
+        device = points[a].device if points[a].device == points[b].device else None
+        if device and points[a].kind not in stateful:
+            continue
+        event = rows(
+            db,
+            """SELECT min(ts) AS onset,count(*) AS drops,arg_min(packet_key,ts) AS packet_key
+            FROM events WHERE point_a=? AND point_b=? AND direction=?
+            AND kind IN ('confirmed_device_drop','handshake_blocked','impactful_loss','recovered_loss','unrecovered_loss')""",
+            [a, b, segment["direction"]],
+        )[0]
+        if event["onset"] is None or event["drops"] < 3:
+            continue
+        spikes = rows(
+            db,
+            'SELECT * FROM pressure_spikes WHERE point=? AND start<=? AND "end">=? ORDER BY start LIMIT 1',
+            [a, event["onset"], event["onset"] - width],
+        )
+        if not spikes:
+            continue
+        spike = spikes[0]
+        positive = (
+            rows(
+                db,
+                """SELECT p.* FROM device_proofs p JOIN events e ON e.id=p.event_id
+            WHERE e.point_a=? AND e.point_b=? AND e.direction=? AND p.device=?
+            AND p.status='confirmed_device_drop' AND (p.time_source='corrected' OR p.time_source LIKE 'matched upstream%'
+                OR p.time_source='corrected inspection clock')
+            AND abs(e.ts-?)<=? ORDER BY e.ts LIMIT 16""",
+                [a, b, segment["direction"], device, event["onset"], width],
+            )
+            if device
+            else []
+        )
+        supported = len(positive) >= 3 and not segment.get("reason")
+        refs = evidence(
+            db,
+            "o.point=? AND o.corrected>=? AND o.corrected<? AND (o.flags&2)>0",
+            [a, spike["start"], spike["end"]],
+            8,
+        )
+        refs += evidence(db, "o.packet_key=?", [event["packet_key"]], 8)
+        for proof in positive[:2]:
+            refs += evidence(db, "o.point=? AND o.frame=?", [proof["point"], proof["frame"]], 1)
+        summary = (
+            f"possible session-table pressure at {device} (corroboration, not proof)"
+            if supported
+            else (
+                f"Session-table pressure unknown at {device or segment['label']}: generic disappearance without aligned positive device evidence"
+            )
+        )
+        findings.append(
+            finding(
+                db,
+                "session_table_pressure",
+                a,
+                spike["start"],
+                event["onset"],
+                summary,
+                dict(
+                    count=event["drops"],
+                    drop_onset=event["onset"],
+                    spike=spike,
+                    correlation_window_seconds=width,
+                    device_evidence=[
+                        dict(device=p["device"], stage=p["stage"], frame=p["frame"]) for p in positive
+                    ],
+                    conclusion="corroboration_only" if supported else "unknown",
+                ),
+                supported=supported,
+                hop=segment["id"],
+                device=device,
                 refs=refs,
             )
         )

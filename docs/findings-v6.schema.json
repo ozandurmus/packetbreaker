@@ -39,6 +39,7 @@
         },
         "type": {
           "enum": [
+            "session_table_pressure",
             "scan_like_fanout",
             "syn_flood_like",
             "fragmentation",

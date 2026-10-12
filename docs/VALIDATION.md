@@ -1097,3 +1097,7 @@ bucket regression: 8 passed in 8.10 s. TypeScript/Vite build passes after fixing
 Scan negative/positive tests were added before implementation: the required scan assertion failed
 (1 failed / 3 passed). Final combined SYN/scan gate: 4 passed in 5.11 s. Healthy health-check,
 NAT-pool, endpoint FIN closure and downstream-completed capture-miss traffic do not become scans.
+Pressure guards were written before implementation (2 failed / 4 passed). Final focused gate:
+6 passed in 5.33 s. A source-spread SYN wave traverses FW1 but is positively dropped at FW2;
+only FW2 receives supported pressure corroboration. Removing device proofs while preserving
+supported handshake disappearance yields unknown, with the missing-device-evidence reason.

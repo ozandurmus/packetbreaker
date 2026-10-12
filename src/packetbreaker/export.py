@@ -33,6 +33,7 @@ class Finding(BaseModel):
     )
     id: str
     type: Literal[
+        "session_table_pressure",
         "scan_like_fanout",
         "syn_flood_like",
         "fragmentation",

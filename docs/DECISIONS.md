@@ -521,3 +521,7 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   five seconds, at least 80% unestablished handshakes, and complete observation deadlines.
   Successful health checks, LB-style traffic and NAT-pool fan-out are mandatory distractors.
   Intent and authorized unsuccessful scanning cannot be distinguished from packets alone.
+- Session-table pressure is corroboration, never a measured table capacity/cause. Require the
+  same stateful node, an early healthy baseline, a local connection/occupancy excursion and
+  aligned positive device-drop evidence at its onset. Supported packet loss without positive
+  device-stage evidence yields unknown. Do not promote upstream SYN symptoms to device faults.
