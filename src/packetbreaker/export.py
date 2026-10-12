@@ -201,6 +201,16 @@ def html_report(data):
         + f"</tbody></table><ul>{refs(item['evidence'])}</ul></article>"
         for item in report.get("field_diffs", {}).get("items", [])
     )
+    burst_cards = "".join(
+        "<article><h3>{} · {} Mbps</h3><p>Duration {} ms; cause unknown.</p>{}<ul>{}</ul></article>".format(
+            h(b["point"]),
+            h(b["peak_mbps"]),
+            h(b["duration_ms"]),
+            details(b["loss_associations"], "Nearby next-segment loss onset — corroboration only"),
+            refs(b["evidence"]),
+        )
+        for b in report.get("microbursts", {}).get("items", [])
+    )
     # JSON is data, not executable markup. Escape '<' even inside arbitrary capture labels.
     encoded = (
         json.dumps(data, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
@@ -226,6 +236,7 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <section id="proxies"><h2>Full-proxy requests and TCP legs</h2>{details(report.get("proxies", {}), "Request pairings, dwell uncertainty, evidence and independent-leg classifications")}</section>
 <section id="tls"><h2>TLS interception evidence</h2>{details(report.get("tls", []), "Visible certificate chains and unknown encrypted handshakes")}{details(report.get("application_status", []), "Application decoder status")}</section>
 <section id="dns"><h2>DNS turnaround and deadline evidence</h2>{details(report.get("dns", {}).get("summary", []), "Per-resolver/point latency distribution")}{"".join(f'<article><h3>{h(d["question"])} · {h(d["resolver"])} · {h(d["status"])}</h3><p title="{h(d["tooltip"])}">{h(d["reason"])}</p><p>{h(d.get("location"))}; latency {h(d.get("latency_ms"))} ms</p><ul>{refs(d["evidence"])}</ul></article>' for d in report.get("dns", {}).get("items", []))}</section>
+<section id="microbursts"><h2>Capture microbursts</h2><p>{h(report.get("microbursts", {}).get("note"))}</p>{details(report.get("microbursts", {}).get("points", []), "Peak rate, duration and frequency by capture point")}{burst_cards}</section>
 <section id="field-diffs"><h2>Matched packet field differences</h2>{h(report.get("field_diffs", {}).get("note"))}{differences}</section>
 <section id="filters"><h2>Per-file flow filters</h2>{details(data["flow_filters"], "Copy filters for original or re-saved files")}</section>
 <script id="report-data" type="application/json">{encoded}</script><script>{HEATMAP_SCRIPT}</script></body></html>"""

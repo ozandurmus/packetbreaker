@@ -451,3 +451,10 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   datagram. Missing members are not multiple lost packets. Ambiguous assemblies cannot prove loss.
 - A first observed fragmentation boundary names the drawn device/link, not an unseen internal
   device. Unsupported clocks suppress attribution. A downstream reappearance remains capture miss.
+
+- Measure capture-byte rate over a rolling window, not only fixed bins: a burst crossing a bucket
+  boundary must remain visible. Derive a transparent relative threshold; this is not a measurement
+  of link capacity or queue depth. Zero-span batching cannot provide an exact duration.
+- Bursts and supported next-segment loss onsets are temporally associated only. A burst with no
+  loss produces no cause finding, and uncertain clocks cannot assert precedence. Never use this
+  association to promote the burst point to a loss suspect.

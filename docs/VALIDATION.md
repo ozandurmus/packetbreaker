@@ -923,3 +923,12 @@ exactly one unrecovered datagram; a middle-fragment capture miss yields capture_
 Overlaps are unknown. Missing-clock attribution is rejected. Every emitted fragment evidence
 filter in the checked finding is executed by tshark against its original file. Combined prior
 fragment/layer/export gate: 19 passed in 35.71 s. Schema assertions deliberately advance to v5.
+
+Microburst checkpoint: **7 passed in 7.82 s**. IPv4 zero-ID and IPv6 constant-label captures carry
+concurrent FW/LB/link loss flows and independent burst traffic. Each of six points sees two bursts:
+one without a nearby loss and one near supported loss onset. Only the three correct next segments
+receive corroborating associations; every cause remains unknown. Peak rate is independently
+recomputed from tshark's frame lengths/timestamps. Configurable 10 ms windows and SPAN-copy guards
+pass. The initial association check correctly rejected unverified manual clock uncertainty; the
+positive fixture now exercises fitted bidirectional clocks rather than pretending an override is
+a measured bound. Unknown-clock negative assertions remain intact.

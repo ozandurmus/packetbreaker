@@ -148,3 +148,73 @@ def fragment_path(directory, ipv6=False, ip_id="zero"):
         clock_overrides={p["capture_id"]: dict(offset_ms=0) for p in points},
     )
     return project, truth, topology, analyze(project, topology)
+
+
+def burst_path(directory, ipv6=False, ip_id="zero"):
+    import random
+    from packetbreaker.ingest import ingest
+    from packetbreaker.store import Project
+    from packetbreaker.analysis import analyze
+
+    rng = random.Random(713)
+    directory.mkdir(parents=True, exist_ok=True)
+    names = ["client", "fw_in", "fw_out", "lb_in", "lb_out", "server"]
+    captures = [[] for _ in names]
+    server = "2001:db8:2::2" if ipv6 else "10.2.0.2"
+    pid = 0 if ip_id == "zero" else 777
+
+    def emit(t, src, port, body, stop=6, reverse=False):
+        packet = datagram(
+            server if reverse else src,
+            src if reverse else server,
+            17,
+            struct.pack("!HHHH", 5000 if reverse else port, port if reverse else 5000, len(body) + 8, 0)
+            + body,
+            pid,
+        )
+        for point in range(stop):
+            captures[point].append((1700000000 + t + (5 - point if reverse else point) * 0.001, packet))
+
+    for n, stop in enumerate([2, 4, 3, 6]):
+        src = f"2001:db8:1::{n + 1}" if ipv6 else f"10.1.0.{n + 1}"
+        for k in range(120):
+            t = 0.2 + k * 0.25 + n * 0.003 + rng.uniform(-0.0002, 0.0002)
+            lost = stop < 6 and k >= 48 and k % 4 == 0
+            body = struct.pack("!II", n, k) + b"p" * 184
+            emit(t, src, 44000 + n, body, stop if lost else 6)
+            if not lost:
+                emit(t + 0.012, src, 44000 + n, b"r" + body, reverse=True)
+    src = "2001:db8:1::99" if ipv6 else "10.1.0.99"
+    for t in (6.795, 12.196):
+        for k in range(24):
+            emit(
+                t + k * 0.00002 + rng.uniform(-0.000002, 0.000002),
+                src,
+                45000,
+                struct.pack("!I", k) + b"b" * 796,
+            )
+    project = Project(directory / "project")
+    points = []
+    for i, name in enumerate(names):
+        path = directory / (name + ".pcap")
+        write_pcap(path, captures[i])
+        cid = ingest(project, path)
+        points.append(
+            dict(
+                id=name,
+                label=name,
+                device="FW" if name.startswith("fw") else "LB" if name.startswith("lb") else name,
+                kind="Generic",
+                capture_id=cid,
+            )
+        )
+    topology = dict(
+        points=points,
+        forward=names,
+        client_cidrs=["2001:db8:1::/64"] if ipv6 else ["10.1.0.0/24"],
+    )
+    truth = dict(
+        bursts=[1700000006.795, 1700000012.196],
+        loss_hops=["forward:fw_in:fw_out", "forward:fw_out:lb_in", "forward:lb_in:lb_out"],
+    )
+    return project, truth, topology, analyze(project, topology)

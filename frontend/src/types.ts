@@ -51,6 +51,7 @@ export type Mapping = {
 };
 export type Topology = {
   bucket_seconds?: number;
+  microburst_window_ms?: number;
   dns_timeout_ms?: number;
   report_timezone?: string | null;
   points: Point[];
@@ -240,8 +241,20 @@ export type Report = {
     }[];
   };
   offload_points?: { point: string; large_frames: number; note: string }[];
-  fragment_points?: {point: string; status: string; datagrams: number; physical_fragments: number}[];
-  tunnel_points?: {point: string; selected: number; unselected: number; layer: string | null; truncated_inner: number}[];
+  microbursts?: import("./Microbursts").MicroburstReport;
+  fragment_points?: {
+    point: string;
+    status: string;
+    datagrams: number;
+    physical_fragments: number;
+  }[];
+  tunnel_points?: {
+    point: string;
+    selected: number;
+    unselected: number;
+    layer: string | null;
+    truncated_inner: number;
+  }[];
   sequence_translations?: {
     ingress: string;
     egress: string;

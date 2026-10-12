@@ -28,6 +28,7 @@ from .topology import Topology
 from .vendors import point_selector, prepare_f5_connections, f5_report
 from .timeseries import build_timeseries
 from .onset import add_onsets
+from .microbursts import build_microbursts
 from .translation import normalize_sequences, sequence_report
 from .byte_ranges import (
     add_byte_calibration,
@@ -865,6 +866,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         timeseries = build_timeseries(db, topology, segments, coverage, time_window)
         onsets = add_onsets(db, topology, segments)
         restrict_onset_domains(onsets, points, models)
+        microbursts = build_microbursts(db, topology, models, onsets, start, end)
         integrity_findings, integrity_notes = analyze_integrity(
             db, topology, segments, coverage, models, start, end
         )
@@ -897,6 +899,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             schema_version=2,
             tunnel_points=tunnel_report(db),
             fragment_points=fragment_quality,
+            microbursts=microbursts,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,

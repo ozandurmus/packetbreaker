@@ -513,9 +513,19 @@ export function TopologyEditor({
               </label>
               <label>
                 Tunnel matching layer
-                <select aria-label="Tunnel matching layer" value={selected.matching_layer || ""}
-                  onChange={(e) => update({matching_layer: (e.target.value || null) as Point["matching_layer"]})}>
-                  <option value="">Auto: inner for ERSPAN; otherwise choose</option>
+                <select
+                  aria-label="Tunnel matching layer"
+                  value={selected.matching_layer || ""}
+                  onChange={(e) =>
+                    update({
+                      matching_layer: (e.target.value ||
+                        null) as Point["matching_layer"],
+                    })
+                  }
+                >
+                  <option value="">
+                    Auto: inner for ERSPAN; otherwise choose
+                  </option>
                   <option value="inner">Inner IP / transport</option>
                   <option value="outer">Outer IP / transport</option>
                 </select>

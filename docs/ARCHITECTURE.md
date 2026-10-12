@@ -677,3 +677,15 @@ Existing whole-datagram disappearance logic locates missing middle fragments, wi
 capture-miss guards. A first fragmentation boundary requires a unique upstream datagram and usable
 clocks; complete and identifiable incomplete downstream groups are distinguished. Physical wire
 observations remain separate from logical datagram counts. Export schema v5 adds `fragmentation`.
+
+### Microbursts
+
+`microbursts.py` uses physical wire observations, not collapsed datagram counts. Native rolling
+1–10 ms windows aggregate captured bytes, packet count and inter-arrival; overlapping candidates
+merge into episodes. A candidate needs >=8 frames and >=4× the median nonempty fixed-window rate
+(minimum 1 Mbps). Complete non-offload windows supply peak measurements; SPAN copies are removed.
+The report stores per-point peak/duration/frequency, bounded frame evidence and up to 200 strongest
+episodes; Settings exposes window size. Loss association uses first-event frame timing at the
+upstream point of an already supported next-segment loss onset, inside 100 ms plus clock bounds.
+Unknown clock uncertainty suppresses association; overlapping uncertainty leaves order unknown.
+Every association says corroboration_only, with cause unknown. UI and HTML/JSON share these data.
