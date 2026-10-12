@@ -964,3 +964,10 @@ filters. Path exposed Auto/Inner/Outer matching choices. The temporary server/ta
 Full six-target portability plus three native packaging jobs are the PR close-out gate; final run
 URL and completed matrix results are recorded in the PR validation section to avoid another CI
 cycle solely for a post-run documentation edit.
+
+Final precision guard: a nanosecond pcap with ERSPAN timestamps ending in 789 ns failed equality
+against the original ingest timestamps. tshark JSON emits ISO timestamps; Python datetime loses
+sub-microsecond digits. Layer overlays now retain the original validated `ts` and physical frame
+hash rather than overwriting them with the secondary decoder representation. The initial PR CI
+run was cancelled for this correction after its three packaging jobs passed; it is not the final
+full-matrix acceptance run.

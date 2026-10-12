@@ -307,7 +307,7 @@ def apply_layers(project, db, point, cancel=None):
         AND json_extract_string(json_extract_string(packet,'$.path_fields'),'$.tunnel.kind')='erspan'))""",
         [json.dumps(PACKET_COLUMNS), point.id, chosen, chosen],
     )
-    columns = [k for k in PACKET_COLUMNS if k not in ("frame", "capture_id", "iface", "frame_hash")]
+    columns = [k for k in PACKET_COLUMNS if k not in ("frame", "capture_id", "iface", "frame_hash", "ts")]
     db.execute(
         "UPDATE obs SET "
         + ",".join(f'"{k}"=c.p."{k}"' for k in columns)

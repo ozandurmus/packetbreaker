@@ -465,3 +465,6 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   ICMP reassembly silently changes the match signature. Validate TCP, UDP and ICMP in both families.
 - Batch microburst frame evidence once, and use the existing two-worker test fixture pool for the
   new independent datasets. Keep every new test fast; do not hide runtime regressions with marks.
+
+- Layer overlays replace identity fields only; preserve original frame identity/hash and ingest
+  timestamp precision. Secondary tshark JSON timestamps are mapping checks, not replacement clocks.

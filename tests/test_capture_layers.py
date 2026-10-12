@@ -4,6 +4,7 @@ from packetbreaker.capture_layers import decoded_layers
 
 import json
 import subprocess
+import struct
 from packetbreaker.capture_layers import layer_rows
 from packetbreaker.ingest import ingest
 from packetbreaker.store import Project, PACKET_COLUMNS
@@ -86,6 +87,15 @@ def test_erspan_default_vxlan_opt_in_and_collision_guard(tmp_path, tshark):
     ]:
         path = tmp_path / (name + ".pcap")
         write_pcap(path, [(1700000000 + i * 0.1, p) for i, p in enumerate(packets)])
+        if name == "fw_in":
+            with path.open("wb") as output:
+                output.write(struct.pack("<IHHIIII", 0xA1B23C4D, 2, 4, 0, 0, 65535, 1))
+                for i, packet in enumerate(packets):
+                    output.write(
+                        struct.pack("<IIII", 1700000000, i * 100000000 + 789, len(packet), len(packet))
+                    )
+                    output.write(packet)
+
         cid = ingest(project, path, tshark=tshark)
         points.append(
             dict(
@@ -106,6 +116,10 @@ def test_erspan_default_vxlan_opt_in_and_collision_guard(tmp_path, tshark):
         ).fetchone()
         wrapped = db.execute("SELECT signature,tuple_key FROM obs WHERE point='fw_in' AND frame=1").fetchone()
         assert original == wrapped
+        assert db.execute(
+            "SELECT bool_and(o.ts=p.ts AND o.frame_hash=p.frame_hash) FROM obs o JOIN packets p ON o.capture_id=p.capture_id AND o.frame=p.frame WHERE o.point='fw_in'"
+        ).fetchone()[0]
+
         assert db.execute("SELECT unsupported FROM obs WHERE point='lb_in' AND frame=1").fetchone()[0]
     assert all(
         s["loss_percent"] is None and "Tunnel matching layer" in s["reason"]
