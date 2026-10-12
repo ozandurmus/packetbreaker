@@ -971,3 +971,116 @@ sub-microsecond digits. Layer overlays now retain the original validated `ts` an
 hash rather than overwriting them with the secondary decoder representation. The initial PR CI
 run was cancelled for this correction after its three packaging jobs passed; it is not the final
 full-matrix acceptance run.
+
+## Phase 4 / Part 3 — pilot readiness (0.3.2)
+
+PR #11 was merged at `53418db` before branching `phase4-part3`. Captures remain untracked and
+`demo/` remains ignored. Every new fixture is synthetic; no real incident capture was accessed.
+
+### Scale and regression
+
+Same-input Part 1 reference: `668e364`. On this Apple Silicon arm64 host (10 logical cores,
+32 GiB RAM, macOS 27.0.1), the new `tools/pilot_benchmark.py` produced **six files / 9,000,900
+physical frames / 8,800,900 logical observations / 2,320,670,644 bytes**. The largest file is
+**8,300,150 frames / 2,174,610,524 bytes (>2 GiB)**. One point is ERSPAN II; another contains
+300,150 physical frames including fragmented datagrams. Fifty concurrent client conversations
+use bounded timestamp jitter. Files and databases are outside the checkout in temporary storage.
+
+| Stage | Part 1 elapsed / process wall | Current elapsed / process wall | Part 1 peak RSS | Current peak RSS |
+|---|---:|---:|---:|---:|
+| Fresh six-file serial ingest | 596.02 / 596.32 s | 599.28 / 599.58 s | 4,342,972,416 B | 4,342,628,352 B |
+| Full six-point analysis | Failed at 228.42 s | 583.22 / 583.50 s | 1,919,369,216 B at failure | 2,611,970,048 B |
+| Comparable plain-path analysis control | 220.62 / 220.92 s | 239.08 / 239.39 s | 2,284,240,896 B | 2,308,603,904 B |
+| Cached current project open | — | 0.085 / 0.30 s | — | 91,865,088 B |
+
+Ingest: **15,102 → 15,020 frames/s**, +0.55% elapsed and essentially unchanged peak RSS.
+The plain control uses the same indexed corpus and reference window, but only the four plain
+points (`p0,p1,p3,p5`, 8,600,600 physical frames). Both versions complete it: **+8.37%** analysis
+elapsed and **+1.07%** RSS, below the 20% gate. This control is separate from the full new-path
+acceptance. Part 1 cannot complete the six-point path under its unchanged 512 MB DuckDB budget,
+so a full-analysis before/after percentage is **undefined**, not a measured regression percentage.
+
+The fixed **0.98 s reference window** is common to both versions because the largest capture
+extends beyond the smaller files. All input frames are indexed/prepared; classification is bounded
+by that selected interval. Full current analysis returns 50 flows, matchable ratio **1.0** on all
+ten directional segments, and only fragmentation/TTL-path findings, with **no network-loss
+finding**. The generator uses `64-hop` TTL in both directions; reverse TTL increases are workload
+header artifacts, not a loss ground truth. This workload does not certify large TLS/proxy decoding
+performance or change-point accuracy; those behaviors retain their separate adversarial tests.
+
+The first candidate exhausted memory in a wide layer `UPDATE`; a full-point CTAS hash join also
+failed. The final implementation parses/joins at most **5,000 selected physical frames per batch**,
+retains original timestamps/frame hashes, and normalizes fragment points through native temporary
+tables. A later trial exposed a redundant full TCP JSON decode: fragment JSON merge removes null
+TLS fields, although the first-pass probe is complete. The completeness marker now prevents that
+reparse while visible TLS, legacy indexes and declared proxies still require decoding. A new
+non-TLS generation discards stale application/certificate state. Unique-flow observation counts
+reuse the existing packet grouping instead of a second high-cardinality distinct aggregation.
+
+The successful analysis clears secondary decode indexes before measurement. Stages ran serially;
+`/usr/bin/time -l` supplies wall/RSS values, not an aggregate simultaneous process-tree RSS cap.
+The initial sandbox-only ingest had no usable RSS counter and is not used in the table.
+`cached` prevents any subprocess launch across construction, inventory and saved-report reading;
+it returns the complete report and six captures without parsing.
+
+Reproduce: `python tools/pilot_benchmark.py generate INPUT`, then prefix `ingest`, `analyze`,
+`control` or `cached INPUT OUTPUT` stages with `/usr/bin/time -l`. Use fresh projects for ingest
+and independent database snapshots for the paired control. Exact inputs/results/caveats:
+[phase4-part3-benchmark.json](phase4-part3-benchmark.json).
+
+### Fast-suite profile and contracts
+
+Before: **417 passed / 166 deselected in 112.40 s**. Final default:
+**438 passed / 166 deselected in 86.49 s** — 604 collected, **21 new fast cases**, no assertions
+removed/weakened and no test moved to slow. The twenty slowest tests before/after are retained in
+[phase4-part3-test-profile.json](phase4-part3-test-profile.json). Missing optional pandas searches,
+redundant source selection/decode, repeated per-frame evidence queries and duplicate fixture
+arguments were reduced. Healthy mutation tests clone the session database; IPv4/IPv6 plain
+reference decodes are shared. A third tiny-fixture worker requires at least six CPUs (four on Windows) and 6 GiB
+available RAM; smaller hosted runners keep two. Windows tiny-fixture SQL uses one thread per
+process to avoid competing two-thread pools; production/large benchmarks retain two threads. Cancellation closes the reader pipe before waiting
+for tshark and signals batch workers before executor shutdown.
+
+The TLS probe absence guard failed before the completeness fix (1 failed / 5 passed, 0.08 s).
+The stale-generation negative guard failed before cache cleanup (0.05 s). Both pass in the final
+suite. Sparse-frame batch tests preserve foreign points, incomplete identities, original frame
+ordinals, timestamps, interface IDs and hashes against a shared tshark reference. Tunnel/fragment
+repair checks: 24 passed in 23.70 s; preflight/overlay/API scope checks: 11 passed in 7.26 s.
+Ruff and TypeScript/Vite pass. Hosted Windows enforces **<240 s** from JUnit timing; full CI runs
+six OS/Python targets, slow tests on macos-14/Python 3.12 only, and three native packaging smokes.
+The final CI run URL, Windows timing and completed matrix are recorded in the PR validation
+section, avoiding another matrix solely to append a post-run documentation URL.
+
+### Pilot use and boundaries
+
+Case tests cover recursive discovery, sibling project placement, original input byte equality,
+ready/cache reuse, preservation of manual topology, tunnel/truncation/drop/tail warnings, raw
+non-overlap caveats and interruption. Overlay tests reject out-of-coverage/out-of-analysis zeros,
+verify selected denominators/p95/retransmissions, exact arrow inspection and sortable supported
+reset-origin/same-clock handshake timing. A no-server capture still permits supported client-side
+injections: the negative column fixture therefore removes **both** endpoints rather than assuming
+all reset origins become unknown after removing only the server.
+
+The topology overlay, its colors and device-drop badges follow the brush. Complete-exchange
+waterfalls and selected-packet field differences explicitly disclose their wider scope. Inventory
+and exports retain full context. Node counts are observations/adjacent events, not device fault
+counts. Fragment loss matching uses logical datagrams; physical sub-bucket rates remain separate.
+Application visibility across fragmented/tunneled captures is bounded and may remain unknown;
+TLS 1.3 certificates, missing endpoints and uncertain clocks are not inferred. No real incident
+analysis or production certification is claimed by these synthetic checks.
+
+Initial full matrix run [38267794980](https://github.com/ozandurmus/packetbreaker/actions/runs/38267794980):
+all four macOS acceptance jobs (including slow coverage) and all three packaging jobs passed.
+Both Windows jobs exposed platform-dependent relative labels (`\\` versus `/`); product labels
+now use `Path.as_posix()`, preserving the assertions. Their fast durations were 266.74 s (3.12)
+and 326.61 s (3.11), above the pilot target. The retained Windows profile drove the fixture SQL
+thread budget/prefetch adjustment; the final replacement run remains the acceptance gate.
+Manual local UI verification exposed long arrow labels overlapping nodes on the narrow panel.
+Compact labels above same-row nodes plus a legend retain all three values; arrow clicks still
+open the inspector. Scope notes, case warnings and handshake/reset sort options were visible.
+
+Second CI run: Windows 3.12 passed the duration gate, and Windows 3.11 passed all assertions
+(437 passed / 1 skipped) but took 258.27 s. Prepared fixture handles now reuse already validated,
+closed current-schema databases instead of repeating migrations in the parent/clone path. Real
+constructor/reopen tests remain unchanged. Local regression after this test-only optimization:
+438 passed / 166 deselected in 86.51 s. Production ingest/analysis and benchmark budgets are unchanged.

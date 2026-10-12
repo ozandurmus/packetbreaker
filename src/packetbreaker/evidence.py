@@ -3,6 +3,7 @@
 import ipaddress
 import json
 import re
+from duckdb import CatalogException
 from .store import rows
 
 
@@ -101,25 +102,27 @@ def prepare_flow_filters(db):
 
 
 def evidence(db, predicate, params, limit=128, _expand_ranges=True):
-    data = rows(
-        db,
-        f"""SELECT o.point,c.name AS file,o.capture_id,o.frame,
+    filter_join = "LEFT JOIN (SELECT flow AS ff_flow,capture_id AS ff_capture,display_filter AS flow_filter FROM flow_filters) ff ON ff.ff_flow=o.flow AND ff.ff_capture=o.capture_id"
+    sql = f"""SELECT ff.flow_filter,o.point,c.name AS file,o.capture_id,o.frame,
         'frame.number == ' || o.frame AS display_filter,o.ts AS observed_time,o.corrected AS corrected_time,
         o.vendor,o.path_fields,o.packet_key,o.flow,o.proto,o.src,o.dst,o.sport,o.dport,o.ipid,o.raw_seq AS seq,o.raw_ack AS ack,o.seq AS canonical_seq,o.ack AS canonical_ack,o.translation_reason,o.flags,o.length,
         o.dns_id,o.icmp_id,o.icmp_seq,o.icmp_type
-        FROM obs o JOIN captures c ON c.id=o.capture_id WHERE {predicate}
-        ORDER BY o.corrected NULLS LAST,o.point,o.frame LIMIT {int(limit)}""",
-        params,
-    )
+        FROM obs o JOIN captures c ON c.id=o.capture_id {filter_join} WHERE {predicate}
+        ORDER BY o.corrected NULLS LAST,o.point,o.frame LIMIT {int(limit)}"""
+    try:
+        data = rows(db, sql, params)
+    except CatalogException:
+        data = rows(db, sql.replace("ff.flow_filter,", "").replace(filter_join, ""), params)
     range_context = {}
-    has_ranges = (
-        _expand_ranges
-        and data
-        and db.execute(
-            "SELECT count(*) FROM information_schema.tables WHERE table_name='byte_flows'"
-        ).fetchone()[0]
-    )
-    if has_ranges and db.execute("SELECT count(*) FROM byte_flows").fetchone()[0]:
+    try:
+        has_ranges = (
+            _expand_ranges
+            and bool(data)
+            and db.execute("SELECT 1 FROM byte_flows LIMIT 1").fetchone() is not None
+        )
+    except CatalogException:
+        has_ranges = False
+    if has_ranges:
         keys = list({e["packet_key"] for e in data})
         peers = rows(
             db,
@@ -146,20 +149,6 @@ def evidence(db, predicate, params, limit=128, _expand_ranges=True):
                 "One-to-many TCP sequence-range evidence; up to 128 ranges shown per frame. Offload timestamps describe the captured unit, not each wire segment; payload comparison is limited to captured prefixes."
             )
         return result
-    flows = list({e["flow"] for e in data if e["flow"]})
-    filters = {}
-    if (
-        flows
-        and db.execute(
-            "SELECT count(*) FROM information_schema.tables WHERE table_name='flow_filters'"
-        ).fetchone()[0]
-    ):
-        filters = {
-            (flow, cid): value
-            for flow, cid, value in db.execute(
-                "SELECT * FROM flow_filters WHERE flow IN (SELECT unnest(?::VARCHAR[]))", [flows]
-            ).fetchall()
-        }
     result = []
     for e in data:
         item = {
@@ -187,7 +176,7 @@ def evidence(db, predicate, params, limit=128, _expand_ranges=True):
         if e.get("vendor"):
             item["vendor"] = json.loads(e["vendor"])
         item["content_filter"] = content_filter(e)
-        item["flow_filter"] = filters.get((e["flow"], e["capture_id"])) or tuple_filter(
+        item["flow_filter"] = e.get("flow_filter") or tuple_filter(
             e["proto"], e["src"], e["dst"], e["sport"], e["dport"], True
         )
         item["filter_note"] = (

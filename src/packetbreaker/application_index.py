@@ -269,6 +269,19 @@ def json_packets(stream):
             break
 
 
+def can_decode_source(point, inventory, count):
+    return (
+        point.interface is None
+        and point.source_cidr is None
+        and point.vendor == "none"
+        and inventory.get("timestamps_validated", False)
+        and inventory.get("records_read") == inventory.get("packet_count") == count
+        and len(inventory.get("interfaces", [])) == 1
+        and not inventory.get("damaged_tail")
+        and inventory.get("frame_limit") is None
+    )
+
+
 def read_filter(point, inventory):
     # Inventory uses doubles; one microsecond padding preserves nanosecond filter endpoints.
     # The count and field checks below still require exact identity with the validated index.
@@ -337,11 +350,14 @@ def index_applications(project, db, topology, cancel=None, progress=None):
     needed = (
         any(p.translation == "full_proxy" for p in topology.points)
         or db.execute(
-            "SELECT count(*) FROM obs WHERE proto='TCP' AND (json_extract_string(path_fields,'$.tls_record_type') IN ('20','21','22','23','24') OR NOT coalesce(json_exists(path_fields,'$.tls_record_type'),false))"
+            "SELECT count(*) FROM obs WHERE proto='TCP' AND (json_extract_string(path_fields,'$.tls_record_type') IN ('20','21','22','23','24') OR (NOT coalesce(json_exists(path_fields,'$.tls_record_type'),false) AND NOT coalesce(try_cast(json_extract_string(path_fields,'$.transport_index') AS INTEGER)=1,false)))"
         ).fetchone()[0]
         > 0
     )
     if not needed:
+        # A new non-TLS generation must not reuse certificates/state from older captures.
+        for table in ("app_protocol", "app_protocol_cache", "tcp_point_analysis"):
+            db.execute("DELETE FROM " + table)
         return []
     binary = find_tshark(project.get(db, "preferences", {}).get("tshark"))
     statuses = []
@@ -417,33 +433,37 @@ def index_applications(project, db, topology, cancel=None, progress=None):
             ):
                 selected = Path(directory) / "point.pcapng"
                 # Isolate capture points before reassembly: duplicate copies otherwise poison TLS/HTTP state.
-                select = [
-                    binary,
-                    "-n",
-                    "-r",
-                    str(source),
-                    "-Y",
-                    read_filter(point, inventory),
-                    "-w",
-                    str(selected),
-                    "-F",
-                    "pcapng",
-                    "-o",
-                    "tcp.desegment_tcp_streams:FALSE",
-                    *options,
-                ]
-                if inventory.get("frame_limit") is not None:
-                    select += ["-c", str(inventory["frame_limit"])]
-                with running(select, errors, environment, cancel, subprocess.DEVNULL) as proc:
-                    code = proc.wait()
-                if cancel and cancel.is_set():
-                    raise InterruptedError("Application indexing cancelled")
-                if code and not inventory.get("damaged_tail"):
-                    errors.seek(0)
-                    raise ValueError("Point selection failed: " + errors.read(4000))
                 count = db.execute("SELECT count(*) FROM obs WHERE point=?", [point.id]).fetchone()[0]
-                if capture_metadata(selected, cancel)["complete_records"] != count:
-                    raise ValueError("Selected point frame count disagrees with index")
+                if can_decode_source(point, inventory, count):
+                    selected = source
+                else:
+                    select = [
+                        binary,
+                        "-n",
+                        "-r",
+                        str(source),
+                        "-Y",
+                        read_filter(point, inventory),
+                        "-w",
+                        str(selected),
+                        "-F",
+                        "pcapng",
+                        "-o",
+                        "tcp.desegment_tcp_streams:FALSE",
+                        *options,
+                    ]
+                    if inventory.get("frame_limit") is not None:
+                        select += ["-c", str(inventory["frame_limit"])]
+                    with running(select, errors, environment, cancel, subprocess.DEVNULL) as proc:
+                        code = proc.wait()
+                    if cancel and cancel.is_set():
+                        raise InterruptedError("Application indexing cancelled")
+                    if code and not inventory.get("damaged_tail"):
+                        errors.seek(0)
+                        raise ValueError("Point selection failed: " + errors.read(4000))
+                    count = db.execute("SELECT count(*) FROM obs WHERE point=?", [point.id]).fetchone()[0]
+                    if capture_metadata(selected, cancel)["complete_records"] != count:
+                        raise ValueError("Selected point frame count disagrees with index")
                 command = [
                     binary,
                     "-n",

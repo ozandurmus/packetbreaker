@@ -1,8 +1,9 @@
 from packetbreaker.analysis import analyze
 
 
-def test_low_eligible_ratio_never_claims_zero_loss(scenarios):
-    project, _, topology, _ = scenarios("healthy", rounds=31)
+def test_low_eligible_ratio_never_claims_zero_loss(scenarios, clone_project):
+    project, _, topology, _ = scenarios("healthy")
+    project = clone_project(project)
     with project.connect() as db:
         db.execute("UPDATE packets SET unsupported='unsupported_test_transport' WHERE frame%4=0")
     report = analyze(project, topology)
@@ -24,8 +25,9 @@ def test_span_exclusions_are_reported_separately(scenarios):
     assert report["verdict"] == "Inconclusive"
 
 
-def test_source_cidr_filter_uses_distinct_address_lookup(scenarios):
-    project, _, topology, baseline = scenarios("healthy", rounds=18)
+def test_source_cidr_filter_uses_distinct_address_lookup(scenarios, clone_project):
+    project, _, topology, baseline = scenarios("healthy")
+    project = clone_project(project)
     topology = {
         **topology,
         "points": [{**p, "source_cidr": "10.0.0.0/8"} if p["id"] == "p0" else p for p in topology["points"]],

@@ -352,6 +352,28 @@ export type Job = {
   error?: string;
 };
 export type State = {
+  preflight?: {
+    files: {
+      id?: string;
+      name: string;
+      state: string;
+      start: number | null;
+      end: number | null;
+      packet_count: number | null;
+      header_snaplen: number | null;
+      header_snaplens: number[];
+      observed_max_caplen: number | null;
+      ifdrop: number | null;
+      osdrop: number | null;
+      warnings: string[];
+    }[];
+    overlap: { status: string; reason: string };
+  };
+  case_context?: {
+    note: string;
+    warning: string | null;
+    issues: { file: string; error: string }[];
+  } | null;
   version: string;
   project: string;
   captures: Capture[];
@@ -375,6 +397,8 @@ export type State = {
   job: Job;
 };
 export type Flow = {
+  reset_origin?: string | null;
+  handshake_rtt_ms?: number | null;
   matching_unknown_reason?: string | null;
   flow: string;
   tuple: string;
@@ -441,4 +465,24 @@ export type TimeSeries = {
     coverage: string;
     reason: string | null;
   } & Record<string, number | string | null>)[];
+};
+
+export type TopologyOverlay = {
+  segments: {
+    id: string;
+    loss_percent: number | null;
+    p95_ms: number | null;
+    retrans_observations: number;
+    reason: string | null;
+    classes: Record<string, number>;
+  }[];
+  nodes: {
+    device: string;
+    observations: number;
+    retrans_observations: number;
+    supported_loss_events: number;
+    confirmed_device_drops: number;
+    findings: number;
+  }[];
+  note: string;
 };

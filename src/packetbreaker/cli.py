@@ -21,6 +21,10 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
     commands = parser.add_subparsers(dest="command")
+    case = commands.add_parser("case", help="Ingest a capture folder into a sibling project and open Path")
+    case.add_argument("folder", type=Path)
+    case.add_argument("--no-browser", action="store_true", default=argparse.SUPPRESS)
+    case.add_argument("--port", type=int, default=argparse.SUPPRESS)
     demo = commands.add_parser("demo", help="Generate and ingest five synthetic captures")
     demo.add_argument("directory", type=Path)
     demo.add_argument(
@@ -84,6 +88,19 @@ def main():
     forti.add_argument("--device", default="FortiGate")
     args = parser.parse_args()
     try:
+        if args.command == "case":
+            if not 1024 <= args.port <= 65535:
+                parser.error("Port must be between 1024 and 65535")
+            from .case_setup import create_case, inventory_overview
+
+            project = create_case(
+                args.folder,
+                progress=lambda **s: print(f"\rIngest: {s.get('frames', 0):,} frames", end="", flush=True),
+            )
+            print("\n" + json.dumps(inventory_overview(project.inventory()), indent=2))
+            print(f"Project: {project.path}")
+            args.project = str(project.path)
+
         if args.command == "demo":
             truth, topology = generate(
                 args.directory, scenario=args.scenario, rounds=args.rounds, ip_id=args.ip_id, ipv6=args.ipv6
@@ -147,13 +164,19 @@ def main():
                     for _ in range(50):
                         try:
                             with socket.create_connection(("127.0.0.1", args.port), timeout=0.1):
-                                webbrowser.open(f"http://127.0.0.1:{args.port}")
+                                webbrowser.open(
+                                    f"http://127.0.0.1:{args.port}"
+                                    + ("/?view=Path" if args.command == "case" else "")
+                                )
                                 return
                         except OSError:
                             threading.Event().wait(0.1)
 
                 threading.Thread(target=open_when_ready, daemon=True).start()
             uvicorn.run(app, host="127.0.0.1", port=args.port, access_log=False)
+    except KeyboardInterrupt:
+        print("Cancelled; completed ingest batches are retained. Re-run to resume.", file=sys.stderr)
+        raise SystemExit(130) from None
     except (ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(1) from exc

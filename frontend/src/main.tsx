@@ -1,3 +1,5 @@
+import { CasePreflight } from "./CasePreflight";
+import type { TopologyOverlay } from "./types";
 import { Microbursts } from "./Microbursts";
 import { Heatmap } from "./Heatmap";
 import type { TimeSeries, Finding } from "./types";
@@ -173,8 +175,18 @@ function App() {
     setEvents(null);
   }, []);
 
+  const [overlay, setOverlay] = useState<TopologyOverlay | null>(null);
+  const [inspection, setInspection] = useState<{
+    findings: Finding[];
+    flows: { total: number; items: Flow[] };
+  } | null>(null);
+  const [inspectQuery, setInspectQuery] = useState<string | null>(null);
   const [state, setState] = useState<State | null>(null),
-    [tab, setTab] = useState("Overview"),
+    [tab, setTab] = useState(
+      new URLSearchParams(location.search).get("view") === "Path"
+        ? "Path"
+        : "Overview",
+    ),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [job, setJob] = useState<Job>({ state: "idle", busy: false }),
@@ -321,6 +333,28 @@ function App() {
       active = false;
     };
   }, [selectedFlow, ladderOffset, rangeQuery]);
+  useEffect(() => {
+    let active = true;
+    setOverlay(null);
+    setInspection(null);
+    if (!state?.report || job.busy || tab !== "Path") return;
+    api<TopologyOverlay>(`/topology/overlay?${rangeQuery}`)
+      .then((r) => {
+        if (active) setOverlay(r);
+      })
+      .catch(fail);
+    if (inspectQuery)
+      api<{ findings: Finding[]; flows: { total: number; items: Flow[] } }>(
+        `/topology/inspect?${inspectQuery}${rangeQuery}`,
+      )
+        .then((r) => {
+          if (active) setInspection(r);
+        })
+        .catch(fail);
+    return () => {
+      active = false;
+    };
+  }, [state?.report, rangeQuery, inspectQuery, job.busy, tab]);
   useEffect(() => setFieldDiff(null), [selectedFlow, rangeQuery]);
   async function action(fn: () => Promise<unknown>) {
     setError("");
@@ -1195,6 +1229,7 @@ function App() {
           )}
           {tab === "Captures" && (
             <>
+              <CasePreflight state={state} />
               <section>
                 <h2>Import Fortinet verbose-6 text</h2>
                 <p className="hint">
@@ -1429,11 +1464,53 @@ function App() {
           )}
           {tab === "Path" && (
             <>
+              <CasePreflight state={state} />
+              <p className="hint">
+                Topology overlay:{" "}
+                {range ? "selected heatmap interval" : "full analysis window"}.{" "}
+                {overlay?.note}
+              </p>
+              {inspection && (
+                <section>
+                  <h2>Selected device / arrow</h2>
+                  <p>
+                    {inspection.flows.total} associated conversations (first 50
+                    listed)
+                  </p>
+                  {inspection.findings.map((f) => (
+                    <div key={f.id}>
+                      <span>{f.summary}</span>{" "}
+                      <button onClick={() => setEvidence(f.evidence)}>
+                        Evidence
+                      </button>
+                    </div>
+                  ))}
+                  {inspection.flows.items.map((f) => (
+                    <button
+                      className="secondary"
+                      key={f.flow}
+                      onClick={() => {
+                        setSelectedFlow(f);
+                        setTab("Flows");
+                        setLadderOffset(0);
+                      }}
+                    >
+                      {f.tuple}
+                    </button>
+                  ))}
+                  {!inspection.findings.length && (
+                    <p>No findings in this selected range.</p>
+                  )}
+                </section>
+              )}
+
               <section>
                 <TopologyEditor
                   topology={topology}
                   captures={state.captures}
                   report={report}
+                  overlay={overlay}
+                  onInspect={setInspectQuery}
                   onChange={setTopology}
                   onSave={(t) => action(() => saveTopology(t))}
                   onError={setError}
@@ -1592,6 +1669,10 @@ function App() {
                       Sort by retransmissions
                     </option>
                     <option value="start">Sort by start</option>
+                    <option value="reset_origin">Sort by reset origin</option>
+                    <option value="handshake_rtt_ms">
+                      Sort by handshake RTT
+                    </option>
                   </select>
                 </div>
                 <div className="table-scroll">
@@ -1613,6 +1694,10 @@ function App() {
                           <Tip text="Wireshark retransmission observations summed across capture points; the same retransmission may be observed at several points.">
                             Retrans observations
                           </Tip>
+                        </th>
+                        <th>Reset origin (supported only)</th>
+                        <th title="Client-most capture SYN to SYN/ACK in one clock domain; includes endpoint turnaround. Missing handshake is unknown.">
+                          Handshake RTT
                         </th>
                         <th>Confirmed device drops</th>
                         <th>
@@ -1661,6 +1746,10 @@ function App() {
                             )}
                           </td>
                           <td>{f.retrans_observations}</td>
+                          <td>
+                            {f.reset_origin || "unknown / no supported reset"}
+                          </td>
+                          <td>{num(f.handshake_rtt_ms, " ms")}</td>
                           <td className={f.confirmed_device_drop ? "red" : ""}>
                             {f.confirmed_device_drop || 0}
                           </td>

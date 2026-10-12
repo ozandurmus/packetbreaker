@@ -1,0 +1,169 @@
+{
+  "machine": "macOS-27.0.1-arm64-arm-64bit",
+  "architecture": "arm64",
+  "cpu_cores": 10,
+  "ram_bytes": 34359738368,
+  "baseline_revision": "668e364",
+  "input_counts": [
+    {
+      "file": "point-0.pcap",
+      "frames": 8300150,
+      "bytes": 2174610524
+    },
+    {
+      "file": "point-1.pcap",
+      "frames": 100150,
+      "bytes": 26210524
+    },
+    {
+      "file": "point-2.pcap",
+      "frames": 100150,
+      "bytes": 31218024
+    },
+    {
+      "file": "point-3.pcap",
+      "frames": 100150,
+      "bytes": 26210524
+    },
+    {
+      "file": "point-4.pcap",
+      "frames": 300150,
+      "bytes": 36210524
+    },
+    {
+      "file": "point-5.pcap",
+      "frames": 100150,
+      "bytes": 26210524
+    }
+  ],
+  "physical_frames": 9000900,
+  "logical_frames": 8800900,
+  "input_bytes": 2320670644,
+  "analysis_window": {
+    "start": 1700000000.01,
+    "end": 1700000000.99
+  },
+  "measurements": {
+    "baseline_ingest": {
+      "frames": 9000900,
+      "input_bytes": 2320670644,
+      "stage": "ingest",
+      "seconds": 596.0246040409984,
+      "frames_per_second": 15101.55778633068,
+      "time_wall_seconds": 596.32,
+      "peak_rss_bytes": 4342972416
+    },
+    "candidate_ingest": {
+      "frames": 9000900,
+      "input_bytes": 2320670644,
+      "stage": "ingest",
+      "seconds": 599.2757705419936,
+      "frames_per_second": 15019.629430136076,
+      "time_wall_seconds": 599.58,
+      "peak_rss_bytes": 4342628352
+    },
+    "candidate_analysis": {
+      "flows": 50,
+      "findings": 205,
+      "classes": [
+        "fragmentation",
+        "ttl_path"
+      ],
+      "matchable": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "common": {
+        "start": 1700000000.01,
+        "end": 1700000000.99,
+        "common_start": 1700000000.0005002,
+        "common_end": 1700000001.0104804
+      },
+      "stage": "analyze",
+      "seconds": 583.2153658330062,
+      "time_wall_seconds": 583.5,
+      "peak_rss_bytes": 2611970048
+    },
+    "baseline_plain_control": {
+      "flows": 50,
+      "findings": 5,
+      "classes": [
+        "ttl_path"
+      ],
+      "matchable": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "common": {
+        "start": 1700000000.01,
+        "end": 1700000000.99,
+        "common_start": 1700000000.0005002,
+        "common_end": 1700000001.0104804
+      },
+      "stage": "control",
+      "seconds": 220.62422908299777,
+      "time_wall_seconds": 220.92,
+      "peak_rss_bytes": 2284240896
+    },
+    "candidate_plain_control": {
+      "flows": 50,
+      "findings": 5,
+      "classes": [
+        "ttl_path"
+      ],
+      "matchable": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "common": {
+        "start": 1700000000.01,
+        "end": 1700000000.99,
+        "common_start": 1700000000.0005002,
+        "common_end": 1700000001.0104804
+      },
+      "stage": "control",
+      "seconds": 239.08380608301377,
+      "time_wall_seconds": 239.39,
+      "peak_rss_bytes": 2308603904
+    },
+    "candidate_cached_open": {
+      "cached": true,
+      "captures": 6,
+      "stage": "cached",
+      "seconds": 0.08464912499766797,
+      "time_wall_seconds": 0.3,
+      "peak_rss_bytes": 91865088
+    }
+  },
+  "baseline_full_analysis": {
+    "status": "failed",
+    "time_wall_seconds": 228.42,
+    "peak_rss_bytes": 1919369216,
+    "reason": "512 MB DuckDB budget exhausted in the ACK guard; Part 1 does not support the tunnel/fragment points"
+  },
+  "notes": [
+    "Fresh serial ingest, same inputs and fixed 0.98-second reference analysis window. All raw frames indexed and prepared before window classification.",
+    "Full-path analysis includes fresh secondary tshark indexes; the plain control uses p0,p1,p3,p5 (8,600,600 physical frames) and is not a substitute for the six-point result.",
+    "time -l is a process high-water RSS, not a sum of simultaneous process-tree memory.",
+    "First candidate failed a wide layer UPDATE; a full-point CTAS still exhausted 512 MB. Bounded 5,000-frame joins replaced them.",
+    "A later trial was interrupted after fragment JSON merge removed a known-null TLS field and triggered redundant full TCP JSON decoding. Probe completeness now distinguishes absence from a legacy unindexed field.",
+    "Reverse TTL increases in the generated headers produce ttl_path notes; these are scale-workload header artifacts, not network-loss findings.",
+    "The workload has no TLS/proxy application traffic; large TLS/proxy indexing performance is not certified by this benchmark."
+  ]
+}

@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from datetime import datetime
 
-from .application_index import first, values, json_packets, read_filter, running
+from .application_index import first, values, json_packets, read_filter, running, can_decode_source
 from .ingest import FIELDS, find_tshark, number, parse_packet, packet_signature, tuple_id
 from .metadata import metadata
 from .store import PACKET_COLUMNS, rows
@@ -226,33 +226,37 @@ def apply_layers(project, db, point, cancel=None):
                 tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors,
             ):
                 selected = Path(directory) / "point.pcapng"
-                select = [
-                    binary,
-                    "-n",
-                    "-r",
-                    str(source),
-                    "-Y",
-                    read_filter(selection, inventory),
-                    "-w",
-                    str(selected),
-                    "-F",
-                    "pcapng",
-                    "-o",
-                    "ip.defragment:FALSE",
-                    "-o",
-                    "ipv6.defragment:FALSE",
-                ]
-                if inventory.get("frame_limit") is not None:
-                    select += ["-c", str(inventory["frame_limit"])]
-                with running(select, errors, environment, cancel, subprocess.DEVNULL) as proc:
-                    code = proc.wait()
-                if cancel and cancel.is_set():
-                    raise InterruptedError("Layer indexing cancelled")
-                if code and not inventory.get("damaged_tail"):
-                    raise ValueError("tshark point selection failed")
-                expected = db.execute("SELECT count(*) FROM layer_frames").fetchone()[0]
-                if metadata(selected, cancel)["complete_records"] != expected:
-                    raise ValueError("Layer frame mapping differs from validated index")
+                count = db.execute("SELECT count(*) FROM layer_frames").fetchone()[0]
+                if can_decode_source(selection, inventory, count):
+                    selected = source
+                else:
+                    select = [
+                        binary,
+                        "-n",
+                        "-r",
+                        str(source),
+                        "-Y",
+                        read_filter(selection, inventory),
+                        "-w",
+                        str(selected),
+                        "-F",
+                        "pcapng",
+                        "-o",
+                        "ip.defragment:FALSE",
+                        "-o",
+                        "ipv6.defragment:FALSE",
+                    ]
+                    if inventory.get("frame_limit") is not None:
+                        select += ["-c", str(inventory["frame_limit"])]
+                    with running(select, errors, environment, cancel, subprocess.DEVNULL) as proc:
+                        code = proc.wait()
+                    if cancel and cancel.is_set():
+                        raise InterruptedError("Layer indexing cancelled")
+                    if code and not inventory.get("damaged_tail"):
+                        raise ValueError("tshark point selection failed")
+                    expected = db.execute("SELECT count(*) FROM layer_frames").fetchone()[0]
+                    if metadata(selected, cancel)["complete_records"] != expected:
+                        raise ValueError("Layer frame mapping differs from validated index")
                 cmd = [
                     binary,
                     "-n",
@@ -300,28 +304,58 @@ def apply_layers(project, db, point, cancel=None):
             ["Capture layer decode unavailable: " + reason, point.id],
         )
         return
-    chosen = point.matching_layer
+    overlay_layers(db, point.id, point.matching_layer, cancel=cancel)
+
+
+def overlay_layers(db, point_id, chosen, batch_size=5000, cancel=None):
+    # Bound the hash-join payload: a full-point decoded struct cannot spill on all DuckDB paths.
     db.execute(
-        """CREATE OR REPLACE TEMP TABLE chosen_layer AS SELECT frame,from_json(packet,?) AS p
-        FROM layer_packets WHERE point=? AND (layer='plain' OR layer=? OR (? IS NULL AND layer='inner'
-        AND json_extract_string(json_extract_string(packet,'$.path_fields'),'$.tunnel.kind')='erspan'))""",
-        [json.dumps(PACKET_COLUMNS), point.id, chosen, chosen],
+        """CREATE OR REPLACE TEMP TABLE layer_batches AS SELECT frame,
+        (row_number() OVER(ORDER BY frame)-1)//? AS batch FROM
+        (SELECT DISTINCT frame FROM layer_packets WHERE point=?)""",
+        [batch_size, point_id],
     )
+    batches = db.execute("SELECT max(batch) FROM layer_batches").fetchone()[0]
     columns = [k for k in PACKET_COLUMNS if k not in ("frame", "capture_id", "iface", "frame_hash", "ts")]
-    db.execute(
-        "UPDATE obs SET "
-        + ",".join(f'"{k}"=c.p."{k}"' for k in columns)
-        + ",raw_seq=c.p.seq,raw_ack=c.p.ack,canon=c.p.tuple_key FROM chosen_layer c WHERE obs.point=? AND obs.frame=c.frame AND (json_extract_string(c.p.path_fields,'$.fragment.complete') IS DISTINCT FROM 'false' OR json_exists(c.p.path_fields,'$.tunnel'))",
-        [point.id],
+    decoded = "c.frame IS NOT NULL AND (json_extract_string(c.p.path_fields,'$.fragment.complete') IS DISTINCT FROM 'false' OR json_exists(c.p.path_fields,'$.tunnel'))"
+    replacements = {k: f'CASE WHEN {decoded} THEN c.p."{k}" ELSE o."{k}" END' for k in columns}
+    replacements["path_fields"] = (
+        f"CASE WHEN json_exists(c.p.path_fields,'$.fragment') THEN json_merge_patch({replacements['path_fields']},c.p.path_fields) ELSE {replacements['path_fields']} END"
     )
-    db.execute(
-        "UPDATE obs SET path_fields=json_merge_patch(obs.path_fields,c.p.path_fields) FROM chosen_layer c WHERE obs.point=? AND obs.frame=c.frame AND json_exists(c.p.path_fields,'$.fragment')",
-        [point.id],
+    replacements["unsupported"] = (
+        f"CASE WHEN ({replacements['unsupported']}) LIKE 'Tunnel encapsulation%' THEN 'Tunnel encapsulation: choose inner or outer; incomplete/nested layers stay unknown' ELSE {replacements['unsupported']} END"
     )
-    # The decoder's frame ordinal is private; evidence always uses the original capture frame.
+    for target, source in [("raw_seq", "seq"), ("raw_ack", "ack"), ("canon", "tuple_key")]:
+        replacements[target] = f'CASE WHEN {decoded} THEN c.p."{source}" ELSE o."{target}" END'
+    for batch in range((batches + 1) if batches is not None else 0):
+        if cancel and cancel.is_set():
+            raise InterruptedError("Layer overlay cancelled")
+        db.execute(
+            "CREATE OR REPLACE TEMP TABLE layer_batch_frames AS SELECT frame FROM layer_batches WHERE batch=?",
+            [batch],
+        )
+        db.execute(
+            """CREATE OR REPLACE TEMP TABLE chosen_layer AS SELECT frame,from_json(packet,?) AS p
+            FROM layer_packets WHERE point=? AND frame IN (SELECT frame FROM layer_batch_frames)
+            AND (layer='plain' OR layer=? OR (? IS NULL AND layer='inner'
+            AND json_extract_string(json_extract_string(packet,'$.path_fields'),'$.tunnel.kind')='erspan'))""",
+            [json.dumps(PACKET_COLUMNS), point_id, chosen, chosen],
+        )
+        db.execute(
+            "CREATE OR REPLACE TEMP TABLE layer_overlay AS SELECT o.* REPLACE ("
+            + ",".join(f'{expression} AS "{column}"' for column, expression in replacements.items())
+            + ") FROM obs o JOIN layer_batch_frames f USING(frame) LEFT JOIN chosen_layer c USING(frame) WHERE o.point=?",
+            [point_id],
+        )
+        db.execute(
+            "DELETE FROM obs WHERE point=? AND frame IN (SELECT frame FROM layer_batch_frames)", [point_id]
+        )
+        db.execute("INSERT INTO obs SELECT * FROM layer_overlay")
+        db.execute("DROP TABLE layer_overlay")
+        db.execute("DROP TABLE chosen_layer")
     db.execute(
         "UPDATE obs SET unsupported='Tunnel encapsulation: choose inner or outer; incomplete/nested layers stay unknown' WHERE point=? AND unsupported LIKE 'Tunnel encapsulation%'",
-        [point.id],
+        [point_id],
     )
 
 

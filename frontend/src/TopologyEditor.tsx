@@ -13,7 +13,13 @@ import {
   type Connection,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { Capture, Point, Topology, Report } from "./types";
+import type {
+  Capture,
+  Point,
+  Topology,
+  Report,
+  TopologyOverlay,
+} from "./types";
 
 const kinds = [
   "Client",
@@ -56,6 +62,8 @@ export function TopologyEditor({
   topology,
   captures,
   report,
+  overlay,
+  onInspect,
   onSave,
   onChange,
   onError,
@@ -63,6 +71,8 @@ export function TopologyEditor({
   topology: Topology;
   captures: Capture[];
   report: Report | null;
+  overlay?: TopologyOverlay | null;
+  onInspect?: (query: string) => void;
   onSave: (t: Topology) => void;
   onChange: (t: Topology) => void;
   onError: (e: string) => void;
@@ -73,9 +83,8 @@ export function TopologyEditor({
     [direction, setDirection] = useState("forward");
   useEffect(() => {
     const deviceDrops = (device: string) =>
-      report?.confirmed_device_drops
-        ?.filter((d) => d.device === device)
-        .reduce((n, d) => n + d.count, 0) || 0;
+      overlay?.nodes.find((n) => n.device === device)?.confirmed_device_drops ||
+      0;
     setNodes(
       topology.points.map((p) => ({
         id: p.id,
@@ -89,6 +98,18 @@ export function TopologyEditor({
                 {p.kind} · {p.side}
               </small>
               <strong>{p.label}</strong>
+              {overlay?.nodes
+                .filter((n) => n.device === p.device)
+                .map((n) => (
+                  <small
+                    key={n.device}
+                    title="Device aggregate across its capture points; observations can include the same packet at ingress and egress."
+                  >
+                    {n.observations} observations · {n.retrans_observations}{" "}
+                    retrans · {n.supported_loss_events} adjacent supported loss
+                    events · {n.findings} findings
+                  </small>
+                ))}
               {!!deviceDrops(p.device) && (
                 <small className="red">
                   {p.device}: {deviceDrops(p.device)} confirmed device drops
@@ -116,12 +137,15 @@ export function TopologyEditor({
               s.point_b === target &&
               s.direction === dir,
           );
+          const metric = overlay?.segments.find(
+            (s) => s.id === `${dir}:${source}:${target}`,
+          );
           const color =
-            seg?.classes.confirmed_device_drop ||
-            seg?.classes.impactful_loss ||
-            seg?.classes.handshake_blocked
+            metric?.classes.confirmed_device_drop ||
+            metric?.classes.impactful_loss ||
+            metric?.classes.handshake_blocked
               ? "#c44842"
-              : seg?.reason
+              : metric?.reason
                 ? "#b48526"
                 : dir === "reverse"
                   ? "#8384b6"
@@ -131,8 +155,27 @@ export function TopologyEditor({
             source,
             target,
             data: { direction: dir },
-            label: seg
-              ? `${seg.loss_percent == null ? "?" : seg.loss_percent.toFixed(1)}% · ${seg.p95_ms == null ? "?" : seg.p95_ms.toFixed(2)} ms`
+            label: metric
+              ? `${metric.loss_percent == null ? "?" : metric.loss_percent.toFixed(1)}% · ${metric.p95_ms == null ? "?" : metric.p95_ms.toFixed(2)}ms · R${metric.retrans_observations}`
+              : seg
+                ? "Full-window metrics available; loading selected interval…"
+                : dir,
+            labelStyle: {
+              transform:
+                topology.points.find((p) => p.id === source)?.y ===
+                topology.points.find((p) => p.id === target)?.y
+                  ? "translateY(-90px)"
+                  : undefined,
+            },
+            labelBgStyle: {
+              transform:
+                topology.points.find((p) => p.id === source)?.y ===
+                topology.points.find((p) => p.id === target)?.y
+                  ? "translateY(-90px)"
+                  : undefined,
+            },
+            ariaLabel: metric
+              ? `${dir}: ${metric.loss_percent ?? "unknown"}% loss, ${metric.p95_ms ?? "unknown"} ms p95, ${metric.retrans_observations} retransmission observations. Clock uncertainty ${seg?.offset_uncertainty_ms ?? "unknown"} ms.`
               : dir,
             animated: false,
             style: { stroke: color, strokeWidth: 2 },
@@ -141,7 +184,7 @@ export function TopologyEditor({
         });
       }),
     );
-  }, [topology, captures, report]);
+  }, [topology, captures, report, overlay]);
   const selected = topology.points.find((p) => p.id === selection);
   function current() {
     return {
@@ -317,6 +360,10 @@ export function TopologyEditor({
             }
           }}
         >
+          <small className="hint">
+            Arrows: loss % · p95 added transit (ms) · R retransmission
+            observations.
+          </small>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -330,7 +377,13 @@ export function TopologyEditor({
             }
             onEdgesChange={(c) => setEdges((e) => applyEdgeChanges(c, e))}
             onConnect={connect}
-            onNodeClick={(_, n) => setSelection(n.id)}
+            onNodeClick={(_, n) => {
+              setSelection(n.id);
+              if (report) onInspect?.(`point=${encodeURIComponent(n.id)}`);
+            }}
+            onEdgeClick={(_, e) => {
+              if (report) onInspect?.(`segment=${encodeURIComponent(e.id)}`);
+            }}
             fitView
             minZoom={0.15}
           >

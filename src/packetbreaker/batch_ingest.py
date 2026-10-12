@@ -85,14 +85,18 @@ def ingest_many(
     cancelled = []
     with ThreadPoolExecutor(max_workers=count, thread_name_prefix="capture-ingest") as pool:
         futures = {pool.submit(run, i, p): i for i, p in enumerate(paths)}
-        for f in as_completed(futures):
-            i = futures[f]
-            try:
-                result[i] = f.result()
-            except InterruptedError:
-                cancelled.append(i)
-            except Exception:
-                errors.append(i)
+        try:
+            for f in as_completed(futures):
+                i = futures[f]
+                try:
+                    result[i] = f.result()
+                except InterruptedError:
+                    cancelled.append(i)
+                except Exception:
+                    errors.append(i)
+        except KeyboardInterrupt:
+            cancel.set()
+            raise
     if errors:
         raise ValueError(
             f"{len(errors)} file(s) failed; see per-file status. Completed captures are retained."

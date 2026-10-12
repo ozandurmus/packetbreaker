@@ -49,20 +49,26 @@ def normalize_fragments(db):
         + """ AS status FROM g"""
     )
     # Multiple incomplete uses of the same identity cannot safely assign stray continuations.
+    if db.execute('SELECT 1 FROM fragment_groups LIMIT 1').fetchone() is None:
+        return
     db.execute("""UPDATE fragment_groups SET status='unknown' WHERE status<>'complete' AND
         (point,src,dst,fragment_id,fragment_protocol) IN (
         SELECT point,src,dst,fragment_id,fragment_protocol FROM fragment_groups WHERE status<>'complete'
         GROUP BY ALL HAVING count(*)>1)""")
-    db.execute("""UPDATE obs SET unsupported=CASE WHEN g.status='complete' THEN ''
+    # Spillable point replacement avoids retaining a wide JSON UPDATE delta for every datagram.
+    db.execute("""CREATE OR REPLACE TEMP TABLE normalized_fragments AS SELECT o.* REPLACE (
+        CASE WHEN g.frame IS NULL THEN o.unsupported WHEN g.status='complete' THEN ''
             WHEN g.status='incomplete' THEN 'Incomplete IP datagram: one or more fragments missing'
-            ELSE 'Overlapping, truncated or inconsistent fragments; datagram identity unknown' END,
-        path_fields=json_merge_patch(obs.path_fields,json_object('fragment',json_object(
+            ELSE 'Overlapping, truncated or inconsistent fragments; datagram identity unknown' END AS unsupported,
+        CASE WHEN g.frame IS NULL THEN o.path_fields ELSE json_merge_patch(o.path_fields,json_object('fragment',json_object(
             'status',g.status,'members',g.members,'count',g.fragments,'id',g.fragment_id,
-            'family',g.family,'protocol',g.fragment_protocol,'first_time',g.first_ts,'last_time',g.last_ts)))
-        FROM fragment_groups g WHERE obs.point=g.point AND obs.frame=g.frame""")
-    db.execute("""DELETE FROM obs WHERE (point,frame) IN (
-        SELECT g.point,unnest(g.members) FROM fragment_groups g
-        EXCEPT SELECT point,frame FROM fragment_groups)""")
+            'family',g.family,'protocol',g.fragment_protocol,'first_time',g.first_ts,'last_time',g.last_ts))) END AS path_fields)
+        FROM obs o LEFT JOIN fragment_groups g ON o.point=g.point AND o.frame=g.frame
+        WHERE o.point IN (SELECT DISTINCT point FROM fragment_groups) AND
+            (g.frame IS NOT NULL OR NOT EXISTS(SELECT 1 FROM fragment_members m WHERE m.point=o.point AND m.frame=o.frame))""")
+    db.execute("DELETE FROM obs WHERE point IN (SELECT DISTINCT point FROM fragment_groups)")
+    db.execute("INSERT INTO obs SELECT * FROM normalized_fragments")
+    db.execute("DROP TABLE normalized_fragments")
 
 
 def guard_missing(db, point):

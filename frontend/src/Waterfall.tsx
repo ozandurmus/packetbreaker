@@ -54,6 +54,11 @@ export function Waterfall({
     <section>
       <h2>Where did the time go?</h2>
       <p className="hint">
+        Full-exchange timing view: the heatmap brush selects HTTP requests; the
+        complete handshake and request/response bars can extend outside that
+        interval.
+      </p>
+      <p className="hint">
         Handshake and cleartext HTTP/1.x. Every link and device dwell uses frame
         evidence. Unknown bars have no invented duration.
       </p>

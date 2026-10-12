@@ -2,9 +2,20 @@ from contextlib import contextmanager
 import json
 from pathlib import Path
 import threading
+import importlib.util
+import sys
 
 import duckdb
 from . import __version__
+
+
+def cache_missing_pandas():
+    # DuckDB retries this optional import for every parameter; cache only genuine absence.
+    if "pandas" not in sys.modules and importlib.util.find_spec("pandas") is None:
+        sys.modules["pandas"] = None
+
+
+cache_missing_pandas()
 
 PACKET_COLUMNS = {
     "capture_id": "VARCHAR",

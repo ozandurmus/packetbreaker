@@ -178,14 +178,19 @@ def create_app(project_path):
             topology = project.get(db, "topology", Topology().model_dump())
             report = project.get(db, "report")
             conversion = project.get(db, "fortinet_conversion")
+            case_context = project.get(db, "case_context")
         try:
             tshark = dict(path=find_tshark(settings.get("tshark")), error=None)
         except ValueError as exc:
             tshark = dict(path=None, error=str(exc))
+        from .case_setup import inventory_overview
+        captures = project.inventory()
         return dict(
             version=__version__,
             project=str(project.path),
-            captures=project.inventory(),
+            captures=captures,
+            preflight=inventory_overview(captures),
+            case_context=case_context,
             topology=topology,
             report=report,
             settings=settings,
@@ -338,6 +343,24 @@ def create_app(project_path):
     @app.get("/api/timeseries")
     def timeseries():
         return timeseries_page(project)
+
+    @app.get("/api/topology/overlay")
+    def overlay(start: float | None = Query(None, allow_inf_nan=False),
+                end: float | None = Query(None, allow_inf_nan=False)):
+        from .pilot import topology_overlay
+        return topology_overlay(project, start, end)
+
+    @app.get("/api/topology/inspect")
+    def inspect(point: str | None = None, segment: str | None = None,
+                start: float | None = Query(None, allow_inf_nan=False),
+                end: float | None = Query(None, allow_inf_nan=False)):
+        from .pilot import topology_inspect
+        if bool(point) == bool(segment):
+            raise HTTPException(422, "Choose exactly one point or segment")
+        try:
+            return topology_inspect(project, point, segment, start, end)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.get("/api/flows")
     def flows(

@@ -1,0 +1,426 @@
+{
+  "before": {
+    "summary": "417 passed, 166 deselected in 112.40s (0:01:52)",
+    "slowest20": [
+      {
+        "seconds": 4.29,
+        "phase": "call",
+        "test": "tests/test_capture_layers.py::test_erspan_default_vxlan_opt_in_and_collision_guard"
+      },
+      {
+        "seconds": 4.23,
+        "phase": "call",
+        "test": "tests/test_analysis.py::test_full_proxy_opacity_does_not_hide_independent_leg_loss"
+      },
+      {
+        "seconds": 3.28,
+        "phase": "call",
+        "test": "tests/test_integrity.py::test_declared_alg_and_unknown_clock_do_not_claim_modification"
+      },
+      {
+        "seconds": 3.24,
+        "phase": "call",
+        "test": "tests/test_api.py::test_api_ingest_analysis_report"
+      },
+      {
+        "seconds": 2.8,
+        "phase": "call",
+        "test": "tests/test_tls_interception.py::test_proxy_tls_json_and_offline_html_include_evidence[proxy_capture1]"
+      },
+      {
+        "seconds": 2.52,
+        "phase": "call",
+        "test": "tests/test_tls_interception.py::test_proxy_tls_json_and_offline_html_include_evidence[proxy_capture2]"
+      },
+      {
+        "seconds": 2.48,
+        "phase": "call",
+        "test": "tests/test_fortinet.py::test_cooked_variants_use_tshark_link_decode_without_changing_bytes"
+      },
+      {
+        "seconds": 2.44,
+        "phase": "call",
+        "test": "tests/test_tls_interception.py::test_proxy_tls_json_and_offline_html_include_evidence[proxy_capture0]"
+      },
+      {
+        "seconds": 2.37,
+        "phase": "call",
+        "test": "tests/test_diagnostics_wire.py::test_missing_clock_endpoint_and_deadline_stay_unknown"
+      },
+      {
+        "seconds": 2.35,
+        "phase": "call",
+        "test": "tests/test_checkpoint.py::test_snoop_adapter_matches_tshark_and_stage_drop[False]"
+      },
+      {
+        "seconds": 2.27,
+        "phase": "call",
+        "test": "tests/test_ingest_tails.py::test_clock_fit_and_coverage_never_receive_invalid_times"
+      },
+      {
+        "seconds": 2.09,
+        "phase": "call",
+        "test": "tests/test_paloalto.py::test_paloalto_drop_is_positive_without_path_coverage"
+      },
+      {
+        "seconds": 2.07,
+        "phase": "call",
+        "test": "tests/test_analysis.py::test_healthy_five_file_e2e_and_reopen"
+      },
+      {
+        "seconds": 1.96,
+        "phase": "call",
+        "test": "tests/test_parallel_ingest.py::test_parallel_real_tshark_cancel_and_resume"
+      },
+      {
+        "seconds": 1.74,
+        "phase": "call",
+        "test": "tests/test_export.py::test_offline_export_schema_escape_and_all_findings"
+      },
+      {
+        "seconds": 1.6,
+        "phase": "call",
+        "test": "tests/test_quality.py::test_low_eligible_ratio_never_claims_zero_loss"
+      },
+      {
+        "seconds": 1.53,
+        "phase": "call",
+        "test": "tests/test_analysis.py::test_loss_has_correct_hop_time_and_recovery[impactful_loss]"
+      },
+      {
+        "seconds": 1.47,
+        "phase": "call",
+        "test": "tests/test_checkpoint.py::test_snoop_adapter_matches_tshark_and_stage_drop[True]"
+      },
+      {
+        "seconds": 1.42,
+        "phase": "call",
+        "test": "tests/test_analysis.py::test_delay_is_on_correct_segment"
+      },
+      {
+        "seconds": 1.4,
+        "phase": "call",
+        "test": "tests/test_analysis.py::test_capture_miss_never_network_loss[acked_unseen]"
+      }
+    ]
+  },
+  "after": {
+    "summary": "438 passed, 166 deselected in 86.49s (0:01:26)",
+    "slowest20": [
+      {
+        "seconds": 3.5,
+        "phase": "call",
+        "test": "tests/test_capture_layers.py::test_erspan_default_vxlan_opt_in_and_collision_guard"
+      },
+      {
+        "seconds": 3.3,
+        "phase": "call",
+        "test": "tests/test_analysis.py::test_full_proxy_opacity_does_not_hide_independent_leg_loss"
+      },
+      {
+        "seconds": 2.83,
+        "phase": "call",
+        "test": "tests/test_api.py::test_api_ingest_analysis_report"
+      },
+      {
+        "seconds": 2.28,
+        "phase": "call",
+        "test": "tests/test_fortinet.py::test_cooked_variants_use_tshark_link_decode_without_changing_bytes"
+      },
+      {
+        "seconds": 2.18,
+        "phase": "call",
+        "test": "tests/test_integrity.py::test_declared_alg_and_unknown_clock_do_not_claim_modification"
+      },
+      {
+        "seconds": 2.12,
+        "phase": "call",
+        "test": "tests/test_analysis.py::test_healthy_five_file_e2e_and_reopen"
+      },
+      {
+        "seconds": 2.04,
+        "phase": "call",
+        "test": "tests/test_diagnostics_wire.py::test_missing_clock_endpoint_and_deadline_stay_unknown"
+      },
+      {
+        "seconds": 1.94,
+        "phase": "call",
+        "test": "tests/test_checkpoint.py::test_snoop_adapter_matches_tshark_and_stage_drop[False]"
+      },
+      {
+        "seconds": 1.83,
+        "phase": "call",
+        "test": "tests/test_ingest_tails.py::test_clock_fit_and_coverage_never_receive_invalid_times"
+      },
+      {
+        "seconds": 1.71,
+        "phase": "call",
+        "test": "tests/test_paloalto.py::test_paloalto_drop_is_positive_without_path_coverage"
+      },
+      {
+        "seconds": 1.59,
+        "phase": "call",
+        "test": "tests/test_parallel_ingest.py::test_parallel_real_tshark_cancel_and_resume"
+      },
+      {
+        "seconds": 1.49,
+        "phase": "call",
+        "test": "tests/test_tls_interception.py::test_proxy_tls_json_and_offline_html_include_evidence[proxy_capture2]"
+      },
+      {
+        "seconds": 1.48,
+        "phase": "call",
+        "test": "tests/test_tls_interception.py::test_proxy_tls_json_and_offline_html_include_evidence[proxy_capture0]"
+      },
+      {
+        "seconds": 1.39,
+        "phase": "call",
+        "test": "tests/test_tls_interception.py::test_proxy_tls_json_and_offline_html_include_evidence[proxy_capture1]"
+      },
+      {
+        "seconds": 1.29,
+        "phase": "call",
+        "test": "tests/test_analysis.py::test_loss_has_correct_hop_time_and_recovery[recovered_loss]"
+      },
+      {
+        "seconds": 1.28,
+        "phase": "call",
+        "test": "tests/test_checkpoint.py::test_snoop_adapter_matches_tshark_and_stage_drop[True]"
+      },
+      {
+        "seconds": 1.26,
+        "phase": "call",
+        "test": "tests/test_analysis.py::test_udp_payload_disambiguates_reused_zero_ip_id"
+      },
+      {
+        "seconds": 1.16,
+        "phase": "call",
+        "test": "tests/test_export.py::test_offline_export_schema_escape_and_all_findings"
+      },
+      {
+        "seconds": 1.1,
+        "phase": "call",
+        "test": "tests/test_integrity_attribution.py::test_false_positive_guards[no_endpoint-ipv6-zero]"
+      },
+      {
+        "seconds": 1.1,
+        "phase": "call",
+        "test": "tests/test_quality.py::test_low_eligible_ratio_never_claims_zero_loss"
+      }
+    ]
+  },
+  "initial_windows": {
+    "3.11": {
+      "seconds": 326.61,
+      "status": "case label separator failed; also above 240-second target",
+      "slowest20": [
+        {
+          "seconds": 31.78,
+          "phase": "call",
+          "test": "tests/test_diagnostics_wire.py::test_missing_clock_endpoint_and_deadline_stay_unknown"
+        },
+        {
+          "seconds": 13.82,
+          "phase": "call",
+          "test": "tests/test_api.py::test_api_ingest_analysis_report"
+        },
+        {
+          "seconds": 13.75,
+          "phase": "call",
+          "test": "tests/test_capture_layers.py::test_erspan_default_vxlan_opt_in_and_collision_guard"
+        },
+        {
+          "seconds": 13.43,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_full_proxy_opacity_does_not_hide_independent_leg_loss"
+        },
+        {
+          "seconds": 12.61,
+          "phase": "call",
+          "test": "tests/test_parallel_ingest.py::test_parallel_real_tshark_cancel_and_resume"
+        },
+        {
+          "seconds": 7.83,
+          "phase": "call",
+          "test": "tests/test_checkpoint.py::test_snoop_adapter_matches_tshark_and_stage_drop[False]"
+        },
+        {
+          "seconds": 7.51,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_udp_payload_disambiguates_reused_zero_ip_id"
+        },
+        {
+          "seconds": 6.81,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_healthy_five_file_e2e_and_reopen"
+        },
+        {
+          "seconds": 6.62,
+          "phase": "call",
+          "test": "tests/test_diagnostics_wire.py::test_wire_dns_timeout_vs_response_disappearance[mode3]"
+        },
+        {
+          "seconds": 6.38,
+          "phase": "call",
+          "test": "tests/test_diagnostics_wire.py::test_wire_dns_timeout_vs_response_disappearance[mode2]"
+        },
+        {
+          "seconds": 6.22,
+          "phase": "call",
+          "test": "tests/test_integrity.py::test_declared_alg_and_unknown_clock_do_not_claim_modification"
+        },
+        {
+          "seconds": 5.57,
+          "phase": "call",
+          "test": "tests/test_dns.py::test_native_dns_tuple_scope_latency_and_export"
+        },
+        {
+          "seconds": 5.45,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_ack_from_reused_tuple_session_does_not_prove_capture_miss"
+        },
+        {
+          "seconds": 4.6,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_capture_miss_never_network_loss[acked_unseen]"
+        },
+        {
+          "seconds": 4.3,
+          "phase": "call",
+          "test": "tests/test_paloalto.py::test_paloalto_drop_is_positive_without_path_coverage"
+        },
+        {
+          "seconds": 4.27,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_loss_has_correct_hop_time_and_recovery[impactful_loss]"
+        },
+        {
+          "seconds": 4.22,
+          "phase": "call",
+          "test": "tests/test_checkpoint.py::test_snoop_adapter_matches_tshark_and_stage_drop[True]"
+        },
+        {
+          "seconds": 4.18,
+          "phase": "call",
+          "test": "tests/test_f5.py::test_f5_decode_pair_request_dwell_and_reset[True]"
+        },
+        {
+          "seconds": 4.03,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_delay_is_on_correct_segment"
+        },
+        {
+          "seconds": 3.93,
+          "phase": "call",
+          "test": "tests/test_ingest_tails.py::test_clock_fit_and_coverage_never_receive_invalid_times"
+        }
+      ]
+    },
+    "3.12": {
+      "seconds": 266.74,
+      "status": "case label separator failed; also above 240-second target",
+      "slowest20": [
+        {
+          "seconds": 13.72,
+          "phase": "call",
+          "test": "tests/test_diagnostics_wire.py::test_missing_clock_endpoint_and_deadline_stay_unknown"
+        },
+        {
+          "seconds": 12.05,
+          "phase": "call",
+          "test": "tests/test_capture_layers.py::test_erspan_default_vxlan_opt_in_and_collision_guard"
+        },
+        {
+          "seconds": 11.93,
+          "phase": "call",
+          "test": "tests/test_tls_interception.py::test_proxy_tls_json_and_offline_html_include_evidence[proxy_capture2]"
+        },
+        {
+          "seconds": 9.92,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_full_proxy_opacity_does_not_hide_independent_leg_loss"
+        },
+        {
+          "seconds": 8.68,
+          "phase": "call",
+          "test": "tests/test_api.py::test_api_ingest_analysis_report"
+        },
+        {
+          "seconds": 8.57,
+          "phase": "call",
+          "test": "tests/test_quality.py::test_low_eligible_ratio_never_claims_zero_loss"
+        },
+        {
+          "seconds": 6.17,
+          "phase": "call",
+          "test": "tests/test_checkpoint.py::test_snoop_adapter_matches_tshark_and_stage_drop[False]"
+        },
+        {
+          "seconds": 6.06,
+          "phase": "call",
+          "test": "tests/test_integrity_attribution.py::test_false_positive_guards[no_endpoint-ipv4-zero]"
+        },
+        {
+          "seconds": 5.96,
+          "phase": "call",
+          "test": "tests/test_timeseries.py::test_coverage_and_exact_bucket_rates"
+        },
+        {
+          "seconds": 5.3,
+          "phase": "call",
+          "test": "tests/test_integrity.py::test_declared_alg_and_unknown_clock_do_not_claim_modification"
+        },
+        {
+          "seconds": 5.05,
+          "phase": "call",
+          "test": "tests/test_integrity_attribution.py::test_false_positive_guards[no_endpoint-ipv4-constant]"
+        },
+        {
+          "seconds": 5.03,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_healthy_five_file_e2e_and_reopen"
+        },
+        {
+          "seconds": 4.44,
+          "phase": "call",
+          "test": "tests/test_timeseries.py::test_transient_unmatchability_is_not_zero_loss"
+        },
+        {
+          "seconds": 4.1,
+          "phase": "call",
+          "test": "tests/test_ingest_tails.py::test_clock_fit_and_coverage_never_receive_invalid_times"
+        },
+        {
+          "seconds": 4.09,
+          "phase": "call",
+          "test": "tests/test_quality.py::test_unlearned_nat_remains_unknown_even_with_known_clocks"
+        },
+        {
+          "seconds": 3.96,
+          "phase": "call",
+          "test": "tests/test_paloalto.py::test_paloalto_drop_is_positive_without_path_coverage"
+        },
+        {
+          "seconds": 3.83,
+          "phase": "call",
+          "test": "tests/test_dns.py::test_native_dns_tuple_scope_latency_and_export"
+        },
+        {
+          "seconds": 3.78,
+          "phase": "call",
+          "test": "tests/test_parallel_ingest.py::test_parallel_real_tshark_cancel_and_resume"
+        },
+        {
+          "seconds": 3.78,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_capture_miss_never_network_loss[acked_unseen]"
+        },
+        {
+          "seconds": 3.73,
+          "phase": "call",
+          "test": "tests/test_analysis.py::test_loss_has_correct_hop_time_and_recovery[impactful_loss]"
+        }
+      ]
+    }
+  }
+}

@@ -23,6 +23,10 @@ export function FieldDiff({
   return (
     <section className="card">
       <h3>Matched packet field differences</h3>
+      <p className="hint">
+        Full-window view of this selected packet across all points. The heatmap
+        brush filters packet selection, not the appearances of this packet.
+      </p>
       <p>{data.note}</p>
       {data.items.map((item, i) => (
         <details key={i} open>

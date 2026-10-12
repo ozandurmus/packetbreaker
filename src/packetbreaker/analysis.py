@@ -829,11 +829,11 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             add_unplaced(db, topology, segments, findings)
         db.execute("""CREATE OR REPLACE TABLE flow_summary AS
             WITH base AS (SELECT flow,max(coalesce(translation_reason,range_reason)) AS matching_unknown_reason,min(corrected) AS start,max(corrected) AS "end",count(DISTINCT point) AS points,
-                count(DISTINCT packet_key) AS unique_observations,count(*) FILTER(WHERE retrans) AS retrans_observations,
+                count(*) FILTER(WHERE retrans) AS retrans_observations,
                 bool_or((flags&4)>0) AS has_reset, max(rtt)*1000 AS max_rtt_ms,
                 min(canon) AS tuple, count(*) FILTER(WHERE (flags&2)>0 AND (flags&16)=0) AS syns,
                 count(*) FILTER(WHERE (flags&18)=18) AS synacks FROM obs GROUP BY flow),
-            bytes AS (SELECT flow,sum(length) AS bytes FROM
+            bytes AS (SELECT flow,sum(length) AS bytes,count(packet_key) AS unique_observations FROM
                 (SELECT flow,packet_key,max(length) AS length FROM obs GROUP BY flow,packet_key) GROUP BY flow),
             losses AS (SELECT flow,count(*) FILTER(WHERE kind='impactful_loss') AS impactful_loss,
                 count(*) FILTER(WHERE kind='recovered_loss') AS recovered_loss,
@@ -844,7 +844,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                 count(*) FILTER(WHERE kind='unknown') AS unknown_events,
                 max(greatest(impact_ms,recovery_ms)) AS max_stall_ms
                 FROM events GROUP BY flow)
-            SELECT base.*,bytes.bytes,coalesce(impactful_loss,0) AS impactful_loss,
+            SELECT base.*,NULL::DOUBLE AS handshake_rtt_ms,NULL::VARCHAR AS reset_origin,bytes.bytes,bytes.unique_observations,coalesce(impactful_loss,0) AS impactful_loss,
                 coalesce(recovered_loss,0) AS recovered_loss,coalesce(capture_miss,0) AS capture_miss,max_stall_ms,
                 coalesce(unrecovered_loss,0) AS unrecovered_loss,coalesce(handshake_blocked,0) AS handshake_blocked,
                 coalesce(confirmed_device_drop,0) AS confirmed_device_drop,
@@ -898,6 +898,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         tls_findings, tls_notes = tls_checks(db, topology, segments, models, start, end)
         findings.extend(tls_findings)
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
+        from .pilot import flow_columns
+
+        flow_columns(db, findings, topology)
         total_findings = len(findings)
         order_scores = rows(
             db,
@@ -949,7 +952,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 4 / Part 2; selected capture layers, IP datagrams and capture microbursts",
+            scope="Phase 4 / Part 3; pilot inventory, brushed topology and evidence drill-down",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,
@@ -979,11 +982,20 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         return report
 
 
-def flow_page(project, offset=0, limit=50, search="", filter_by="", sort="bytes", start=None, end=None):
+def flow_page(
+    project, offset=0, limit=50, search="", filter_by="", sort="bytes", start=None, end=None, points=None
+):
     with project.connect() as db:
         if not project.get(db, "report"):
             return {"total": 0, "items": []}
         clauses, params = ["tuple ILIKE ?"], ["%" + search + "%"]
+        if points:
+            clauses.append(
+                "EXISTS(SELECT 1 FROM obs o WHERE o.flow=flow_summary.flow AND o.point IN ("
+                + ",".join("?" for _ in points)
+                + ") AND (? IS NULL OR corrected>=?) AND (? IS NULL OR corrected<?))"
+            )
+            params.extend([*points, start, start, end, end])
         if start is not None or end is not None:
             clauses.append(
                 "EXISTS(SELECT 1 FROM obs o WHERE o.flow=flow_summary.flow AND (? IS NULL OR corrected>=?) AND (? IS NULL OR corrected<?))"
@@ -999,7 +1011,16 @@ def flow_page(project, offset=0, limit=50, search="", filter_by="", sort="bytes"
             clauses.append(filters[filter_by])
         order = (
             sort
-            if sort in ("bytes", "max_stall_ms", "impactful_loss", "retrans_observations", "start")
+            if sort
+            in (
+                "bytes",
+                "max_stall_ms",
+                "impactful_loss",
+                "retrans_observations",
+                "start",
+                "reset_origin",
+                "handshake_rtt_ms",
+            )
             else "bytes"
         )
         where = " AND ".join(clauses)

@@ -186,6 +186,20 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         path_fields=json.dumps(
             {
                 "transport_index": 1,
+                **(
+                    {
+                        "tunnel_hint": next(
+                            (
+                                k
+                                for k in ("erspan", "vxlan", "geneve", "gre")
+                                if k in g("frame.protocols").split(":")
+                            ),
+                            "unknown",
+                        )
+                    }
+                    if {"vxlan", "geneve", "gre"} & set(g("frame.protocols").split(":"))
+                    else {}
+                ),
                 "dns_index": 1,
                 "dns_name": g("dns.qry.name") or None,
                 "dns_type": number(g("dns.qry.type"), None),
@@ -483,6 +497,12 @@ def ingest(
                             [cid],
                         ).fetchall()
                     ]
+                    info["tunnel_counts"] = dict(
+                        db.execute(
+                            "SELECT json_extract_string(path_fields,'$.tunnel_hint'),count(*) FROM packets WHERE capture_id=? AND unsupported LIKE 'Tunnel encapsulation%' GROUP BY 1",
+                            [cid],
+                        ).fetchall()
+                    )
                     if source_metadata:
                         info["warnings"].append(
                             f"Fortinet text: {source_metadata.get('skipped_lines', 0)} skipped lines; {source_metadata.get('skipped_packets', 0)} incomplete/unsupported packets skipped"
@@ -528,6 +548,9 @@ def ingest(
                     )
                     profile[cid] = metrics
                 done.set()
+                # Release a cancelled reader's pipe before waiting, so tshark cannot block
+                # flushing stdout until the termination timeout expires.
+                proc.stdout.close()
                 if proc.poll() is None:
                     proc.terminate()
                     try:
@@ -535,5 +558,4 @@ def ingest(
                     except subprocess.TimeoutExpired:
                         proc.kill()
                         proc.wait()
-                proc.stdout.close()
                 watcher.join(timeout=1)
