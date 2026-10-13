@@ -558,7 +558,7 @@ class Checks:
             losses = rows(
                 self.db,
                 """SELECT a.flow,min(least(a.length,coalesce(e.missing_bytes,a.length))) AS min_length,count(DISTINCT a.seq) AS lost_ranges,
-                first(a ORDER BY a.corrected) AS packet FROM events e JOIN obs a ON a.packet_key=e.packet_key AND a.point=e.point_a
+                first(a ORDER BY a.corrected) AS packet,list(DISTINCT a.frame) AS large_frames FROM events e JOIN obs a ON a.packet_key=e.packet_key AND a.point=e.point_a
                 WHERE e.point_a=? AND e.point_b=? AND e.direction=? AND e.kind IN ('impactful_loss','unrecovered_loss','recovered_loss')
                 AND a.proto='TCP' AND a.length BETWEEN 1200 AND 9000
                 AND coalesce(e.missing_bytes,a.length)>=greatest(1200,.9*coalesce(
@@ -603,6 +603,11 @@ class Checks:
                     [packet["flow"]],
                 )
                 name = self.location(segment)
+                large_packets = rows(
+                    self.db,
+                    "SELECT * FROM obs WHERE point=? AND frame IN (SELECT unnest(?::BIGINT[])) ORDER BY corrected",
+                    [segment["point_a"], loss["large_frames"][:3]],
+                )
                 self.add(
                     segment,
                     "mtu_black_hole",
@@ -619,7 +624,7 @@ class Checks:
                         quality_reason=why,
                     ),
                     not why,
-                    [packet, *small, *feedback],
+                    [*large_packets, *small, *feedback],
                     severity="high",
                 )
 

@@ -644,3 +644,23 @@ Anonymization requests only the tshark header protocol trees needed for the reta
 bytes. Tshark still owns dissection; container metadata is scrubbed independently.
 The projected and full-tree decodes must produce byte-identical sanitized captures.
 This removes unnecessary application-payload XML, rather than changing test coverage.
+
+## Real-case round 2
+
+Opaque turns are deliberately not called decoded requests: pipelining, missing turns and
+streaming are not uniquely resolvable. ACK consistency gates complete observed boundaries.
+Cycle wait can include retransmission recovery and is distinct from physical-copy transit.
+A cycle-wait finding needs a supported window, a per-flow earlier baseline and at least three
+changed cycles. It may lead integrity hypotheses; a single weak integrity observation cannot
+replace measured dominant degradation. Without a mirror the actual two point labels are used.
+
+The physical-copy guard does not infer loss merely from a changed IP ID. It also needs a
+matching upstream retry and no downstream original; ACK/farther-point delivery evidence keeps
+capture misses out of loss. Zero/constant IDs, IPv6 and unexplained rewrites remain unknown
+when copy ownership cannot be established. Offload counterparts of an ambiguous frame are
+excluded together. The first near-MSS loss frames lead MTU evidence, ahead of small controls.
+
+Keep the repository's new efficiency rules from PR #17: targeted checks during implementation,
+one final fast run, one push and one CI check. Timing/runner noise is advisory. No test-speed
+project, real capture benchmark or extra CI monitoring was added. Full 2.4M-frame performance
+is not claimed from the compact/50-flow replica; all processing retains the native spill budget.

@@ -367,6 +367,28 @@ def create_app(project_path):
             shutil.rmtree(directory)
             raise
 
+    @app.get("/api/engine/export")
+    def engine_export(format: str = Query("xlsx", pattern="^(csv|xlsx)$")):
+        from .engine_export import export_tables
+
+        idle()
+        return Response(
+            export_tables(project, format),
+            media_type="application/zip"
+            if format == "csv"
+            else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="packetbreaker-engine.{"zip" if format == "csv" else "xlsx"}"'
+            },
+        )
+
+    @app.get("/api/topology/suggest")
+    def topology_suggestions():
+        from .topology_suggest import suggest_topology
+
+        idle()
+        return suggest_topology(project)
+
     @app.get("/api/findings")
     def findings(
         start: float | None = Query(None, allow_inf_nan=False),

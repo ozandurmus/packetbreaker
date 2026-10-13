@@ -272,6 +272,7 @@ def polish_findings(findings, segments, topology, onsets):
 def lead_degradation(report, findings, segments):
     """Direct degradation measurements outrank diagnostic integrity hypotheses."""
     allowed = {
+        "cycle_wait",
         "host_receive_delay",
         "host_transmit_delay",
         "host_transmit_path_loss",
@@ -297,7 +298,11 @@ def lead_degradation(report, findings, segments):
     findings.sort(key=lambda f: (f is not primary, f["severity"] not in ("high", "low"), f["time_range"][0]))
     report["findings"] = findings[:200]
     report["finding_count"] = len(findings)
-    if report.get("host_path", {}).get("streams") or any(f["type"].startswith("host_") for f in candidates):
+    if (
+        primary["type"] == "cycle_wait"
+        or report.get("host_path", {}).get("streams")
+        or any(f["type"].startswith("host_") for f in candidates)
+    ):
         report["verdict"] = primary.get("headline") or primary["summary"]
     elif report["verdict"] == "Path integrity findings observed":
         report["verdict"] = primary.get("headline") or primary["summary"]

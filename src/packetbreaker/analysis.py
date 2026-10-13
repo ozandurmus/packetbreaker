@@ -347,7 +347,9 @@ def align(db, topology):
                     ORDER BY hash(a.frame,b.frame),a.frame,b.frame LIMIT 20000""",
                     [a, b],
                 ).fetchall()
-                if len(data) < 6 or len({r[2] for r in data}) < 2:
+                if (points[a].host_capture or points[b].host_capture or points[b].kind == "Server") and (
+                    len(data) < 6 or len({r[2] for r in data}) < 2
+                ):
                     data = clock_range_candidates(db, a, b)
                 forward_before = topology.precedes(a, b, "forward")
                 reverse_before = topology.precedes(a, b, "reverse")
@@ -429,7 +431,12 @@ def align(db, topology):
             if any(p.translation == "full_proxy" for p in topology.points):
                 # Calibrate disconnected TCP legs locally, without asserting cross-proxy clock alignment.
                 missing = next(
-                    (points[p].capture_id for p in order if points[p].capture_id not in models), None
+                    (
+                        points[p].capture_id
+                        for p in order
+                        if points[p].capture_id not in models or models[points[p].capture_id].offset is None
+                    ),
+                    None,
                 )
                 if missing:
                     local_epoch = db.execute(
@@ -534,6 +541,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         link_tcp_sessions(db, topology)
         propagate_translation_unknown(db)
         byte_active = prepare_byte_ranges(db, topology)
+        from .delivery import prepare_delivery
+
+        prepare_delivery(db, topology)
         prepare_flow_filters(db)
         proxies = correlate(db, topology, models, application_status)
         add_dwell(db, topology, models, proxies)
@@ -1086,6 +1096,18 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         host_report, host_findings = host_path(db, topology, segments)
         findings.extend(host_findings)
         primary_host = polish_findings(findings, segments, topology, onsets)
+        from .cycles import build_cycles, cycle_findings
+
+        engine_topology = topology.model_copy(update={"start": start, "end": end})
+        cycle_report = build_cycles(db, engine_topology, segments, host_report, onsets)
+        findings.extend(cycle_findings(db, topology, segments))
+        from .delivery import delivery_report
+
+        delivery, delivery_findings = delivery_report(db, engine_topology, segments)
+        findings.extend(delivery_findings)
+        from .hold_release import hold_release
+
+        findings.extend(hold_release(db, segments))
         from .pilot import flow_columns
 
         flow_columns(db, findings, topology)
@@ -1117,6 +1139,8 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             rtp=rtp_report,
             sip=sip_report,
             host_path=host_report,
+            cycles=cycle_report,
+            delivery=delivery,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,
@@ -1177,6 +1201,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                 "Unrecovered disappearance cannot confirm a device drop without positive device evidence.",
             ],
         )
+        from .host_path import lead_degradation
+
+        lead_degradation(report, findings, segments)
         project.set(db, "topology", topology.model_dump())
         project.set(db, "export_findings", findings)
         project.set(db, "report", report)
@@ -1386,7 +1413,8 @@ def label_host_events(events, topology):
 
 def clock_range_candidates(db, a, b):
     """Header-only calibration fallback; equal cardinality prevents retry rank shifting."""
-    return db.execute("""WITH ranked AS (
+    return db.execute(
+        """WITH ranked AS (
         SELECT point,frame,ts,flow,direction,seq,ack,flags,
         row_number() OVER(PARTITION BY point,flow,direction,seq,ack,flags ORDER BY ts,frame) AS occurrence,
         count(*) OVER(PARTITION BY point,flow,direction,seq,ack,flags) AS n
@@ -1394,4 +1422,6 @@ def clock_range_candidates(db, a, b):
         SELECT a.ts AS time_a,b.ts AS time_b,a.direction='forward' AS forward,a.frame AS frame_a,b.frame AS frame_b
         FROM ranked a JOIN ranked b USING(flow,direction,seq,ack,flags,occurrence,n)
         WHERE a.point=? AND b.point=? AND a.direction<>'unknown')
-        SELECT * FROM paired ORDER BY hash(frame_a,frame_b),frame_a,frame_b LIMIT 20000""", [a,b,a,b]).fetchall()
+        SELECT * FROM paired ORDER BY hash(frame_a,frame_b),frame_a,frame_b LIMIT 20000""",
+        [a, b, a, b],
+    ).fetchall()

@@ -1329,3 +1329,37 @@ protocol trees (`-J`) instead of serializing application payload into PDML. On t
 with byte-identical output. A new full-tree/projection byte-equivalence guard and all
 17 anonymizer cases pass (18.13 s). Current Windows weights use the slower 3.11 profile.
 No time gate or assertion was relaxed. Final collection is 560 fast + 179 slow cases.
+
+## Real-case round 2 — local validation
+
+PR #17 and #16 were merged before branching `real-case-2` from `ccc8c0b`.
+No real capture was read or committed for this work; fixtures are generated locally.
+
+- The old global byte budget failed its reduced-limit regression before the change;
+  per-flow work units now complete it. The nearest-point/no-mirror and short shared-clock
+  host tests pass; disconnected declared domains retain relative clocks.
+- The 50-flow six-file replica passed in **39.47 s**: all 50 flows survive, host-local p95
+  remains below 1 ms, only mirror→host has hold/release signatures, and no high MTU/TTL/
+  asymmetry false positive appears. Native saved-table inspection confirms four TX drops
+  and zero TX-delay classifications at host→mirror; the host event endpoints are within
+  one second of the 25-second ground-truth interval. This is not a 2.4M-frame benchmark.
+- Six additional FW1/FW2/link, zero-ID/IPv6-constant real-tshark cells passed in **22.82 s**.
+  These seven new large wire cases are slow; ordinary guards remain fast.
+- Tiny missing ranges (16/84 B), healthy/capture-miss traffic, unexplained IP-ID changes,
+  CSV/XLSX structure, complete top-cycle evidence and local service time are fast guards.
+  The ID-change guard first exposed that the other ranges of an ambiguous GRO frame still
+  entered latency; ambiguity now propagates to those counterparts. An ID change alone is
+  never proof of retry delivery. Constant identity stays unknown where necessary.
+- One full default run: **564 passed, 3 failed, 186 deselected, 153.24 s**. Failures were
+  integration regressions: failed clock attempts prevented an independent proxy-leg
+  reference, a minimal clock fixture entered a host-only fallback, and a standalone PA
+  drop segment was treated as a timing edge. All three were corrected without weakening
+  assertions; the three affected tests plus seven new fast guards then passed:
+  **10 passed, 7 deselected in 12.24 s**. The full suite was not repeated, per AGENTS.md.
+- Ruff, whitespace and TypeScript/Vite production build pass. Final collection: **567 fast
+  + 186 slow = 753 tests**, 14 new tests versus the prior 739. Local timing is advisory;
+  no test-speed or CI-runtime optimization was attempted in this task.
+- Export schema 10, generated UI assets, README, architecture, decisions and coverage notes
+  are updated. CI is checked once after the single push/PR; pending or infrastructure/timing
+  status is reported without polling. Actual full-scale performance and real-case agreement
+  remain for the user's local incident re-run.

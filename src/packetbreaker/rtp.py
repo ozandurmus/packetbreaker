@@ -18,7 +18,7 @@ def media_finding(db, kind, segment, ts, summary, metrics, refs, supported=True)
         confidence="supported" if supported else "unknown",
         summary=summary,
         headline=summary,
-        metrics=dict(count=1, **metrics),
+        metrics={"count": 1, **metrics},
         evidence=refs,
         tooltip=NOTE,
         cause="unknown",

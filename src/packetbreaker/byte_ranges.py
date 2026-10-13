@@ -8,7 +8,6 @@ from .matching import match_occurrences
 from .store import rows
 
 MOD = 4294967296
-MAX_ATOMS = 1_000_000
 
 
 def add_byte_calibration(db):

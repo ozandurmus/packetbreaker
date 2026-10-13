@@ -6,13 +6,21 @@ from .rtp import media_finding
 
 
 def prepare_delivery(db, topology):
+    db.execute(
+        "CREATE OR REPLACE TEMP TABLE delivery_edges(point_a VARCHAR,point_b VARCHAR,direction VARCHAR)"
+    )
+    edges = [
+        (a, b, d) for d in ("forward", "reverse") for a, b in zip(topology.path(d), topology.path(d)[1:])
+    ]
+    if edges:
+        db.executemany("INSERT INTO delivery_edges VALUES (?,?,?)", edges)
     db.execute("""CREATE OR REPLACE TEMP TABLE delivery_repeats AS SELECT point,flow,direction,seq,count(*) AS copies
         FROM obs WHERE proto='TCP' AND length>0 AND eligible GROUP BY ALL HAVING count(*)>1""")
     db.execute("""CREATE OR REPLACE TABLE delivery_candidates AS SELECT DISTINCT m.point_a,m.point_b,m.direction,
         a.flow,a.frame AS frame_a,b.frame AS frame_b,m.key_a,m.key_b,m.time_a,m.time_b,
         a.seq,a.ipid AS id_a,b.ipid AS id_b,a.src,least(a.length,b.length) AS bytes,
         a.seq=b.seq AS same_start,coalesce(r.copies,1) AS copies
-        FROM observation_matches m JOIN obs a ON a.point=m.point_a AND a.packet_key=m.key_a
+        FROM observation_matches m JOIN delivery_edges USING(point_a,point_b,direction) JOIN obs a ON a.point=m.point_a AND a.packet_key=m.key_a
         JOIN obs b ON b.point=m.point_b AND b.packet_key=m.key_b
         LEFT JOIN delivery_repeats r ON r.point=a.point AND r.flow=a.flow AND r.direction=a.direction AND r.seq=a.seq
         WHERE a.proto='TCP' AND a.length>0 AND b.length>0""")
@@ -97,8 +105,15 @@ def delivery_report(db, topology, segments):
           max(wait_ms) FILTER(WHERE classification='delayed') AS max_delay_ms,
           max(wait_ms) FILTER(WHERE classification IN ('dropped','retry_substitution')) AS max_recovery_ms,
           min(frame_a) AS evidence_frame_a,min(frame_b) AS evidence_frame_b
-          FROM data GROUP BY ALL""",
-        [topology.bucket_seconds, topology.bucket_seconds],
+          FROM data WHERE (? IS NULL OR time_a>=?) AND (? IS NULL OR time_a<=?) GROUP BY ALL""",
+        [
+            topology.bucket_seconds,
+            topology.bucket_seconds,
+            topology.start,
+            topology.start,
+            topology.end,
+            topology.end,
+        ],
     )
     db.execute("""CREATE OR REPLACE TABLE adjacent_match_rates AS SELECT *,
         100.0*(observations-dropped-capture_misses-unknown)/nullif(observations,0) AS match_percent,

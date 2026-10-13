@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.3.5-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.3.6-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -748,3 +748,41 @@ without publishing a partial file. Untimestamped pcapng Simple Packet Blocks are
 currently rejected; ordinary EPB and legacy Packet Blocks are supported. Tshark
 remains the only dissector. Checksum differences caused by rewriting are adjusted;
 existing offload/bad-checksum evidence is not silently repaired.
+
+## Real case: opaque TCP cycles and engine tables
+
+Version 0.3.6 adds **Opaque TCP cycles** to Overview. A cycle is an observed client-data
+burst followed by the first server-data burst; it is not a decoded application request.
+The view shows per-point cycle time, host-local turnaround, RX/TX components between
+adjacent points, per-flow/port totals, before/event/recovery and top slow cycles with
+frame evidence. Missing/ambiguous turns and unaligned cross-point clocks stay unknown.
+Settings controls the cycle stall threshold (default 100 ms) and top-N (default 20).
+Per-point durations can use the local capture clock; cross-point components require alignment.
+The UI shows bounded table samples; exports contain the complete saved engine tables.
+
+The separate delivery series counts long observed transit separately from loss recovered
+by a retry. Learned IPv4 ID preservation and positive retry evidence prevent a seq-only
+retry match from masquerading as delay. Constant IDs and IPv6 cannot provide that ID proof;
+ambiguous copies are unknown. A **hold-and-release signature** shows RTO-like wire copy
+spacing and compressed spacing at the next point, using each point's own clock. Capture
+batching can mimic this pattern; it is not proof of a device/driver cause.
+
+In Path, **Suggest from packet evidence** proposes stage pairs, shared clocks and host
+capture roles. Each suggestion requires **Confirm in topology editor**, then **Save topology**.
+It never silently rewrites the path. Missing translation evidence is not guessed.
+
+Download CSV tables (ZIP) or XLSX from the cycles view, or use:
+
+```sh
+packetbreaker --project /path/to/project export --format csv --output engine.zip
+packetbreaker --project /path/to/project export --format xlsx --output engine.xlsx
+packetbreaker demo demo/real-case-2 --scenario real_case_2 --ip-id increment
+```
+
+The replica has 50 overlapping flows, two stage devices, a shared appliance clock,
+SPAN jitter, capture misses, selective RX holds, TX original-copy loss plus RTO,
+GRO/TSO and unrelated host traffic. No real capture is included. Byte-range matching
+now processes one flow at a time under DuckDB's existing memory/spill settings,
+without a global one-million-atom rejection. A single frame still has a 65,535-boundary
+safety bound. Cached reports reopen without reparsing; re-analyze an older project to
+populate the new engine tables. XLSX has Excel's per-sheet row limit; use CSV above it.
