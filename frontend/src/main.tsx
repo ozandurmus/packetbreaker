@@ -675,7 +675,7 @@ function App() {
             </section>
           )}
           {tab === "UDP / Media" && (
-            <UdpMedia udp={report?.udp} onEvidence={setEvidence} />
+            <UdpMedia udp={report?.udp} rtp={report?.rtp} onEvidence={setEvidence} />
           )}
           {tab === "DNS" && (
             <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />

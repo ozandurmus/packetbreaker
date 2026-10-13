@@ -241,6 +241,11 @@ def prepare(db, topology, project=None, cancel=None):
 
     if project is not None:
         index_udp(project, db, topology, cancel)
+    db.execute("""CREATE OR REPLACE TABLE obs AS SELECT o.* REPLACE(
+        CASE WHEN o.proto='UDP' AND d."sip.Call-ID" IS NOT NULL AND d."sip.CSeq.seq" IS NOT NULL
+          AND NOT contains(d."sip.CSeq.seq",',') AND o.caplen=o.wirelen
+          THEN md5(o.canon||'sip:'||d."sip.Call-ID"||':'||d."sip.CSeq.seq"||':'||coalesce(d."sip.CSeq.method",'')||':'||coalesce(d."sip.Status-Code",'request'))
+          ELSE o.packet_key END AS packet_key) FROM obs o LEFT JOIN udp_decoded d USING(point,frame)""")
     prepare_occurrences(db, topology.duplicate_us)
     if db.execute("SELECT count(*) FROM obs WHERE proto='TCP' AND length>1500 AND eligible").fetchone()[0]:
         add_byte_calibration(db)
@@ -913,6 +918,12 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         from .udp import build_udp
 
         udp_report = build_udp(db, topology, segments)
+        from .rtp import build_rtp
+
+        rtp_report, rtp_findings = build_rtp(
+            db, topology, segments, {cid: m.json() for cid, m in models.items()}
+        )
+        findings.extend(rtp_findings)
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         from .pilot import flow_columns
 
@@ -941,6 +952,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             sessions=sessions,
             security=security_report,
             udp=udp_report,
+            rtp=rtp_report,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,
@@ -1174,7 +1186,7 @@ def findings_page(project, start=None, end=None):
         items.extend(
             f
             for f in (project.get(db, "export_findings") or [])
-            if f["id"].startswith(("integrity:", "security:"))
+            if f["id"].startswith(("integrity:", "security:", "media:"))
             and (start is None or f["time_range"][1] >= start)
             and (end is None or f["time_range"][0] < end)
         )

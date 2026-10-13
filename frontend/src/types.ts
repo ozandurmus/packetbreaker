@@ -162,6 +162,7 @@ export type Segment = {
 };
 export type Report = {
   udp?: import("./UdpMedia").UdpReport;
+  rtp?: import("./UdpMedia").RtpReport;
   application_status?: {
     point: string;
     reason: string | null;

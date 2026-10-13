@@ -13,7 +13,10 @@ from .store import rows
 
 FIELDS = """frame.number frame.time_epoch ip.src ipv6.src ip.dst ipv6.dst udp.srcport udp.dstport frame.protocols
 ntp.flags.mode ntp.org ntp.xmt snmp.request_id snmp.msgID snmp.data radius.id radius.code radius.authenticator syslog.level""".split()
-VERSION = 1
+FIELDS += """tcp.srcport tcp.dstport tcp.seq_raw rtp.ssrc rtp.seq rtp.timestamp rtp.p_type rtp.version
+sip.Call-ID sip.CSeq.seq sip.CSeq.method sip.Method sip.Status-Code sip.Contact sip.Via sip.Via.branch
+sdp.connection_info.address sdp.media.port sdp.media.media sdp.media.format sdp.media_attr""".split()
+VERSION = 2
 
 
 def index_udp(project, db, topology, cancel=None, progress=None):
@@ -22,11 +25,14 @@ def index_udp(project, db, topology, cancel=None, progress=None):
     )
     schema = ",".join('"' + f + '" VARCHAR' for f in FIELDS)
     db.execute(f"CREATE TABLE IF NOT EXISTS udp_decoded(point VARCHAR,frame BIGINT,{schema})")
+    for field in FIELDS:
+        db.execute(f'ALTER TABLE udp_decoded ADD COLUMN IF NOT EXISTS "{field}" VARCHAR')
     statuses = []
     binary = None
     for point in topology.points:
         if not db.execute(
-            "SELECT 1 FROM obs WHERE point=? AND proto='UDP' AND dns_id IS NULL LIMIT 1", [point.id]
+            "SELECT 1 FROM obs WHERE point=? AND (proto='UDP' AND dns_id IS NULL OR proto='TCP' AND (sport=5060 OR dport=5060 OR json_extract_string(path_fields,'$.sip_probe')='1')) LIMIT 1",
+            [point.id],
         ).fetchone():
             db.execute("DELETE FROM udp_decoded WHERE point=?", [point.id])
             continue
@@ -35,6 +41,7 @@ def index_udp(project, db, topology, cancel=None, progress=None):
             [
                 VERSION,
                 capture["identity"],
+                topology.rtp_port_ranges,
                 point.model_dump(
                     exclude={"x", "y", "label", "device", "kind", "translation", "payload_transform"}
                 ),
@@ -119,7 +126,7 @@ def index_udp(project, db, topology, cancel=None, progress=None):
                     "-r",
                     str(selected),
                     "-Y",
-                    "udp && !dns && !(gre || vxlan || geneve || icmp || icmpv6)",
+                    "(udp || sip) && !dns && !(gre || vxlan || geneve || icmp || icmpv6)",
                     "-T",
                     "fields",
                     "-E",
@@ -134,6 +141,8 @@ def index_udp(project, db, topology, cancel=None, progress=None):
                 ]
                 if direct and inv.get("frame_limit") is not None:
                     cmd += ["-c", str(inv["frame_limit"])]
+                for lo, hi in topology.rtp_port_ranges:
+                    cmd += ["-d", f"udp.port=={lo}-{hi},rtp"]
                 for field in FIELDS:
                     cmd += ["-e", field]
                 with output.open("wb") as stream, running(cmd, errors, env, cancel, stream) as proc:
@@ -155,18 +164,36 @@ def index_udp(project, db, topology, cancel=None, progress=None):
                         )
                         buffer.clear()
 
-                with output.open(encoding="utf-8", newline="") as stream:
-                    reader = csv.DictReader(stream)
-                    if reader.fieldnames != FIELDS:
-                        raise ValueError("UDP decoder field schema differs")
-                    for record in reader:
-                        buffer.append({k: v or None for k, v in record.items()})
-                        if len(buffer) >= 4096:
-                            flush()
-                    flush()
+                def load_fields():
+                    db.execute("DELETE FROM udp_raw")
+                    with output.open(encoding="utf-8", newline="") as stream:
+                        reader = csv.DictReader(stream)
+                        if reader.fieldnames != FIELDS:
+                            raise ValueError("UDP decoder field schema differs")
+                        for record in reader:
+                            buffer.append({k: v or None for k, v in record.items()})
+                            if len(buffer) >= 4096:
+                                flush()
+                        flush()
+
+                load_fields()
+                # SDP is authoritative port negotiation; never infer RTP from arbitrary UDP bytes.
+                learned = db.execute(
+                    """SELECT DISTINCT try_cast(port AS INTEGER) FROM udp_raw,unnest(string_split("sdp.media.port",',')) p(port) WHERE try_cast(port AS INTEGER) BETWEEN 1 AND 65535 LIMIT 257"""
+                ).fetchall()
+                if len(learned) > 256:
+                    raise ValueError("Too many SDP media ports; narrow the selected window/capture")
+                if learned and not topology.rtp_port_ranges:
+                    for (port,) in learned:
+                        cmd += ["-d", f"udp.port=={port},rtp"]
+                    with output.open("wb") as stream, running(cmd, errors, env, cancel, stream) as proc:
+                        code = proc.wait()
+                    if code:
+                        raise ValueError("SDP-directed media decode failed")
+                    load_fields()
                 join = 'r."frame.number"::BIGINT=o.frame' if direct else 'r."frame.number"::BIGINT=o.ordinal'
                 valid = """coalesce(r."ip.src",r."ipv6.src")=o.src AND coalesce(r."ip.dst",r."ipv6.dst")=o.dst
-                    AND try_cast(r."udp.srcport" AS INTEGER)=o.sport AND try_cast(r."udp.dstport" AS INTEGER)=o.dport
+                    AND try_cast(coalesce(r."udp.srcport",r."tcp.srcport") AS INTEGER)=o.sport AND try_cast(coalesce(r."udp.dstport",r."tcp.dstport") AS INTEGER)=o.dport
                     AND abs(try_cast(r."frame.time_epoch" AS DOUBLE)-o.ts)<0.000002"""
                 wrong = db.execute(
                     f"SELECT count(*) FROM udp_raw r LEFT JOIN udp_frame_map o ON {join} WHERE o.frame IS NULL OR NOT coalesce({valid},false)"

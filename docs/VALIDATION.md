@@ -1189,3 +1189,6 @@ that security boundary. Nine real-tshark point-isolated fixtures passed in 15.36
 FW2 or inter-device-link response stops × zero/constant IPv4 IDs and IPv6; known NTP/SNMP/RADIUS
 turnaround; syslog no-response expectation; ambiguous unknown ownership and a pure capture miss.
 TypeScript/Vite and Ruff pass. Further media/SIP acceptance and full CI follow at close-out.
+
+
+Part 5 RTP: zero/constant IP ID and IPv6 fixtures use two firewalls, LB and links, concurrent NAT calls sharing ports/SSRC, sequence/timestamp wrap, duplicate/reordered packets and a pure capture miss. 18 UDP/RTP tests passed in 18.12 s before SDP-directed decode hardening; final gate below supersedes this checkpoint.

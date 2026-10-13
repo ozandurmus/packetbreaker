@@ -786,3 +786,6 @@ All transactions persist, with bounded UI/HTML/JSON evidence and native response
 Supported existing packet disappearance events provide query/response stopping hops; capture
 misses never supply loss evidence. Vendor/tunnel/fragment views without validated field ownership
 remain explicitly unknown rather than mixing protocol layers.
+
+
+RTP uses directional canonical tuple plus SSRC, signed sequence/timestamp unwrap, and native SQL RFC 3550 EWMA. Adjacent matched transit variation attributes added jitter; supported missing datagrams attribute loss. Static payload clock, SDP rtpmap or explicit clock override are required; unknown dynamic clocks remain unknown. Decode-as is scoped to user UDP ranges or tshark SDP ports.

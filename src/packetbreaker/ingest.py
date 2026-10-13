@@ -186,6 +186,7 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         path_fields=json.dumps(
             {
                 "transport_index": 1,
+                **({"sip_probe": 1} if "sip" in g("frame.protocols").split(":") else {}),
                 **(
                     {
                         "tunnel_hint": next(

@@ -560,3 +560,6 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 - Protocol fields use a cached, point-isolated secondary decode only when non-DNS UDP is present;
   pure TCP captures retain their existing first pass. Validate source identity and original-frame
   mapping. Reuse bounded native JSON batches instead of widening DuckDB's file permissions.
+
+
+SSRC and UDP ports alone are not stream identities. Sequence gaps are observations: only supported cross-hop disappearance becomes RTP loss. Downstream arrival jitter does not make the receiver the suspect. One-direction observations alone do not prove audio failure.
