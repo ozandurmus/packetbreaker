@@ -156,7 +156,7 @@ def test_exact_security_location_and_variants(scenarios, fault_location, ip_id, 
             == truth["half_open_bucket16"]
         )
     data = export_data(project)
-    assert FindingsExport.model_validate(data).schema_version == 8
+    assert FindingsExport.model_validate(data).schema_version == 9
     assert "TCP session lifecycle" in html_report(data)
     after = findings_page(project, truth["base"] + 11, truth["base"] + 17)["items"]
     assert any(f["type"] == "syn_flood_like" for f in after)

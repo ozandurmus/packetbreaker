@@ -198,3 +198,16 @@ into proof of queue overflow or identify unseen devices. The owner chooses the n
 - **Done:** separately observed host RX/TX boundary delay, per-second byte-range series, local HTTP service time, three-period event/recovery window, evidence and schema-8 exports (`host_path.py`, `HostPath.tsx`, `onset.py`, `test_pilot.py`). Opaque traffic has observed data turnaround, not guessed application boundaries.
 - **Done, bounded:** unfiltered host scope is narrowed before wide matching, while the source/index stay intact; 512 MB DuckDB budget plus spill and clear allocation errors (`analysis.py`, `store.py`, million-frame synthetic acceptance).
 - **Limits:** inferred clock sharing is not physical proof; host boundary delay cannot distinguish capture buffering from NIC/driver/offload delay. Local application timing requires visible, uniquely decoded boundaries. The host view states its saved-window scope; it is not additionally filtered by the heatmap brush.
+
+## Pilot polish and sharing addendum
+
+- **Done:** dominant host-window ranking and positive retry-evidenced host RX/TX loss
+  labels, including brushed findings (`host_path.py`, `test_pilot.py`, `test_anonymize.py`).
+- **Done:** local CLI/UI capture sanitization with zero/headers-only payload modes,
+  metadata/DSB stripping, MAC masking and optional keyed prefix mapping, including
+  ICMP quotes and tunnels (`anonymize.py`, `test_anonymize.py`).
+- **Bounded:** supported contiguous decoded TCP/UDP/ICMP/ARP headers in pcap and
+  pcapng EPB/legacy PB. Fragmented, incomplete, unknown encapsulations and SPB fail
+  closed. Header options/timing/traffic patterns remain visible. Content-dependent
+  analysis becomes unknown; transport equivalence is proven for the generated TCP
+  and GRO/TSO pilot cases, not for erased UDP/application transaction identities.

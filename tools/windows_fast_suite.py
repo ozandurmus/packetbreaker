@@ -28,18 +28,24 @@ def partition(nodeids, count, costs=None):
         "tests/test_proxy_resets.py",
         "tests/test_proxy_clocks.py",
     }
+    shared_anonymize = {"tests/test_anonymize.py", "tests/test_pilot.py", "tests/test_evidence.py"}
     units = {}
     for file in weights:
         units.setdefault(
-            "voip" if file in shared_media else "proxy" if file in shared_proxy else file, []
+            "voip"
+            if file in shared_media
+            else "proxy"
+            if file in shared_proxy
+            else "anonymize"
+            if file in shared_anonymize
+            else file,
+            [],
         ).append(file)
 
-    # Measured elapsed costs, not number of assertions. VoIP's repeated tshark startup
-    # is slower on hosted Windows; reserve extra scheduling weight, not a relaxed gate.
+    # Hosted Windows elapsed costs, not local estimates or assertion counts.
+    # Shared fixture families stay together so their source projects are built once.
     def cost(files):
-        return sum((costs or {}).get(f, weights[f]) for f in files) * (
-            1.5 if costs and any(f in shared_media for f in files) else 1
-        )
+        return sum((costs or {}).get(f, weights[f]) for f in files)
 
     groups = [[] for _ in range(count)]
     totals = [0] * count

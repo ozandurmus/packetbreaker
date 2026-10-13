@@ -10,19 +10,20 @@ from packetbreaker.store import Project
 from packetbreaker.synthetic import generate, bind_capture_ids
 
 
-# Tiny Windows fixture queries otherwise create competing two-thread pools in each process.
-# This affects tests only; production/large benchmarks retain the two-thread SQL budget.
+# Tiny fixture queries use one native SQL thread; production and standalone benchmarks
+# retain their configured two threads. Avoid competing pools in the session producers.
 import sys
 import duckdb
 
-if sys.platform == "win32":
-    _fixture_connect = duckdb.connect
+_fixture_connect = duckdb.connect
 
-    def fixture_connect(*args, **kwargs):
-        kwargs["config"] = {**kwargs.get("config", {}), "threads": "1"}
-        return _fixture_connect(*args, **kwargs)
 
-    duckdb.connect = fixture_connect
+def fixture_connect(*args, **kwargs):
+    kwargs["config"] = {**kwargs.get("config", {}), "threads": "1"}
+    return _fixture_connect(*args, **kwargs)
+
+
+duckdb.connect = fixture_connect
 
 
 def prepared_fixture_project(path):
@@ -181,7 +182,12 @@ def scenarios(tmp_path_factory, tshark, request):
         (priority[key], "scenario", key, build_scenario_fixture, (name, kwargs, directories[key], tshark))
         for key, (name, kwargs) in planned.items()
     ]
+    from anonymize_fixtures import build_anonymize_fixture
+
+    anonymized_sources = {}
+
     for fixture, kind, builder in (
+        ("anonymized_capture", "anonymized", build_anonymize_fixture),
         ("fragment_capture", "fragment", build_fragment_fixture),
         ("burst_capture", "burst", build_burst_fixture),
         ("proxy_capture", "proxy", build_proxy_fixture),
@@ -192,12 +198,21 @@ def scenarios(tmp_path_factory, tshark, request):
             if mode is not None:
                 modes.setdefault(mode, positions[item.nodeid])
         for mode, pos in modes.items():
+            if kind == "anonymized":
+                name = mode[3] if len(mode) > 3 else "recovered_loss"
+                source_key = scenario_key(name, dict(ip_id=mode[1], ipv6=mode[2]))
+                anonymized_sources[source_key] = mode
+                pos = min(pos, priority.get(source_key, pos))
+                # The equivalence builder's original project is also the shared baseline.
+                # Do not ingest/analyze it again in another scenario consumer.
+                work = [w for w in work if not (w[1] == "scenario" and w[2] == source_key)]
             directory = tmp_path_factory.mktemp(kind + "_wire")
-            args = (mode, directory, tshark) if kind == "proxy" else (mode, directory)
+            args = (mode, directory, tshark) if kind in ("proxy", "anonymized") else (mode, directory)
             work.append((pos, kind, mode, builder, args))
     pool = ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) if work else None
     # First consumer first: a late heavy matrix must not starve an earlier diagnostic fixture.
     destinations = {
+        "anonymized": _anonymized_futures,
         "scenario": futures,
         "fragment": _fragment_futures,
         "burst": _burst_futures,
@@ -211,7 +226,9 @@ def scenarios(tmp_path_factory, tshark, request):
         key = scenario_key(name, kwargs)
         if key not in cache:
             result = (
-                futures[key].result()
+                _anonymized_futures[anonymized_sources[key]].result()[0]
+                if key in anonymized_sources
+                else futures[key].result()
                 if key in futures
                 else build_scenario_fixture(name, kwargs, tmp_path_factory.mktemp(name), tshark)
             )
@@ -294,3 +311,11 @@ def proxy_capture(request, tmp_path_factory, tshark, scenarios):
             built = list(pool.map(build, modes))
         _proxy_wire_cache.update(zip(modes, built))
     return _proxy_wire_cache[request.param]
+
+
+_anonymized_futures = {}
+
+
+@pytest.fixture(scope="session")
+def anonymized_capture(request, scenarios):
+    return _anonymized_futures[request.param].result()[1]

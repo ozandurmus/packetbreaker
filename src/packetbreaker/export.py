@@ -34,6 +34,8 @@ class Finding(BaseModel):
     id: str
     type: Literal[
         "host_receive_delay",
+        "host_receive_path_loss",
+        "host_transmit_path_loss",
         "host_transmit_delay",
         "sip_rewritten",
         "sdp_media_mismatch",
@@ -90,7 +92,7 @@ class Finding(BaseModel):
 class FindingsExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_name: Literal["packetbreaker.findings"] = "packetbreaker.findings"
-    schema_version: Literal[8] = 8
+    schema_version: Literal[9] = 9
     engine_version: str
     exported_at: str
     findings: list[Finding]

@@ -712,3 +712,39 @@ disk space for the database and spill directory. Remaining allocation failures
 show an actionable error and preserve the ingested files/checkpoints. Host HTTP
 secondary decoding is bounded to 128 selected directional tuples; larger cohorts
 retain path timing but application timing is unknown until the incident scope is narrowed.
+
+## Share a sanitized capture
+
+`packetbreaker anonymize input.pcap output.pcap` zeros application payload bytes,
+keeps captured/wire lengths and timestamps, masks MACs, and removes pcapng comments,
+interface names/descriptions, name-resolution records and TLS secret blocks. IPs
+are **kept by default**. Source files are never overwritten. The UI's **Anonymize
+captures** export downloads all ready files as a ZIP with neutral filenames.
+
+```sh
+packetbreaker anonymize input.pcapng output.pcapng --payload headers-only
+packetbreaker anonymize captures sanitized --map-ips --key private-anonymize.key
+```
+
+`headers-only` keeps the innermost decoded L4 header (including TCP options and
+ICMP-quoted headers), lowers captured length and preserves original wire/protocol
+lengths. `zero` retains captured length and zeroes the remaining bytes, including
+padding/trailers. A folder export processes `.pcap`, `.pcapng` and `.cap` files and
+requires a new output folder. Keep the **same local key** for every file from one
+incident; a missing key file is created with 32 random bytes. The UI stores its
+key as `.anonymize.key` in the project, outside the exported ZIP. Never share the
+key. Optional keyed mapping preserves IP prefix relationships and maps outer,
+inner-tunnel and ICMP-quoted addresses consistently. Apply that same mapping to
+client CIDRs/NAT declarations when setting up an anonymized project.
+
+Transport equivalence is tested for TCP matching, loss/recovery, latency and onset
+with zero/constant IP IDs and IPv6. Payload-dependent HTTP/TLS/SIP/DNS/RTP identity
+and request/service-time results become unavailable/unknown; a sanitized capture
+cannot preserve the full content-derived report. Headers-only UDP has insufficient
+payload identity for matching. This export preserves header options, timing and
+traffic patterns; it is not a promise that arbitrary sensitive custom header
+options are removed. Unsupported, fragmented or incomplete headers fail closed
+without publishing a partial file. Untimestamped pcapng Simple Packet Blocks are
+currently rejected; ordinary EPB and legacy Packet Blocks are supported. Tshark
+remains the only dissector. Checksum differences caused by rewriting are adjusted;
+existing offload/bad-checksum evidence is not silently repaired.

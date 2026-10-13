@@ -79,12 +79,13 @@ def generate(
     media_mode="faults",
     pilot_shared=True,
 ):
-    if scenario in ("pilot", "pilot_healthy"):
+    if scenario in ("pilot", "pilot_healthy", "pilot_boundary_loss"):
         from .pilot_synthetic import make_pilot
 
         return make_pilot(
             directory,
             healthy=scenario == "pilot_healthy",
+            boundary_loss=scenario == "pilot_boundary_loss",
             ipv6=ipv6,
             fault="host" if fault_location == "FW" else fault_location,
             shared=pilot_shared,

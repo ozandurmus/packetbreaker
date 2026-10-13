@@ -300,3 +300,98 @@ def test_confirmed_latency_onset_survives_uncaptured_trailing_bucket():
     event, reason = latency_window(values, 1)
     assert reason is None and event["time"] == 10 and event["end"] == 20
     assert not event["recovery_confirmed"]
+
+
+@pytest.mark.parametrize("kind", ["capture_miss", "unknown", "unrecovered_loss"])
+def test_host_absence_without_delivery_is_not_host_loss(kind):
+    from packetbreaker.host_path import host_loss_type
+
+    t = stage_topology()
+    t["points"][-1]["host_capture"] = True
+    points = {p.id: p for p in Topology.model_validate(t).points}
+    assert host_loss_type(points, "host", "mirror", kind, True) is None
+    assert host_loss_type(points, "host", "mirror", "impactful_loss", False) is None
+
+
+@pytest.mark.parametrize(
+    "a,b,expected",
+    [
+        ("host", "mirror", "host_transmit_path_loss"),
+        ("mirror", "host", "host_receive_path_loss"),
+        ("a_rx", "a_tx", None),
+        ("b_rx", "b_tx", None),
+        ("a_tx", "b_rx", None),
+    ],
+)
+def test_host_loss_exact_boundary(a, b, expected):
+    from packetbreaker.host_path import host_loss_type
+
+    t = stage_topology()
+    t["points"][-1]["host_capture"] = True
+    points = {p.id: p for p in Topology.model_validate(t).points}
+    assert host_loss_type(points, a, b, "impactful_loss", True) == expected
+
+
+def test_dominant_host_window_precedes_single_loss(scenarios):
+    from copy import deepcopy
+    from packetbreaker.host_path import polish_findings
+
+    _, _, topology, report = scenarios("pilot", ip_id="zero")
+    findings = deepcopy(report["findings"])
+    findings.append(
+        dict(
+            id="isolated",
+            type="impactful_loss",
+            severity="high",
+            confidence="supported",
+            hop="forward:a_tx:b_rx",
+            time_range=[0, 0],
+            metrics={"count": 1},
+        )
+    )
+    onsets = deepcopy(report["onsets"])
+    polish_findings(findings, deepcopy(report["segments"]), Topology.model_validate(topology), onsets)
+    assert findings[0]["type"] in ("host_receive_delay", "host_transmit_delay")
+    assert findings[0]["severity"] == "high"
+    assert onsets["summary"].startswith(findings[0]["headline"])
+    assert report["verdict"].startswith("Delay occurs between")
+    # A naive severity/time sort promotes the unrelated isolated loss and fails this contract.
+    assert (
+        min(
+            findings,
+            key=lambda f: (
+                {"high": 0, "low": 1, "quality": 2, "unknown": 3}[f["severity"]],
+                f["time_range"][0],
+            ),
+        )["id"]
+        == "isolated"
+    )
+
+
+def test_larger_network_delay_does_not_promote_host_symptom(scenarios):
+    from copy import deepcopy
+    from packetbreaker.host_path import polish_findings
+
+    _, _, topology, report = scenarios("pilot", ip_id="zero")
+    findings = deepcopy(report["findings"])
+    for f in findings:
+        if f["type"] in ("host_receive_delay", "host_transmit_delay"):
+            f["severity"] = "low"
+            f["metrics"].pop("primary_degradation", None)
+    segments = deepcopy(report["segments"])
+    hop = next(s for s in segments if s["id"] == "forward:a_tx:b_rx")
+    hop["max_ms"] = 5000
+    onsets = dict(
+        items=[
+            dict(
+                segment=hop["id"],
+                metric="latency_p95_ms",
+                scope="network_segment",
+                value=2,
+                baseline_value=0.1,
+            )
+        ],
+        summary="Network event",
+    )
+    assert polish_findings(findings, segments, Topology.model_validate(topology), onsets) is None
+    assert onsets["summary"] == "Network event"

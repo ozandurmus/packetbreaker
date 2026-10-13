@@ -1259,3 +1259,73 @@ Second pilot CI (https://github.com/ozandurmus/packetbreaker/actions/runs/384142
 Three-process hosted experiment (https://github.com/ozandurmus/packetbreaker/actions/runs/38416926815) did not improve the four-core Windows budget: all functional cases passed, wall times were 280.44/251.95 s. Actual execution is capped at two again, still bounded by CPU/RAM. Work was removed instead: clock direction ordering is computed once per point pair, impossible near-zero clock candidates avoid extra inference work, and timestamp-noise sorting runs only when an envelope crosses. For explicit UDP decode-as and no TCP SIP, one source-level header pass is shared across points; original-frame/tuple/time validation remains. TCP SIP, SDP-driven state, vendor and layer paths retain point isolation.
 
 A new equivalence/negative guard verifies **1 batched tshark call versus 16 isolated calls**, equal decoded fields (excluding decoder-local frame numbering), original frame identity, and forced isolation when a TCP SIP probe exists. Related media/pilot tests: **41 passed in 13.91 s**. Final local default: **532 passed, 179 deselected in 111.13 s** (711 total; 14 new fast and 13 new slow cases). Ruff/whitespace pass; no assertion or CI duration threshold was relaxed.
+
+
+## Pilot polish / anonymizer — item 0
+
+A supported host boundary event window with the largest added delay leads the ranked findings and executive summary at high severity. An isolated earlier packet loss cannot displace it by timestamp alone. Positive retransmission delivery at a host/wire boundary gets a host receive/transmit-path loss label; recovery class remains in metrics and internal event counters, preserving loss-rate accounting. Capture misses, absent recovery, uncertain coverage and ordinary device/link losses retain their classifications. Findings export schema 9 adds both boundary classes. The boundary does not prove a particular driver/NIC cause.
+
+Focused pilot checks: 21 passed, 13 slow cases deselected in 4.57 s. Tests include two devices and a link as negative attribution candidates and an executed naive severity/time ranking that incorrectly prioritizes an isolated loss. Full suite/CI are the final close-out gate.
+
+Anonymizer implementation checkpoint: generated planted-secret fixtures exposed an
+ERSPAN leak when tshark's enclosing protocol size was mistaken for its header size.
+Bounding it at the next decoded protocol fixed the failure. CLI, UI ZIP, IPv4/IPv6,
+little/big-endian pcapng, both payload modes, all five tunnel formats and ICMP quotes
+pass; exact TCP transport report/onset comparison passes in zero-ID and constant-ID
+IPv6 modes. Initial 10-test run: 14.18 s. Final proof and complete gates follow below.
+
+Proof extension: the six-point stage-clock/jitter/GRO pilot initially differed after
+headers-only export because byte calibration required a payload prefix; removing that
+gate also required coalescing NULL prefixes. Then exact uncertainty equality exposed
+address-dependent hash sampling and unstable same-time jitter ordering. Stable frame
+sampling/order fixed both; all three exact transport-equivalence cases pass (zero-ID,
+constant-ID IPv6, and headers-only GRO/TSO pilot), while the removed HTTP service data
+is explicitly unknown. A negative cardinality test keeps repeated sequence starts out
+of clock calibration. Positive RX/TX retry delivery localizes to the host boundary;
+FW, LB and inter-device link distractors do not receive those labels.
+
+Initial full fast gate: 554 passed / 179 deselected in 134.00 s, over budget. Shared
+preparation and batched oracle reads reduced a subsequent measurement to 117.41 s;
+that run caught a test adapter treating the ingest column list as a dict, fixed without
+changing its assertion. The next all-green run was 556 passed in 122.25 s, still over
+budget. Native SQL fixture pools were then limited to one thread on every OS; the final
+measured gate below supersedes these checkpoints. No tests or assertions were removed
+or moved to slow. No real capture or key is tracked.
+
+Final local full gate: **558 passed, 179 deselected in 119.07 s** (737 total;
+26 new fast tests versus PR #15). Ruff, whitespace checks and the TypeScript/Vite
+production bundle pass. No new slow marks. Added fixtures cover metadata/TLS-secret
+leaks, MAC/IP masking, quoted and tunnel headers, checksum preservation, default-IP
+retention, prefix consistency, damage/no-overwrite cleanup, CLI/UI ZIP, exact TCP
+transport/onset and GRO/TSO host-window equivalence. The XML JUnit profile supplies
+new anonymizer/pilot scheduling costs to the existing Windows runner; its complete
+collection and 240-second wall gate remain unchanged. The existing full CI matrix
+and native packaging remain the PR close-out gate.
+
+Initial hosted run: https://github.com/ozandurmus/packetbreaker/actions/runs/38455217663 .
+All three native packages and macOS arm64 acceptance (including the slow suite) passed.
+Windows passed every functional assertion (558 collected, zero failures/errors, one
+intentional optional-sample skip) but failed the unchanged wall gate: **294.77 s on
+3.12, 276.90 s on 3.11**. The 3.12 shards were 216.74 / 291.07 s; anonymizer cost was
+48.49 s versus its 9.44 s local estimate. The runner now uses actual hosted per-file
+costs, without the former local-to-Windows VoIP multiplier, and keeps anonymizer,
+pilot and evidence consumers together. Equivalence builders expose their original
+project as the shared scenario baseline, eliminating duplicate ingest/analysis.
+An identity assertion proves that reuse; no acceptance assertion is removed.
+Related fixtures/scheduling checks: 46 passed / 17 deselected in 19.44 s.
+
+A final source-stability guard refuses publication if file identity, size or modification
+metadata changes while tshark/container streams are read. The generated concurrent-copy
+guard passed in 0.20 s; output and temporary files are absent on failure. Final count:
+559 fast tests plus 179 existing slow cases. Final-head CI is linked in PR #16's checks;
+this initial run URL is retained as the performance evidence, not a green certification.
+
+Second full run: https://github.com/ozandurmus/packetbreaker/actions/runs/38457338884 .
+Final local gate at that head: **559 passed, 179 deselected in 119.26 s**. Windows
+3.12 improved to **195.72 s**; 3.11 still took **266.00 s**, with zero functional
+failures and shards 262/223 s. The next correction exports only tshark's header
+protocol trees (`-J`) instead of serializing application payload into PDML. On the
+2,222-frame synthetic host capture this reduced anonymization from **2.84 to 2.02 s**,
+with byte-identical output. A new full-tree/projection byte-equivalence guard and all
+17 anonymizer cases pass (18.13 s). Current Windows weights use the slower 3.11 profile.
+No time gate or assertion was relaxed. Final collection is 560 fast + 179 slow cases.

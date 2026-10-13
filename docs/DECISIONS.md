@@ -598,3 +598,49 @@ Pilot replica/limits: six original generated files model two stage devices, a mi
 Pilot CI budget: balanced two-process runs still varied beyond 240 s on hosted Windows despite all assertions passing. Use up to three isolated pytest processes when CPU/RAM permits (one fixture producer each), preserving shared-family placement, exact collection coverage and the same wall-time gate. This changes test scheduling, not ingest concurrency or product memory limits.
 
 Measured follow-up: three-way hosted execution increased contention, so the active cap is two. Explicit-range UDP header dissection is stateless and can be shared per physical file, with point selection applied through validated original frames. TCP SIP/reassembly and undecided decoding remain isolated. This is a tshark-pass reduction, not a replacement dissector or a widening of DuckDB filesystem permissions.
+
+
+## Pilot polish / anonymizer — item 0
+
+A supported host boundary event window with the largest added delay leads the ranked findings and executive summary at high severity. An isolated earlier packet loss cannot displace it by timestamp alone. Positive retransmission delivery at a host/wire boundary gets a host receive/transmit-path loss label; recovery class remains in metrics and internal event counters, preserving loss-rate accounting. Capture misses, absent recovery, uncertain coverage and ordinary device/link losses retain their classifications. Findings export schema 9 adds both boundary classes. The boundary does not prove a particular driver/NIC cause.
+
+Focused pilot checks: 21 passed, 13 slow cases deselected in 4.57 s. Tests include two devices and a link as negative attribution candidates and an executed naive severity/time ranking that incorrectly prioritizes an isolated loss. Full suite/CI are the final close-out gate.
+
+## Anonymizer boundaries
+
+Use tshark field positions rather than introduce another dissector. A keyed HMAC-SHA256
+binary-prefix-tree permutation supplies consistent IPv4/IPv6 prefix mapping (not a
+claim to implement Crypto-PAn). MAC pseudonyms use a separate HMAC domain; default MAC
+masking uses a fixed public seed, so it conceals literal bytes rather than resisting
+dictionary recovery. Optional private key mapping also keys MACs. A 65,536-entry cache
+bounds mapping memory. The key is local, excluded from UI archives; filenames are
+neutral. Differential checksum updates preserve the original checksum error syndrome.
+
+The user clarified that equivalence means transport analysis; payload-dependent
+results are unknown. Preserve header options as requested: sensitive custom options
+remain the operator's review responsibility. Reject unsupported/fragmented/incomplete
+headers and SPB rather than claim safe sanitization. No network calls or new dependency.
+
+The proof caught two clock reproducibility defects: missing payload removed otherwise
+unique offload anchors (including SQL NULL prefixes), and packet-key hash ordering
+changed with mapped addresses. Use unique flow/direction/sequence starts, with captured
+prefix comparison when available, and stable physical frame ordering. Do not relax
+clock tolerances or exact report assertions to conceal the difference. Content erasure
+cannot establish payload equality or UDP transaction identity: these stay unknown.
+
+New expensive generated-project preparation joins the existing bounded session fixture
+pool. Each small test database uses one SQL thread on all platforms, as Windows already
+did; product databases and standalone benchmarks retain their configuration. Assertions
+and the fast/slow split are unchanged. Batch tshark field-oracle reads per fixture rather
+than starting a new decoder for each assertion.
+
+Hosted Windows scheduling now uses measured hosted costs and preserves shared
+anonymizer/pilot/evidence baselines. The original equivalence project is the same
+session fixture used elsewhere; it is not rebuilt in another process. Keep the
+240-second gate and two-process cap. Refuse anonymizer publication on source identity
+or timestamp/size changes, since a capture still being copied is not a stable input.
+
+Anonymization requests only the tshark header protocol trees needed for the retained
+bytes. Tshark still owns dissection; container metadata is scrubbed independently.
+The projected and full-tree decodes must produce byte-identical sanitized captures.
+This removes unnecessary application-payload XML, rather than changing test coverage.

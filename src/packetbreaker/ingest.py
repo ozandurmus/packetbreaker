@@ -37,7 +37,7 @@ FIELDS += "dns.qry.name dns.qry.type dns.qry.class dns.flags.rcode dns.count.que
 BASE_FIELDS = FIELDS.copy()
 FIELDS += VENDOR_FIELDS
 CAPLEN_INDEX = list(PACKET_COLUMNS).index("caplen")
-PARSER_VERSION = 12
+PARSER_VERSION = 13
 csv.field_size_limit(16 * 1024 * 1024)
 
 
@@ -137,8 +137,8 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         unsupported = "Fragmented packet; reassembly correlation is not available in Phase 1"
     if length > 9000 and proto != "TCP":
         unsupported = "Possible offload super-frame; byte-range correlation is not available in Phase 1"
-    if proto == "UDP" and not payload:
-        unsupported = "UDP payload unavailable; identity is insufficient"
+    if proto == "UDP" and not payload.strip("0"):
+        unsupported = "UDP payload unavailable or all-zero; identity is insufficient"
     if {"vxlan", "geneve", "gre"} & set(g("frame.protocols").split(":")):
         unsupported = "Tunnel encapsulation; decapsulation selection is not available in Phase 1"
     p = dict(
@@ -233,6 +233,7 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
                 if length and proto in ("TCP", "UDP")
                 else None,
                 "payload_complete": caplen == wirelen
+                and (length == 0 or bool((g("tcp.payload") or g("udp.payload")).replace(":", "").strip("0")))
                 and len((g("tcp.payload") or g("udp.payload")).replace(":", "")) == length * 2,
             },
             separators=(",", ":"),

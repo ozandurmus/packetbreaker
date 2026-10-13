@@ -1,3 +1,4 @@
+import { AnonymizeExport } from "./AnonymizeExport";
 import { HostPath } from "./HostPath";
 import { UdpMedia } from "./UdpMedia";
 import { CasePreflight } from "./CasePreflight";
@@ -540,6 +541,7 @@ function App() {
             </p>
           </div>
           <div className="header-actions">
+            <AnonymizeExport disabled={busy || ready < 1} />
             <Badge kind="neutral">● OFFLINE</Badge>
             <button
               className="secondary"
