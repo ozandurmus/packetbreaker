@@ -16,6 +16,8 @@ class Point(BaseModel):
     ] = "Generic"
     side: Literal["ingress", "egress", "both"] = "both"
     capture_id: str
+    clock_domain: str | None = Field(default=None, max_length=100)
+    host_capture: bool = False
     stage_capture: bool = False
     interface: int | None = Field(default=None, ge=0)
     vendor: Literal["none", "checkpoint", "f5", "paloalto", "fortinet"] = "none"
@@ -126,6 +128,12 @@ class Topology(BaseModel):
 
     @model_validator(mode="after")
     def valid(self):
+        domains = {}
+        for p in self.points:
+            if p.clock_domain:
+                if p.capture_id in domains and domains[p.capture_id] != p.clock_domain:
+                    raise ValueError("One capture file cannot belong to conflicting clock domains")
+                domains[p.capture_id] = p.clock_domain
         stage_devices = {p.device for p in self.points if p.stage_capture}
         if stage_devices:
             from itertools import groupby

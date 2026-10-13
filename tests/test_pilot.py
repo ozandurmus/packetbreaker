@@ -35,3 +35,23 @@ def test_wire_interface_order_is_unchanged_and_stage_declaration_is_per_device()
     t = Topology.model_validate(wire)
     assert t.points[1].stage_capture
     assert t.path("reverse")[-2:] == ["a_rx", "a_tx"]
+
+
+def test_shared_clock_inference_rejects_offset_delay_and_one_way():
+    from packetbreaker.clock import infer_shared_clock
+
+    samples = [(float(i), i + (0.00002 if f else -0.00002), f) for i in range(30) for f in (True, False)]
+    assert infer_shared_clock(samples) is not None
+    assert infer_shared_clock([(a, b + 0.1, f) for a, b, f in samples]) is None
+    assert infer_shared_clock([(a, b, f) for a, b, f in samples if f]) is None
+    assert infer_shared_clock([(a, a + (0.1 if f else -0.1), f) for a, b, f in samples]) is None
+
+
+def test_declared_clock_domain_cannot_conflict_for_one_file():
+    import pytest
+
+    t = stage_topology()
+    t["points"][0].update(clock_domain="x")
+    t["points"][1].update(capture_id="a_rx", clock_domain="y")
+    with pytest.raises(ValueError, match="clock domain"):
+        Topology.model_validate(t)

@@ -29,6 +29,8 @@ export type Point = {
   kind: string;
   side: string;
   stage_capture?: boolean;
+  clock_domain?: string | null;
+  host_capture?: boolean;
   capture_id: string;
   interface: number | null;
   vendor?: string;

@@ -1216,3 +1216,6 @@ Local default gate after cost balancing and prefetch sharing: **518 passed, 166 
 ## Pilot fixes — stage semantics
 
 Stage capture mode is declared per device through capture points. rx/ingress precedes tx/egress in both directional paths; physical wire interfaces keep the ordinary reversed return order. Clock calibration derives orientation from those actual directional paths. TTL wire-hop checks and reverse-edge detour checks are suppressed at stage endpoints because capture hooks are not physical interfaces. Two negative/ordering contracts failed before the change and pass after it; full multi-device wire replica follows.
+
+
+Pilot shared clocks: points may name one source clock domain across files. Its fitted/reference parameters are inherited without relative fitting. Automatic inference requires both directional populations, temporal span and stable near-zero positive transit; it is labelled inferred, with the observed bound as uncertainty, because small offset and physical transit cannot be distinguished. Host captures are excluded from automatic grouping. Clock-domain and existing clock regression checks: 7 passed.

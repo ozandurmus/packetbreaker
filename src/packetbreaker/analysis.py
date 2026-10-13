@@ -259,6 +259,28 @@ def align(db, topology):
             topology.forward + topology.reverse + [p.id for p in topology.points if p.vendor == "paloalto"]
         )
     )
+    from dataclasses import replace
+    from .clock import infer_shared_clock
+
+    groups = {}
+    for p in topology.points:
+        if p.clock_domain:
+            groups.setdefault(p.clock_domain, set()).add(p.capture_id)
+
+    def inherit_domains():
+        for name, members in groups.items():
+            known = next(
+                (models[cid] for cid in members if cid in models and models[cid].offset is not None), None
+            )
+            if known is not None:
+                for cid in members:
+                    models[cid] = replace(
+                        known,
+                        source_domain=name,
+                        confidence="declared_shared",
+                        reason="User-declared shared appliance clock; no relative fitting",
+                    )
+
     models = {}
     ref = points[order[0]].capture_id
     epoch = db.execute("SELECT min(ts) FROM obs WHERE capture_id=?", [ref]).fetchone()[0] or 0
@@ -274,6 +296,7 @@ def align(db, topology):
             "User-supplied clock correction; uncertainty unverified",
             domain=ref,
         )
+    inherit_domains()
     # Multiple passes permit an asymmetric return-path point to calibrate against any known point.
     for _ in range(len(order)):
         changed = False
@@ -292,6 +315,36 @@ def align(db, topology):
                     ORDER BY hash(a.packet_key) LIMIT 20000""",
                     [a, b],
                 ).fetchall()
+                shared_bound = None
+                if (
+                    not points[a].host_capture
+                    and not points[b].host_capture
+                    and not points[a].clock_domain
+                    and not points[b].clock_domain
+                ):
+                    shared_bound = infer_shared_clock(
+                        [
+                            (
+                                x,
+                                x
+                                + (y - x)
+                                * (1 if topology.precedes(a, b, "forward" if f else "reverse") == f else -1),
+                                f,
+                            )
+                            for x, y, f, _, _ in data
+                        ]
+                    )
+                if shared_bound is not None:
+                    models[cid] = replace(
+                        models[aid],
+                        source_domain=models[aid].source_domain or aid,
+                        uncertainty=max(models[aid].uncertainty or 0, shared_bound),
+                        confidence="inferred_shared",
+                        reason="Consistent near-zero positive transit in both directions; shared clock inferred, small offset remains indistinguishable from transit",
+                    )
+                    changed = True
+                    inherit_domains()
+                    break
                 model = fit_clock(
                     [
                         (models[aid].correct(x), y, topology.precedes(a, b, "forward" if f else "reverse"))
@@ -317,6 +370,7 @@ def align(db, topology):
                             )
                         )
                     models[cid] = model
+                    inherit_domains()
                     changed = True
                     break
         if not changed:
