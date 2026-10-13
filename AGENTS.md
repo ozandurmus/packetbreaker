@@ -26,8 +26,31 @@ code. These rules apply to every task in this repository.
    random events, IP ID zero/constant, IPv6 and concurrent flows.
 5. **Never weaken an assertion to make a test pass.** If the behaviour is uncertain, the expected
    result is `unknown` with a reason.
-6. **Speed.** The default `pytest` run stays under 2 minutes. Large real-tshark matrices are marked
-   `@pytest.mark.slow`; CI runs them on one job only.
+6. **Speed.** Aim for a default `pytest` run under 2 minutes locally. Large real-tshark matrices are
+   marked `@pytest.mark.slow`; CI runs them on one job only. Timing budgets are advisory: never
+   spend a task chasing a wall-clock budget unless the task is explicitly about test speed.
+
+## Working efficiently (mandatory)
+
+Time and credits are limited. Work like a senior engineer: the smallest correct change, fast.
+
+0. **Time box = the prompt's estimate.** Every prompt states an expected duration. If none is given:
+   a bug fix or small change is 10–15 minutes, a feature 30 minutes. If you reach 1.5x the estimate,
+   stop and report what is done and what is left.
+
+1. **Targeted tests while developing.** Run only the tests for the files you change. Run the full
+   fast suite **once**, at the end, before opening the PR.
+2. **CI: push once, check once.** Open the PR and read the CI result once.
+   - A real test failure in your change: fix it, then push again.
+   - Timing budgets, runner noise, flaky infrastructure or anything unrelated to your change:
+     do NOT fix it. Report it in one line and stop.
+   - Never poll CI in a loop and never re-run jobs hoping for green.
+3. **No unrequested work.** No benchmarks, refactors, extra features or "proof" re-runs unless
+   the prompt asks for them.
+4. **Stuck rule.** If the same problem has taken more than 15 minutes, stop and report what you
+   tried and what you need. Do not keep experimenting.
+5. **Report format.** At most 10 lines: what changed, the test result, the CI result, open
+   issues. No long narratives.
 
 ## Git workflow
 
