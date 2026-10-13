@@ -789,3 +789,6 @@ remain explicitly unknown rather than mixing protocol layers.
 
 
 RTP uses directional canonical tuple plus SSRC, signed sequence/timestamp unwrap, and native SQL RFC 3550 EWMA. Adjacent matched transit variation attributes added jitter; supported missing datagrams attribute loss. Static payload clock, SDP rtpmap or explicit clock override are required; unknown dynamic clocks remain unknown. Decode-as is scoped to user UDP ranges or tshark SDP ports.
+
+
+SIP comparison uses a unique bounded Call-ID/CSeq/status/directional canonical signaling-flow pair at consecutive points. Native SQL anchors RTP ownership to a unique sending-side SDP endpoint, so NAT port/SSRC collisions remain separate. SDP actual-media comparison uses the arriving source tuple at the receiving endpoint. Bidirectional SDP plus positive opposite-direction disappearance evidence is required for supported one-way audio.

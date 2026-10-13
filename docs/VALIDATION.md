@@ -1192,3 +1192,6 @@ TypeScript/Vite and Ruff pass. Further media/SIP acceptance and full CI follow a
 
 
 Part 5 RTP: zero/constant IP ID and IPv6 fixtures use two firewalls, LB and links, concurrent NAT calls sharing ports/SSRC, sequence/timestamp wrap, duplicate/reordered packets and a pure capture miss. 18 UDP/RTP tests passed in 18.12 s before SDP-directed decode hardening; final gate below supersedes this checkpoint.
+
+
+Part 5 SIP: the pre-integration fixtures failed because SIP comparison was absent. The first integration correctly compared the rewriting hop but failed all nine mismatch assertions: a two-port SDP rate JOIN duplicated RTP rows and made call ownership ambiguous. A scalar unique-rate lateral JOIN fixed cardinality; all 28 UDP/RTP/SIP cases then passed in 21.25 s. Additional clock, missing-endpoint, legitimate sendonly and RFC 3550 header-oracle guards passed (22 SIP/RTP cases, 21.53 s). No acceptance assertions were removed.

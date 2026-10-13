@@ -924,6 +924,12 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             db, topology, segments, {cid: m.json() for cid, m in models.items()}
         )
         findings.extend(rtp_findings)
+        from .sip import build_sip
+
+        sip_report, sip_findings = build_sip(
+            db, topology, segments, {cid: m.json() for cid, m in models.items()}, rtp_findings
+        )
+        findings.extend(sip_findings)
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         from .pilot import flow_columns
 
@@ -953,6 +959,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             security=security_report,
             udp=udp_report,
             rtp=rtp_report,
+            sip=sip_report,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,

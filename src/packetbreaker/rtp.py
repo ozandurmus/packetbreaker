@@ -39,10 +39,14 @@ def build_rtp(db, topology, segments, clocks):
         try_cast(d."rtp.ssrc" AS BIGINT) AS ssrc,try_cast(d."rtp.seq" AS BIGINT) AS seq,try_cast(d."rtp.timestamp" AS BIGINT) AS stamp,
         try_cast(d."rtp.p_type" AS INTEGER) AS pt,
         coalesce(?,r.rate,CASE WHEN d."rtp.p_type" IN ('0','8','13') THEN 8000 END) AS rate
-        FROM obs o JOIN udp_decoded d USING(point,frame) LEFT JOIN rtp_rates r ON r.point=o.point AND r.pt=try_cast(d."rtp.p_type" AS INTEGER)
-        AND r.port IN(o.sport,o.dport) WHERE d."rtp.version"='2' AND d."rtp.ssrc" IS NOT NULL""",
+        FROM obs o JOIN udp_decoded d USING(point,frame) LEFT JOIN LATERAL(SELECT min(rate) AS rate FROM rtp_rates r WHERE r.point=o.point AND r.pt=try_cast(d."rtp.p_type" AS INTEGER)
+        AND r.port IN(o.sport,o.dport) HAVING count(DISTINCT rate)=1) r ON true WHERE d."rtp.version"='2' AND d."rtp.ssrc" IS NOT NULL""",
         [rate],
     )
+    if not db.execute("SELECT 1 FROM rtp_input LIMIT 1").fetchone():
+        db.execute("DROP TABLE IF EXISTS rtp_packets")
+        db.execute("DROP TABLE IF EXISTS rtp_streams")
+        return dict(streams=[], one_way=[], total=0, note=NOTE, scope="Full saved analysis window"), []
     db.execute("""CREATE OR REPLACE TEMP TABLE rtp_order AS SELECT *,row_number() OVER w AS rn,
         lag(seq) OVER w AS previous_seq,lag(stamp) OVER w AS previous_stamp,lag(ts) OVER w AS previous_ts
         FROM rtp_input WHERE eligible WINDOW w AS(PARTITION BY point,flow,direction,ssrc ORDER BY ts,frame)""")

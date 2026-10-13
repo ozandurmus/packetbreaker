@@ -563,3 +563,6 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 
 
 SSRC and UDP ports alone are not stream identities. Sequence gaps are observations: only supported cross-hop disappearance becomes RTP loss. Downstream arrival jitter does not make the receiver the suspect. One-direction observations alone do not prove audio failure.
+
+
+Declared ALG rewriting is expected and remains a visible comparison. Undeclared rewriting and advertised/actual media mismatch are separate findings: a valid rewrite is not an ALG bug. Missing endpoint SDP, ambiguous message ownership, unknown clocks, sendonly/recvonly/inactive sessions or absent opposite-leg evidence cannot support a one-way-audio diagnosis. Multi-media SDP, renegotiation and encrypted SIP remain bounded limitations.
