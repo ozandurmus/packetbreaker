@@ -16,6 +16,7 @@ class Point(BaseModel):
     ] = "Generic"
     side: Literal["ingress", "egress", "both"] = "both"
     capture_id: str
+    stage_capture: bool = False
     interface: int | None = Field(default=None, ge=0)
     vendor: Literal["none", "checkpoint", "f5", "paloalto", "fortinet"] = "none"
     vendor_stage: str | None = None
@@ -116,8 +117,39 @@ class Topology(BaseModel):
     start: float | None = Field(default=None, allow_inf_nan=False)
     end: float | None = Field(default=None, allow_inf_nan=False)
 
+    def path(self, direction):
+        return self.forward if direction == "forward" else self.reverse or self.forward[::-1]
+
+    def precedes(self, a, b, direction):
+        path = self.path(direction)
+        return a in path and b in path and path.index(a) < path.index(b)
+
     @model_validator(mode="after")
     def valid(self):
+        stage_devices = {p.device for p in self.points if p.stage_capture}
+        if stage_devices:
+            from itertools import groupby
+
+            points = {p.id: p for p in self.points}
+            if any(p not in points for p in self.forward + self.reverse):
+                raise ValueError("Paths must contain existing capture points")
+            for p in self.points:
+                if p.device in stage_devices:
+                    p.stage_capture = True
+                    if p.side not in ("ingress", "egress"):
+                        raise ValueError("Stage captures require rx/ingress or tx/egress side")
+
+            def stage_order(path):
+                result = []
+                for device, block in groupby(path, key=lambda p: points[p].device):
+                    block = list(block)
+                    if device in stage_devices:
+                        block.sort(key=lambda p: points[p].side != "ingress")
+                    result.extend(block)
+                return result
+
+            self.forward = stage_order(self.forward)
+            self.reverse = stage_order(self.reverse or self.forward[::-1])
         if any(not 1 <= a <= b <= 65535 for a, b in self.rtp_port_ranges):
             raise ValueError("RTP port ranges must be ordered UDP ports 1..65535")
         if self.report_timezone:

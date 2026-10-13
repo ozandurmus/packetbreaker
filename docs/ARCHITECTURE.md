@@ -795,3 +795,8 @@ SIP comparison uses a unique bounded Call-ID/CSeq/status/directional canonical s
 
 
 Part 5 protocol metadata remains a point-isolated tshark field pass, with cache identities tied to the source, decoder schema and decode-as configuration. CSV is loaded in bounded 4096-record batches through native DuckDB JSON, without enabling external filesystem access. Decoder schema 3 adds SNMP version/community context; named target columns preserve schema migration order. SIP/UDP message keys deliberately tolerate header/SDP rewriting; ordinary UDP data retains captured payload identity. Heavy pairing, sequence unwrap and the RFC 3550 EWMA stay native SQL, including a blockwise recurrence rather than per-packet Python. Button evidence is fetched in bounded batches and enriched with decoded RTP/SIP identity filters. Query initiations, RTP packets and SIP comparisons honor the saved selected window; earlier SDP provides context and a reply can extend to its covered deadline. The media tab clearly states that heatmap brushing does not additionally filter it.
+
+
+## Pilot fixes — stage semantics
+
+Stage capture mode is declared per device through capture points. rx/ingress precedes tx/egress in both directional paths; physical wire interfaces keep the ordinary reversed return order. Clock calibration derives orientation from those actual directional paths. TTL wire-hop checks and reverse-edge detour checks are suppressed at stage endpoints because capture hooks are not physical interfaces. Two negative/ordering contracts failed before the change and pass after it; full multi-device wire replica follows.

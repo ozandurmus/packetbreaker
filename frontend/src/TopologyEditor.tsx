@@ -202,7 +202,7 @@ export function TopologyEditor({
     onChange({
       ...current(),
       points: current().points.map((p) =>
-        p.id === selected.id ? { ...p, ...patch } : p,
+        p.id === selected.id ? { ...p, ...patch } : patch.stage_capture !== undefined && p.device === selected.device ? {...p, stage_capture: patch.stage_capture} : p,
       ),
     });
   }
@@ -424,6 +424,7 @@ export function TopologyEditor({
                   ))}
                 </select>
               </label>
+              <label><input type="checkbox" checked={selected.stage_capture||false} onChange={e=>update({stage_capture:e.target.checked})}/>Device stage captures: rx/ingress then tx/egress in both directions</label>
               <label>
                 Side
                 <select

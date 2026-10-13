@@ -28,6 +28,7 @@ export type Point = {
   device: string;
   kind: string;
   side: string;
+  stage_capture?: boolean;
   capture_id: string;
   interface: number | null;
   vendor?: string;

@@ -292,14 +292,11 @@ def align(db, topology):
                     ORDER BY hash(a.packet_key) LIMIT 20000""",
                     [a, b],
                 ).fetchall()
-                # Reverse orientation if the known point is downstream in the forward path.
-                flip = (
-                    a in topology.forward
-                    and b in topology.forward
-                    and topology.forward.index(a) > topology.forward.index(b)
-                )
                 model = fit_clock(
-                    [(models[aid].correct(x), y, not f if flip else f) for x, y, f, _, _ in data]
+                    [
+                        (models[aid].correct(x), y, topology.precedes(a, b, "forward" if f else "reverse"))
+                        for x, y, f, _, _ in data
+                    ]
                 )
                 if model.offset is not None:
                     model.domain = models[aid].domain
