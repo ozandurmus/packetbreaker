@@ -1,0 +1,141 @@
+{
+  "$defs": {
+    "ReferenceItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 2000,
+          "title": "Description",
+          "type": "string"
+        },
+        "metric": {
+          "maxLength": 2000,
+          "minLength": 2,
+          "title": "Metric",
+          "type": "string"
+        },
+        "expected": {
+          "title": "Expected"
+        },
+        "check": {
+          "additionalProperties": true,
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "abs_tol": {
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "abs_tol"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "rel_tol_pct": {
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "rel_tol_pct"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "max": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "max"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "min": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "min"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "equals": {}
+              },
+              "required": [
+                "equals"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "window_tol_s": {
+                  "minimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "window_tol_s"
+              ],
+              "type": "object"
+            }
+          ],
+          "title": "Check",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "metric",
+        "expected",
+        "check"
+      ],
+      "title": "ReferenceItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": 1,
+      "maximum": 1,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/ReferenceItem"
+      },
+      "maxItems": 10000,
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "Reference",
+  "type": "object"
+}

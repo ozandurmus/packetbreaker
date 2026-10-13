@@ -98,6 +98,11 @@ def main():
     export = commands.add_parser("export", help="Export the last analysis as offline HTML or versioned JSON")
     export.add_argument("--format", required=True, choices=["html", "json", "csv", "xlsx"])
     export.add_argument("--output", "-o", type=Path, help="New output file; defaults to stdout")
+    compare = commands.add_parser("compare", help="Compare a saved analysis against local reference/run JSON")
+    compare.add_argument("--reference", type=Path)
+    compare.add_argument("--against", type=Path, help="Previous analysis JSON export")
+    compare.add_argument("--report", type=Path, help="Current analysis/export JSON; otherwise saved project")
+    compare.add_argument("--template", type=Path, help="Write a reference template to a new file")
     forti = commands.add_parser(
         "import-fortinet", help="Convert verbose-6 text and add one capture point per interface"
     )
@@ -106,6 +111,30 @@ def main():
     forti.add_argument("--device", default="FortiGate")
     args = parser.parse_args()
     try:
+        if args.command == "compare":
+            from .reference import compare_reference, compare_runs, reference_template, unwrap
+
+            if not (args.reference or args.against or args.template):
+                parser.error("Choose --reference, --against or --template")
+            if args.report:
+                saved = json.loads(args.report.read_text())
+            else:
+                project = Project(args.project)
+                with project.connect() as db:
+                    saved = project.get(db, "report")
+            if not saved:
+                raise ValueError("Run analysis first")
+            saved = unwrap(saved)
+            if args.template:
+                with args.template.open("x") as target:
+                    json.dump(reference_template(saved), target, indent=2)
+            result = {}
+            if args.reference:
+                result.update(compare_reference(saved, json.loads(args.reference.read_text())))
+            if args.against:
+                result["diff"] = compare_runs(json.loads(args.against.read_text()), saved)
+            print(json.dumps(result, indent=2))
+            return
         if args.command == "anonymize":
             from .anonymize import anonymize, anonymize_files, local_key
 

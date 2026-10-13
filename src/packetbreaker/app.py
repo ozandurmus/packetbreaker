@@ -382,6 +382,53 @@ def create_app(project_path):
             },
         )
 
+    @app.get("/api/reference/template")
+    def reference_export():
+        from .reference import reference_template
+        import json
+
+        with project.connect() as db:
+            saved = project.get(db, "report")
+        if not saved:
+            raise HTTPException(400, "Run analysis first")
+        return Response(
+            json.dumps(reference_template(saved), indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": 'attachment; filename="packetbreaker-reference.json"'},
+        )
+
+    @app.post("/api/compare")
+    async def compare(request: Request):
+        from .reference import compare_reference, compare_runs
+        import json
+
+        idle()
+        content = bytearray()
+        async for chunk in request.stream():
+            content.extend(chunk)
+            if len(content) > 64 * 1024 * 1024:
+                raise HTTPException(413, "Comparison input exceeds 64 MiB")
+        try:
+            payload = json.loads(content)
+            if not isinstance(payload, dict) or set(payload) - {"reference", "against"}:
+                raise ValueError("Choose reference and/or against")
+            with project.connect() as db:
+                saved = project.get(db, "report")
+            if not saved:
+                raise ValueError("Run analysis first")
+            result = {}
+            if payload.get("reference") is not None:
+                result.update(compare_reference(saved, payload["reference"]))
+            if payload.get("against") is not None:
+                if not isinstance(payload["against"], dict):
+                    raise ValueError("Analysis export must be an object")
+                result["diff"] = compare_runs(payload["against"], saved)
+            if not result:
+                raise ValueError("Choose reference and/or against")
+            return result
+        except (ValueError, TypeError, RecursionError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
     @app.get("/api/topology/suggest")
     def topology_suggestions():
         from .topology_suggest import suggest_topology
