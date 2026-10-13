@@ -376,6 +376,11 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                     exclude={"x", "y", "label", "device", "kind", "translation", "payload_transform"}
                 ),
                 VERSION,
+                db.execute(
+                    "SELECT count(*),bit_xor(hash(frame,tuple_key)) FROM obs WHERE point=?", [point.id]
+                ).fetchone()
+                if point.host_capture
+                else None,
                 binary,
             ],
             sort_keys=True,

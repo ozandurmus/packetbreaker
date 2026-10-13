@@ -1,3 +1,4 @@
+import { HostPath } from "./HostPath";
 import { UdpMedia } from "./UdpMedia";
 import { CasePreflight } from "./CasePreflight";
 import type { TopologyOverlay } from "./types";
@@ -680,6 +681,8 @@ function App() {
           {tab === "DNS" && (
             <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />
           )}
+          {tab === "Overview" && report?.analysis_scope?.some(s=>s.excluded_single_point_frames>0) && <section><h2>Analysis flow scope</h2>{report.analysis_scope.filter(s=>s.excluded_single_point_frames>0).map(s=><p key={s.point}>{s.point}: {s.retained_frames.toLocaleString()} of {s.input_frames.toLocaleString()} frames selected for cross-point matching; {s.excluded_single_point_frames.toLocaleString()} host-only background frames excluded.</p>)}</section>}
+          {tab === "Overview" && <HostPath data={report?.host_path} onEvidence={setEvidence}/> }
           {tab === "Overview" && report?.microbursts && (
             <>
               <Sessions data={report.sessions} onEvidence={setEvidence} />
@@ -1175,6 +1178,7 @@ function App() {
                                     )}
                               </td>
                               <td>
+                                {s.quality_notes?.length ? <small>{s.quality_notes.join("; ")}</small> : null}
                                 {s.reason ||
                                   `Estimated · offset uncertainty ±${num(s.latency_uncertainty_ms ?? s.offset_uncertainty_ms, " ms", 3)}`}
                               </td>

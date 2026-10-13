@@ -445,7 +445,11 @@ def align(db, topology):
                 models[cid].reason = "Relative Fortinet timestamps anchored by a user-supplied start time"
     # Relative adjacent timestamp differences bound jitter without absorbing sparse host-delay events.
     for cid, model in models.items():
-        if model.offset is None or cid == ref:
+        if (
+            model.offset is None
+            or cid == ref
+            or not any(p.stage_capture or p.clock_domain or p.host_capture for p in topology.points)
+        ):
             continue
         noise = db.execute(
             """WITH pairs AS(SELECT b.ts-a.ts AS delta,a.ts,
@@ -1028,6 +1032,10 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             db, topology, segments, {cid: m.json() for cid, m in models.items()}, rtp_findings
         )
         findings.extend(sip_findings)
+        from .host_path import host_path
+
+        host_report, host_findings = host_path(db, topology, segments)
+        findings.extend(host_findings)
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         from .pilot import flow_columns
 
@@ -1059,6 +1067,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             udp=udp_report,
             rtp=rtp_report,
             sip=sip_report,
+            host_path=host_report,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,
@@ -1073,6 +1082,8 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             generated_at=datetime.now(timezone.utc).isoformat(),
             verdict="Security heuristic patterns observed; interpretation required"
             if any(f["confidence"] == "supported" for f in security_findings)
+            else "Host receive/transmit path delay observed; application timing reported separately"
+            if host_findings
             else "Path integrity findings observed"
             if any(
                 f["confidence"] == "supported" and f["severity"] != "quality"

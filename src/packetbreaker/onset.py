@@ -377,3 +377,61 @@ def ordered_onsets(items, directions):
             x["metric"],
         ),
     )
+
+
+def latency_window(values, floor, metric="latency_p95_ms"):
+    """Find a bounded sustained excursion and its first recovered bucket, preserving idle gaps."""
+    valid = [
+        v
+        for v in values
+        if v.get(metric) is not None and v.get("coverage", "capturing") == "capturing" and not v.get("reason")
+    ]
+    if len(valid) < 8:
+        return None, "unknown: insufficient matched baseline and recovery samples"
+    baseline = [v[metric] for v in valid[:5]]
+    center = median(baseline)
+    mad = median(abs(v - center) for v in baseline)
+    threshold = center + max(floor, 6 * 1.4826 * mad)
+    if max(baseline) - min(baseline) > max(floor, 6 * 1.4826 * mad):
+        return None, "unknown: unstable early latency baseline"
+    changed = []
+    start_index = None
+    for i, v in enumerate(valid[5:], 5):
+        if v[metric] > threshold:
+            changed = [j for j in changed if valid[j]["start"] >= v["start"] - 15] + [i]
+            if len(changed) >= 3:
+                start_index = changed[0]
+                break
+    if start_index is None:
+        return None, "No sustained departure from the early healthy baseline"
+    last = start_index
+    quiet = []
+    recovery = None
+    for v in valid[start_index + 1 :]:
+        if v[metric] > threshold:
+            last = valid.index(v)
+            quiet = []
+        else:
+            quiet.append(v)
+            if len(quiet) == 3:
+                recovery = quiet[0]
+                break
+    first = valid[start_index]
+    return dict(
+        metric=metric,
+        time=first["start"],
+        end=recovery["start"] if recovery else valid[-1]["end"],
+        bucket=first.get("bucket", int(first["start"])),
+        first_crossing_bucket=first.get("bucket", int(first["start"])),
+        confirmed_bucket=valid[changed[-1]].get("bucket", int(valid[changed[-1]]["start"])),
+        baseline_value=center,
+        mad=mad,
+        threshold=threshold,
+        multiplier=6,
+        minimum_delta=floor,
+        value=first[metric],
+        baseline_buckets=[v.get("bucket", int(v["start"])) for v in valid[:5]],
+        recovery_confirmed=recovery is not None,
+        last_delayed_bucket=valid[last]["start"],
+        baseline_method="early matched latency median/MAD; three crossings within 15 s; three healthy observations confirm recovery",
+    ), None

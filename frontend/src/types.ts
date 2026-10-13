@@ -169,6 +169,8 @@ export type Segment = {
   quality_notes?: string[];
 };
 export type Report = {
+  host_path?: import("./HostPath").HostPathReport;
+  analysis_scope?: {point:string;input_frames:number;retained_frames:number;excluded_single_point_frames:number}[];
   udp?: import("./UdpMedia").UdpReport;
   rtp?: import("./UdpMedia").RtpReport;
   sip?: import("./UdpMedia").SipReport;
