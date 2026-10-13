@@ -1,7 +1,7 @@
 """Bidirectional minimum-delay envelopes; all offsets are estimates."""
 
 from dataclasses import asdict, dataclass, field
-from statistics import median
+from statistics import median, quantiles
 
 
 @dataclass
@@ -46,7 +46,8 @@ def fit_clock(samples):
         fw = [d for _, d, f in points if f]
         rv = [d for _, d, f in points if not f]
         if len(fw) >= 2 and len(rv) >= 2:
-            upper, lower = min(fw), max(rv)
+            upper = quantiles(fw, n=100, method="inclusive")[0]
+            lower = quantiles(rv, n=100, method="inclusive")[-1]
             # Long captures can have crossing raw bounds before drift is removed.
             envelopes.append((median([a for a, _, _ in points]) - epoch, (upper + lower) / 2))
     drift = 0.0
@@ -63,29 +64,29 @@ def fit_clock(samples):
         return ClockModel(epoch=epoch, samples=len(samples), reason="Estimated drift exceeds 5000 ppm")
     fw = [b - a - drift * (a - epoch) for a, b, f in samples if f]
     rv = [b - a - drift * (a - epoch) for a, b, f in samples if not f]
-    upper, lower = min(fw), max(rv)
-    jitter = 0.0
-    if lower > upper:
-        noise = []
-        for direction in (True, False):
-            ordered = sorted((a, b - a - drift * (a - epoch)) for a, b, f in samples if f == direction)
-            noise.extend(abs(b[1] - a[1]) for a, b in zip(ordered, ordered[1:]))
-        jitter = min(0.002, median(noise) * 4) if noise else 0
-    if lower > upper and lower - upper <= max(2 * jitter, 0.000001):
-        upper, lower = median(fw), median(rv)
+    upper = quantiles(fw, n=100, method="inclusive")[0]
+    lower = quantiles(rv, n=100, method="inclusive")[-1]
+    # Pool detrended samples: per-bin estimates undercount correlated timestamp
+    # jitter when many copies share the same timestamp error.
+    fq = quantiles(fw, n=100, method="inclusive")
+    rq = quantiles(rv, n=100, method="inclusive")
+    jitter = min(0.002, median([3 * (fq[24] - fq[0]), 3 * (rq[98] - rq[74])]))
     if lower > upper + max(2 * jitter, 1e-6):
         return ClockModel(
-            epoch=epoch, samples=len(samples), reason="No feasible non-negative bidirectional delay envelope"
+            epoch=epoch,
+            samples=len(samples),
+            timestamp_jitter=jitter,
+            reason="No feasible jitter-bounded bidirectional percentile envelope",
         )
     return ClockModel(
         offset=(upper + lower) / 2,
         drift=drift,
         epoch=epoch,
-        uncertainty=max(0, (upper - lower) / 2),
+        uncertainty=abs(upper - lower) / 2 + jitter,
         confidence="estimated",
         samples=len(samples),
         timestamp_jitter=jitter,
-        reason="Minimum-path symmetry assumed; path asymmetry is included in offset uncertainty"
+        reason="Bidirectional p1/p99 delay envelope; minimum-path symmetry assumed; timestamp jitter and envelope infeasibility are included in uncertainty"
         + ("; drift fitted" if drift else "; offset-only fit"),
     )
 

@@ -876,3 +876,12 @@ invalidates re-ingest caches for these quality semantics.
 - `engine_export.py` streams SQL batches into CSV ZIP or minimal OOXML XLSX, with numeric
   values and formula-safe text, capture-point mapping and flow/frame filters. No new dependency.
   Finding schema 10 adds `hold_release` and `cycle_wait`; HTML/JSON include engine summaries.
+
+### Real-case round 2 follow-up: timestamp jitter
+
+Clock fitting uses p1/p99 directional envelopes after robust drift estimation. The
+healthy-facing quartile tails estimate timestamp jitter, including correlated errors that
+would disappear in adjacent-sample differences. A crossing envelope is accepted only within
+twice that bounded jitter; uncertainty includes both the crossing and jitter. One-way data
+and genuinely incompatible bidirectional timing remain unknown. The host fallback still
+uses the nearest aligned capture point and requires no manual override.

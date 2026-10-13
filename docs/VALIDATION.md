@@ -1363,3 +1363,13 @@ No real capture was read or committed for this work; fixtures are generated loca
   are updated. CI is checked once after the single push/PR; pending or infrastructure/timing
   status is reported without polling. Actual full-scale performance and real-case agreement
   remain for the user's local incident re-run.
+
+## Real-case round 2: two remaining blockers
+
+Synthetic inputs only; PR #18 merged before branching `real-case-2-fix`.
+The correlated ±150 µs timestamp test failed before the fix (`offset=None`). After the
+percentile-envelope fix, the focused clock/ACK checks passed (11 tests, 4.85 s), and all
+five new regressions passed (6.40 s). The wire replicas remove the adjacent mirror and
+exercise IPv4/IP ID zero and IPv6/constant IDs: clock error <0.1 ms, RX/TX present, event
+bounds within one second, host-local response p95 <1 ms, and a host-path verdict without
+overrides. A truly infeasible clock and one-way timing remain unknown.
