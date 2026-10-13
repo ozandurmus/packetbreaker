@@ -334,9 +334,9 @@ def align(db, topology):
         changed = False
         for b in order:
             cid = points[b].capture_id
-            if cid in models:
+            if cid in models and models[cid].offset is not None:
                 continue
-            for a in order:
+            for a in sorted(order, key=lambda point: abs(order.index(point) - order.index(b))):
                 aid = points[a].capture_id
                 if aid not in models or models[aid].offset is None:
                     continue
@@ -347,6 +347,8 @@ def align(db, topology):
                     ORDER BY hash(a.frame,b.frame),a.frame,b.frame LIMIT 20000""",
                     [a, b],
                 ).fetchall()
+                if len(data) < 6 or len({r[2] for r in data}) < 2:
+                    data = clock_range_candidates(db, a, b)
                 forward_before = topology.precedes(a, b, "forward")
                 reverse_before = topology.precedes(a, b, "reverse")
                 shared_bound = None
@@ -399,6 +401,8 @@ def align(db, topology):
                         for x, y, f, _, _ in data
                     ]
                 )
+                if model.offset is None and (cid not in models or model.samples > models[cid].samples):
+                    models[cid] = model
                 if model.offset is not None:
                     model.domain = models[aid].domain
                     model.uncertainty = (
@@ -1354,3 +1358,16 @@ def label_host_events(events, topology):
         if kind:
             item["recovery_class"] = item["kind"]
             item["kind"] = kind
+
+
+def clock_range_candidates(db, a, b):
+    """Header-only calibration fallback; equal cardinality prevents retry rank shifting."""
+    return db.execute("""WITH ranked AS (
+        SELECT point,frame,ts,flow,direction,seq,ack,flags,
+        row_number() OVER(PARTITION BY point,flow,direction,seq,ack,flags ORDER BY ts,frame) AS occurrence,
+        count(*) OVER(PARTITION BY point,flow,direction,seq,ack,flags) AS n
+        FROM obs WHERE point IN (?,?) AND eligible AND proto='TCP'), paired AS(
+        SELECT a.ts AS time_a,b.ts AS time_b,a.direction='forward' AS forward,a.frame AS frame_a,b.frame AS frame_b
+        FROM ranked a JOIN ranked b USING(flow,direction,seq,ack,flags,occurrence,n)
+        WHERE a.point=? AND b.point=? AND a.direction<>'unknown')
+        SELECT * FROM paired ORDER BY hash(frame_a,frame_b),frame_a,frame_b LIMIT 20000""", [a,b,a,b]).fetchall()
