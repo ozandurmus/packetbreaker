@@ -86,6 +86,10 @@ class Override(BaseModel):
 
 
 class Topology(BaseModel):
+    rtp_port_ranges: list[tuple[int, int]] = Field(default_factory=list, max_length=16)
+    rtp_clock_rate: int | None = Field(default=None, ge=1000, le=192000)
+    rtp_jitter_ms: float = Field(default=2, ge=0.1, le=1000, allow_inf_nan=False)
+    udp_timeout_ms: float = Field(default=2000, ge=100, le=60000, allow_inf_nan=False)
     security_half_open_floor: int = Field(default=20, ge=2, le=100000)
     security_scan_window_seconds: float = Field(default=5, ge=1, le=300, allow_inf_nan=False)
     security_scan_targets: int = Field(default=20, ge=2, le=100000)
@@ -114,6 +118,8 @@ class Topology(BaseModel):
 
     @model_validator(mode="after")
     def valid(self):
+        if any(not 1 <= a <= b <= 65535 for a, b in self.rtp_port_ranges):
+            raise ValueError("RTP port ranges must be ordered UDP ports 1..65535")
         if self.report_timezone:
             try:
                 ZoneInfo(self.report_timezone)

@@ -50,6 +50,10 @@ export type Mapping = {
   evidence?: Ref[];
 };
 export type Topology = {
+  udp_timeout_ms?: number;
+  rtp_port_ranges?: [number, number][];
+  rtp_clock_rate?: number | null;
+  rtp_jitter_ms?: number;
   bucket_seconds?: number;
   security_scan_window_seconds?: number;
   security_scan_targets?: number;
@@ -160,6 +164,9 @@ export type Segment = {
   offset_uncertainty_ms: number | null;
 };
 export type Report = {
+  udp?: import("./UdpMedia").UdpReport;
+  rtp?: import("./UdpMedia").RtpReport;
+  sip?: import("./UdpMedia").SipReport;
   application_status?: {
     point: string;
     reason: string | null;

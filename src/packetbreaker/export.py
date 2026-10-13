@@ -33,6 +33,11 @@ class Finding(BaseModel):
     )
     id: str
     type: Literal[
+        "sip_rewritten",
+        "sdp_media_mismatch",
+        "one_way_audio",
+        "rtp_loss",
+        "rtp_jitter",
         "session_table_pressure",
         "scan_like_fanout",
         "syn_flood_like",
@@ -83,7 +88,7 @@ class Finding(BaseModel):
 class FindingsExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_name: Literal["packetbreaker.findings"] = "packetbreaker.findings"
-    schema_version: Literal[6] = 6
+    schema_version: Literal[7] = 7
     engine_version: str
     exported_at: str
     findings: list[Finding]
@@ -238,6 +243,9 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <section id="segments"><h2>Segments</h2>{segments}</section>
 <section id="proxies"><h2>Full-proxy requests and TCP legs</h2>{details(report.get("proxies", {}), "Request pairings, dwell uncertainty, evidence and independent-leg classifications")}</section>
 <section id="tls"><h2>TLS interception evidence</h2>{details(report.get("tls", []), "Visible certificate chains and unknown encrypted handshakes")}{details(report.get("application_status", []), "Application decoder status")}</section>
+<section id="sip"><h2>SIP / SDP</h2>{details(report.get("sip", {}), "Expected and undeclared rewriting, actual media tuples and one-way audio evidence")}</section>
+<section id="rtp"><h2>RTP streams</h2>{details(report.get("rtp", {}), "Gaps, RFC 3550 jitter, duplicates, reordering and one-direction observations")}</section>
+<section id="udp"><h2>UDP transactions</h2>{details(report.get("udp", {}), "Turnaround, no-response-expected, unanswered/unknown and frame filters")}</section>
 <section id="dns"><h2>DNS turnaround and deadline evidence</h2>{details(report.get("dns", {}).get("summary", []), "Per-resolver/point latency distribution")}{"".join(f'<article><h3>{h(d["question"])} · {h(d["resolver"])} · {h(d["status"])}</h3><p title="{h(d["tooltip"])}">{h(d["reason"])}</p><p>{h(d.get("location"))}; latency {h(d.get("latency_ms"))} ms</p><ul>{refs(d["evidence"])}</ul></article>' for d in report.get("dns", {}).get("items", []))}</section>
 <section id="sessions"><h2>TCP session lifecycle</h2>{details(report.get("security", {}), "Heuristic thresholds and quality notes")}{details(report.get("sessions", {}), "Per-point lifecycle, half-open buckets and failed-handshake frame filters")}</section>
 <section id="microbursts"><h2>Capture microbursts</h2><p>{h(report.get("microbursts", {}).get("note"))}</p>{details(report.get("microbursts", {}).get("points", []), "Peak rate, duration and frequency by capture point")}{burst_cards}</section>

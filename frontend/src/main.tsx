@@ -1,3 +1,4 @@
+import { UdpMedia } from "./UdpMedia";
 import { CasePreflight } from "./CasePreflight";
 import type { TopologyOverlay } from "./types";
 import { Sessions } from "./Sessions";
@@ -474,19 +475,25 @@ function App() {
         </div>
         <div className="workspace-label">LOCAL WORKSPACE</div>
         <nav>
-          {["Overview", "Captures", "Path", "Flows", "DNS", "Settings"].map(
-            (x, i) => (
-              <button
-                key={x}
-                className={tab === x ? "active" : ""}
-                onClick={() => setTab(x)}
-              >
-                <span>{["◈", "▤", "⌘", "≋", "⇄", "⚙"][i]}</span>
-                {x}
-                {x === "Captures" && <b>{state.captures.length}</b>}
-              </button>
-            ),
-          )}
+          {[
+            "Overview",
+            "Captures",
+            "Path",
+            "Flows",
+            "DNS",
+            "UDP / Media",
+            "Settings",
+          ].map((x, i) => (
+            <button
+              key={x}
+              className={tab === x ? "active" : ""}
+              onClick={() => setTab(x)}
+            >
+              <span>{["◈", "▤", "⌘", "≋", "⇄", "⚙"][i]}</span>
+              {x}
+              {x === "Captures" && <b>{state.captures.length}</b>}
+            </button>
+          ))}
         </nav>
         <div className="sidebar-bottom">
           <span className="local-dot" /> Local processing only
@@ -666,6 +673,9 @@ function App() {
               </p>
               <button onClick={() => selectRange(null)}>Clear selection</button>
             </section>
+          )}
+          {tab === "UDP / Media" && (
+            <UdpMedia udp={report?.udp} rtp={report?.rtp} sip={report?.sip} onEvidence={setEvidence} />
           )}
           {tab === "DNS" && (
             <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />
@@ -2133,6 +2143,36 @@ function App() {
               </section>
               <section>
                 <h2>Analysis window and thresholds</h2>
+                <label>RTP UDP decode-as ports (comma-separated port or range, e.g. 40000-40100,50000; empty uses SDP)
+                  <input defaultValue={(topology.rtp_port_ranges||[]).map(([a,b])=>a===b?String(a):`${a}-${b}`).join(',')} onBlur={(e)=>{
+                    const parts=e.target.value.trim()?e.target.value.split(',').map(x=>x.trim()):[];
+                    if(parts.length>16 || parts.some(x=>!/^\d+(?:-\d+)?$/.test(x))) {setError('Use up to 16 UDP ports or ranges');return;}
+                    const ranges=parts.map(x=>{const [a,b]=x.split('-').map(Number);return [a,b??a] as [number,number]});
+                    if(ranges.some(([a,b])=>a<1||b>65535||a>b)){setError('UDP ports must be 1–65535 in ascending ranges');return;}
+                    setTopology({...topology,rtp_port_ranges:ranges});
+                  }}/>
+                </label>
+                <label>RTP clock override (Hz, blank uses SDP/static payload rate)
+                  <input type="number" min={1000} max={192000} value={topology.rtp_clock_rate??''} onChange={e=>setTopology({...topology,rtp_clock_rate:e.target.value?Number(e.target.value):null})}/>
+                </label>
+                <label>Added RTP transit variation threshold (ms)
+                  <input type="number" min={0.1} max={1000} step={0.1} value={topology.rtp_jitter_ms??2} onChange={e=>setTopology({...topology,rtp_jitter_ms:Number(e.target.value)})}/>
+                </label>
+                <label>
+                  UDP response window (ms)
+                  <input
+                    type="number"
+                    min={100}
+                    max={60000}
+                    value={topology.udp_timeout_ms ?? 2000}
+                    onChange={(e) =>
+                      setTopology({
+                        ...topology,
+                        udp_timeout_ms: Number(e.target.value),
+                      })
+                    }
+                  />
+                </label>
                 <div className="two-col">
                   <label>
                     Pressure minimum observed half-open sessions

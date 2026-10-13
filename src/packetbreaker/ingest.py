@@ -186,6 +186,7 @@ def parse_packet(values, capture_id, prefix_bytes, fields=FIELDS):
         path_fields=json.dumps(
             {
                 "transport_index": 1,
+                **({"sip_probe": 1} if "sip" in g("frame.protocols").split(":") else {}),
                 **(
                     {
                         "tunnel_hint": next(
@@ -391,7 +392,7 @@ def ingest(
             excluded.clear()
             progress(state="ingesting", frames=last, bytes_total=stat.st_size, bytes_observed=seen)
 
-        with open(Path(temp) / "stderr.log", "w+", encoding="utf-8") as errors:
+        with tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors:
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=errors, text=True, encoding="utf-8", errors="replace"
             )
@@ -553,9 +554,9 @@ def ingest(
                 proc.stdout.close()
                 if proc.poll() is None:
                     proc.terminate()
-                    try:
-                        proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                        proc.wait()
-                watcher.join(timeout=1)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                watcher.join()

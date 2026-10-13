@@ -772,3 +772,26 @@ fixture exercises the distinction. Captured late SYN/ACK/final ACK remain establ
 past half-open expiry. Windows CI partitions whole test files into two isolated processes in the
 same acceptance job, with one fixture worker per process and complete-collection/JUnit checks.
 Default local pytest and the six-target/one-slow-job policy are unchanged.
+
+## Phase 4 / Part 5 — UDP transactions
+
+`udp_index.py` isolates capture points before two-pass tshark field export, validates each
+ordinal/tuple/timestamp against the original index, and caches by source identity and point
+selection. Bounded 4,096-row metadata batches enter native SQL; external DuckDB file access
+remains disabled. DNS keeps its existing index/view. New UDP analysis handles NTP transmit/origin,
+SNMP request ID, RADIUS identifier/response-code families and decoded syslog one-way traffic.
+Unknown protocols use reversed observed tuples and declared direction in a bounded window.
+One-to-one candidate cardinality gates pairs; timing never breaks an ambiguous ownership tie.
+All transactions persist, with bounded UI/HTML/JSON evidence and native response distributions.
+Supported existing packet disappearance events provide query/response stopping hops; capture
+misses never supply loss evidence. Vendor/tunnel/fragment views without validated field ownership
+remain explicitly unknown rather than mixing protocol layers.
+
+
+RTP uses directional canonical tuple plus SSRC, signed sequence/timestamp unwrap, and native SQL RFC 3550 EWMA. Adjacent matched transit variation attributes added jitter; supported missing datagrams attribute loss. Static payload clock, SDP rtpmap or explicit clock override are required; unknown dynamic clocks remain unknown. Decode-as is scoped to user UDP ranges or tshark SDP ports.
+
+
+SIP comparison uses a unique bounded Call-ID/CSeq/status/directional canonical signaling-flow pair at consecutive points. Native SQL anchors RTP ownership to a unique sending-side SDP endpoint, so NAT port/SSRC collisions remain separate. SDP actual-media comparison uses the arriving source tuple at the receiving endpoint. Bidirectional SDP plus positive opposite-direction disappearance evidence is required for supported one-way audio.
+
+
+Part 5 protocol metadata remains a point-isolated tshark field pass, with cache identities tied to the source, decoder schema and decode-as configuration. CSV is loaded in bounded 4096-record batches through native DuckDB JSON, without enabling external filesystem access. Decoder schema 3 adds SNMP version/community context; named target columns preserve schema migration order. SIP/UDP message keys deliberately tolerate header/SDP rewriting; ordinary UDP data retains captured payload identity. Heavy pairing, sequence unwrap and the RFC 3550 EWMA stay native SQL, including a blockwise recurrence rather than per-packet Python. Button evidence is fetched in bounded batches and enriched with decoded RTP/SIP identity filters. Query initiations, RTP packets and SIP comparisons honor the saved selected window; earlier SDP provides context and a reply can extend to its covered deadline. The media tab clearly states that heatmap brushing does not additionally filter it.

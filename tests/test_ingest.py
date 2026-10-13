@@ -186,3 +186,40 @@ def test_engine_upgrade_invalidates_report_but_keeps_current_index(tmp_path, tsh
         assert reopened.get(db, "analysis_version") == __version__
         assert db.execute("SELECT count(*) FROM packets").fetchone()[0] == 8
     assert reopened.inventory()[0]["state"] == "ready"
+
+
+def test_cancel_reaps_already_exited_process_before_temp_cleanup(tmp_path, tshark, monkeypatch):
+    import io
+
+    truth, _ = generate(tmp_path / "input", rounds=3, scenario="healthy")
+    project = Project(tmp_path / "project")
+    stop = threading.Event()
+
+    class ExitedProcess:
+        def __init__(self, *args, **kwargs):
+            self.stdout = io.StringIO("1\t1700000000\n")
+            self.returncode = 0
+            self.waits = 0
+
+        def poll(self):
+            return 0
+
+        def wait(self, timeout=None):
+            self.waits += 1
+            return 0
+
+        def terminate(self):
+            raise AssertionError("Already exited process terminated")
+
+    child = ExitedProcess()
+    # Set cancellation only after metadata validation, when the child is launched.
+
+    def launch(*args, **kwargs):
+        stop.set()
+        return child
+
+    monkeypatch.setattr("packetbreaker.ingest.subprocess.Popen", launch)
+    with pytest.raises(InterruptedError):
+        ingest(project, truth["files"][0], tshark=tshark, cancel=stop)
+    assert child.waits >= 1 and child.stdout.closed
+    assert not list(project.path.glob("ingest-*"))

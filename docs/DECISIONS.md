@@ -549,3 +549,25 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   pytest processes within each existing job, one fixture worker each. Its unchanged 240-second
   gate measures actual wall time including collection, process startup and teardown. JUnit counts
   must equal the complete fast collection; failures/errors or missing cases fail the job.
+
+## Phase 4 / Part 5
+
+- tshark owns NTP/SNMP/RADIUS/syslog decoding. A protocol transaction identifier correlates
+  observed packets; it does not authenticate a response or prove the responder's internal cause.
+- Unknown UDP pairing is conditional on declared client direction and a finite response window.
+  Reject multiple candidates or reused responses; never choose the nearest candidate to hide
+  ambiguity. Known one-way messages are not unanswered requests.
+- Protocol fields use a cached, point-isolated secondary decode only when non-DNS UDP is present;
+  pure TCP captures retain their existing first pass. Validate source identity and original-frame
+  mapping. Reuse bounded native JSON batches instead of widening DuckDB's file permissions.
+
+
+SSRC and UDP ports alone are not stream identities. Sequence gaps are observations: only supported cross-hop disappearance becomes RTP loss. Downstream arrival jitter does not make the receiver the suspect. One-direction observations alone do not prove audio failure.
+
+
+Declared ALG rewriting is expected and remains a visible comparison. Undeclared rewriting and advertised/actual media mismatch are separate findings: a valid rewrite is not an ALG bug. Missing endpoint SDP, ambiguous message ownership, unknown clocks, sendonly/recvonly/inactive sessions or absent opposite-leg evidence cannot support a one-way-audio diagnosis. Multi-media SDP, renegotiation and encrypted SIP remain bounded limitations.
+
+
+Part 5 attribution requires the same coverage/translation/clock support as packet matching. Incomplete candidate replies and positive capture-drop inventories cannot establish a UDP timeout. SNMP responses also need version/community (hashed in reported identity) or visible v3 msgID context, not request ID alone. Native evidence batching and an empty-protocol shortcut replace repeated SQL work; tests remain in the fast suite. Supported one-way audio requires visible bidirectional audio SDP, a unique media-source owner and actual opposite-leg disappearance evidence. Video/sendonly/recvonly/inactive, encrypted or ambiguous SDP is not an invented audio failure. Remaining bounds: one visible audio-media section, initial offer/answer only, 300-second association; ICE/BUNDLE, renegotiation, encrypted SIP/SRTP and auxiliary metadata across vendor-split/tunneled/fragment captures remain unknown rather than pretending packet equivalence. Generic UDP pairing does not authenticate a RADIUS peer or prove why a resolver/device did not respond.
+
+Part 5 Windows follow-up: case counts do not represent fixture cost. The two-process runner co-locates known shared fixture families and schedules using measured per-file elapsed weights, logs actual timing, and still requires exact collected/JUnit coverage and wall time below 240 s. Proxy fixtures join the session prefetch lifecycle, so an early standalone build cannot be generated again by the pool. The checked-in local scheduling weights and hosted VoIP multiplier are estimates for allocation; only actual CI wall time satisfies the gate.

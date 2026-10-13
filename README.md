@@ -143,7 +143,7 @@ packetbreaker --project demo/project
 6. **Export HTML / Export JSON:** use the header buttons. HTML opens locally as a
    single file; its metric-selectable heatmap, onset markers and evidence filters
    work without the running app or Internet. JSON follows
-   [findings schema v6](docs/findings-v6.schema.json). Both export the complete
+   [findings schema v7](docs/findings-v7.schema.json). Both export the complete
    saved analysis window, independent of the current brush. Neither embeds packet
    payloads; addresses and filters are still sensitive investigation metadata.
 7. **Settings:** inspect clock estimates/calibration frames, then stop with Ctrl+C.
@@ -633,3 +633,37 @@ only a positively evidenced device receives a supported pressure hint. JSON sche
 HTML include the lifecycle, heuristic settings/quality notes and evidence; these views describe
 the saved analysis window, while the brush selects overlapping findings rather than recalculating
 heuristic populations.
+
+
+## UDP transactions, RTP and SIP through middleboxes
+
+Open **UDP / Media** after analysis. DNS keeps its own view. NTP, SNMP and RADIUS
+show same-point response p50/p95/max and transaction evidence; syslog is explicitly
+**no response expected**. Unknown UDP pairs only when one reversed-tuple candidate
+exists inside the configured deadline. Retries, incomplete packets, capture drops
+and unfinished deadlines remain unknown. A stopping hop reuses independently
+supported packet disappearance, including lost return responses.
+
+In **Settings**, leave RTP decode-as ports empty to use SDP, or enter UDP ports/ranges
+(e.g. `40000-40100,50000`). A clock override is optional; SDP rtpmap or static payload
+clocks normally supply it. The RTP table separates canonical directional tuple and
+SSRC, and shows sequence gaps, duplicates, reordering and RFC 3550 arrival jitter.
+Supported loss and added transit variation are attributed at adjacent hops; arrival
+jitter at the server does not mean the server caused it. Unknown dynamic clocks stay
+unknown. Sequence gaps alone are observations, not proof of network loss.
+
+Tag a device's payload transform **ALG** when rewriting is expected. SIP comparisons
+show `c=`, `m=`, Contact and Via changes at each consecutive point. Undeclared changes
+produce **SIP rewritten by <device> (not declared)**; a rewritten advertisement that
+differs from the uniquely associated actual media source produces **SDP / media
+mismatch at <device>**. Bidirectional SDP and supported opposite-leg loss are needed
+for a one-way-audio finding. Legitimate sendonly/recvonly/inactive SDP is excluded.
+All views link to original frames and portable tshark content/flow filters and are
+included in HTML/JSON exports (findings schema 7). The media views describe the
+saved selected window and are not additionally filtered by the heatmap brush.
+
+Bounds: visible single-audio-media SDP and unique source-endpoint ownership, at most five
+minutes after the initial offer/answer. Re-INVITE/media renegotiation, BUNDLE/ICE,
+SRTP, encrypted SIP and mixed/coalesced SDP sections are not inferred. Vendor-split,
+tunnel and fragment auxiliary dissection currently remains unknown; tshark is the
+only dissector. Packet/transaction tables stay in DuckDB; UI examples are bounded.

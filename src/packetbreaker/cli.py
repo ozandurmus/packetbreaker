@@ -31,6 +31,7 @@ def main():
         "--scenario",
         default="demo",
         choices=[
+            "udp_transactions",
             "security",
             "security_reply",
             "diagnostics",

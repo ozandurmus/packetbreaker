@@ -122,7 +122,7 @@ def test_proxy_tls_json_and_offline_html_include_evidence(proxy_capture):
 
     project, _, _, _ = proxy_capture
     data = export_data(project)
-    assert FindingsExport.model_validate(data).schema_version == 6
+    assert FindingsExport.model_validate(data).schema_version == 7
     assert {"proxy_reset_originated", "proxy_reset_propagated", "tls_interception"} <= {
         f["type"] for f in data["findings"]
     }
