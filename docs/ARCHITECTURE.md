@@ -723,3 +723,52 @@ point structs. Fragment normalization materializes a replacement for affected po
 physical wire table retains all captured frames. The first-pass transport marker also proves TLS
 probe coverage when JSON merge removes known-null keys. Application generations without a needed
 probe clear previous protocol state; visible TLS/legacy/proxy cases retain the dissector path.
+
+## Phase 4 / Part 4 — observed TCP lifecycle
+
+`security.py` builds `session_lifecycle` from eligible SYN-anchored local streams and
+sequence-consistent SYN/ACK/final ACK evidence, then persists `session_buckets` on the existing
+time grid. Retries are attempts within one session. Half-open occupancy is an observation model
+with configurable expiry, not the device table; FIN records closure initiation. Missing SYN or
+unaligned/partial coverage stays unknown. Supported blocked-handshake and positive drop-stage
+control events reuse the existing stopping-hop frame evidence. UI and offline exports include
+per-point counts, occupancy buckets and failed-handshake stopping hops.
+
+Security cohorts group local SYN sessions by the existing bucket width. Completed observation
+deadlines, source spread and both SYN/ACK and established ratios gate sustained SYN patterns.
+Cross-point completion is a capture-quality guard, not a claim that proxy legs match. Thresholds
+are topology settings; quality notes explain suppression. Pattern findings are capture signals,
+not fault attribution. The findings schema advances to v6 for the new heuristic types.
+
+Fan-out uses event-anchored rolling windows over SYN sessions per observed source/point. It
+counts distinct destination IP/port pairs and requires predominantly unestablished handshakes.
+Established connections closed with FIN/RST do not become failed handshakes. Peak rolling counts
+are distinct from the displayed span of qualifying windows; completion elsewhere suppresses
+capture-miss false positives. UI thresholds and v6 HTML/JSON exports include the heuristic.
+
+Pressure hints join a connection-rate or half-open spike to the first supported drop at the
+same drawn stateful-device boundary. An early healthy baseline needs three covered, mature,
+mostly established cohorts. The excursion floor is 50 new sessions/s or 20 observed half-open
+sessions, and four times baseline. At least three aligned positive vendor-stage proofs must
+belong to that device/boundary near the drop onset. Upstream spikes cannot transfer attribution;
+generic disappearance at a device or link retains an explicit unknown pressure result.
+
+`handshake_stops` preserves all failed-handshake stopping hops. Report examples balance the
+first 200 rows across boundary/direction so a high SYN volume cannot hide returning SYN/ACK
+failures. `GET /api/sessions/evidence` provides bounded control/carried-SYN frame references for
+an occupancy bucket, with validated point/range inputs. Lifecycle/security panels disclose
+full-window scope; brushing selects overlapping heuristic findings without changing their
+population. Settings and reports are cached with the project; no extra tshark pass is introduced.
+
+A native per-point SYN-session bound avoids heuristic joins when no event population can reach
+any scan, SYN-rate or half-open excursion floor. Stale heuristic tables are removed on this
+path, with an explicit below-floor report status; lifecycle accounting remains available. With
+no observed SYN, lifecycle joins use an empty typed source and all state/occupancy remains unknown.
+The half-open excursion floor is configurable (default 20); pressure still needs its independent
+healthy baseline and positive same-device evidence.
+
+SYN-pattern low completion means SYN/ACK **or** establishment is low; the reply/no-final-ACK
+fixture exercises the distinction. Captured late SYN/ACK/final ACK remain establishment evidence
+past half-open expiry. Windows CI partitions whole test files into two isolated processes in the
+same acceptance job, with one fixture worker per process and complete-collection/JUnit checks.
+Default local pytest and the six-target/one-slow-job policy are unchanged.

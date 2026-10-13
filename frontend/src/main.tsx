@@ -1,5 +1,6 @@
 import { CasePreflight } from "./CasePreflight";
 import type { TopologyOverlay } from "./types";
+import { Sessions } from "./Sessions";
 import { Microbursts } from "./Microbursts";
 import { Heatmap } from "./Heatmap";
 import type { TimeSeries, Finding } from "./types";
@@ -670,7 +671,19 @@ function App() {
             <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />
           )}
           {tab === "Overview" && report?.microbursts && (
-            <Microbursts data={report.microbursts} onEvidence={setEvidence} />
+            <>
+              <Sessions data={report.sessions} onEvidence={setEvidence} />
+              {report.security && (
+                <details>
+                  <summary>
+                    Security thresholds and unknown quality notes
+                  </summary>
+                  <p>{report.security.note}</p>
+                  <pre>{JSON.stringify(report.security, null, 2)}</pre>
+                </details>
+              )}
+              <Microbursts data={report.microbursts} onEvidence={setEvidence} />
+            </>
           )}
           {report?.fragment_points?.map((p) => (
             <p className="hint" key={p.point + p.status}>
@@ -1023,13 +1036,20 @@ function App() {
                         .map((hop) => {
                           const segment = report.segments.find(
                             (s) => s.id === hop,
-                          )!;
+                          );
                           return (
                             <article key={hop} style={{ marginBottom: 20 }}>
                               <h3>
-                                {segment.label} · {segment.direction}
+                                {segment?.label ||
+                                  topology.points.find(
+                                    (p) => p.id === hop.split(":")[1],
+                                  )?.label ||
+                                  hop}{" "}
+                                · {segment?.direction || hop.split(":")[0]}
                               </h3>
-                              {!range && <p>{segment.headline}</p>}
+                              {!range && segment?.headline && (
+                                <p>{segment.headline}</p>
+                              )}
                               {visibleFindings
                                 .filter((f) => f.hop === hop)
                                 .map((f) => (
@@ -2113,6 +2133,125 @@ function App() {
               </section>
               <section>
                 <h2>Analysis window and thresholds</h2>
+                <div className="two-col">
+                  <label>
+                    Pressure minimum observed half-open sessions
+                    <input
+                      type="number"
+                      min={2}
+                      value={topology.security_half_open_floor ?? 20}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_half_open_floor: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Scan rolling window (s)
+                    <input
+                      type="number"
+                      min={1}
+                      max={300}
+                      value={topology.security_scan_window_seconds ?? 5}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_scan_window_seconds: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Scan minimum destinations/ports
+                    <input
+                      type="number"
+                      min={2}
+                      value={topology.security_scan_targets ?? 20}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_scan_targets: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Scan failed handshake ratio
+                    <input
+                      type="number"
+                      min={0.5}
+                      max={1}
+                      step={0.05}
+                      value={topology.security_scan_failed_ratio ?? 0.8}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_scan_failed_ratio: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    SYN heuristic rate floor (sessions/s)
+                    <input
+                      type="number"
+                      min={1}
+                      value={topology.security_syn_rate ?? 50}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_syn_rate: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Maximum completion ratio for SYN pattern
+                    <input
+                      type="number"
+                      min={0}
+                      max={0.5}
+                      step={0.05}
+                      value={topology.security_completion_ratio ?? 0.2}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_completion_ratio: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Minimum observed sources
+                    <input
+                      type="number"
+                      min={2}
+                      value={topology.security_min_sources ?? 20}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_min_sources: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Sustained SYN buckets
+                    <input
+                      type="number"
+                      min={2}
+                      value={topology.security_sustained_buckets ?? 3}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          security_sustained_buckets: Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
                 <label title="Bucket width for stored time series and onset resolution. Re-run analysis after changing it.">
                   Time bucket (seconds)
                   <input
@@ -2143,6 +2282,21 @@ function App() {
                         setTopology({
                           ...topology,
                           min_eligible_ratio: Number(e.target.value) / 100,
+                        })
+                      }
+                    />
+                  </label>
+                  <label title="Observed half-open expiry, not a measurement of the device session-table timer.">
+                    Half-open observation timeout (seconds)
+                    <input
+                      type="number"
+                      min={1}
+                      max={300}
+                      value={topology.session_timeout_seconds ?? 10}
+                      onChange={(e) =>
+                        setTopology({
+                          ...topology,
+                          session_timeout_seconds: Number(e.target.value),
                         })
                       }
                     />

@@ -97,6 +97,8 @@ def scenarios(tmp_path_factory, tshark, request):
     futures = {}
 
     planned = {}
+    priority = {}
+    positions = {item.nodeid: i for i, item in enumerate(request.session.items)}
     # Reuse the same two-worker pool for selected, statically identifiable tiny scenarios.
     # This removes serial tshark startup waits without dropping assertions or marking tests slow.
     import ast
@@ -140,12 +142,17 @@ def scenarios(tmp_path_factory, tshark, request):
             except (ValueError, KeyError):
                 continue
             planned[scenario_key(name, kwargs)] = (name, kwargs)
+            priority.setdefault(scenario_key(name, kwargs), positions[item.nodeid])
     for item in request.session.items:
         params = getattr(getattr(item, "callspec", None), "params", {})
         if item.originalname == "test_wire_negative_first_and_naive_rules":
             mode = params["mode"]
             kwargs = dict(ip_id=mode[0], ipv6=mode[1])
             planned[scenario_key("diagnostics", kwargs)] = ("diagnostics", kwargs)
+            priority[scenario_key("diagnostics", kwargs)] = min(
+                priority.get(scenario_key("diagnostics", kwargs), positions[item.nodeid]),
+                positions[item.nodeid],
+            )
             continue
         if item.originalname != "test_exact_integrity_location":
             continue
@@ -154,6 +161,9 @@ def scenarios(tmp_path_factory, tshark, request):
         name = "integrity_multi_asym" if asymmetric else "integrity_multi"
         kwargs = dict(fault_location=location if asymmetric else "all", ip_id=mode[0], ipv6=mode[1])
         planned[scenario_key(name, kwargs)] = (name, kwargs)
+        priority[scenario_key(name, kwargs)] = min(
+            priority.get(scenario_key(name, kwargs), positions[item.nodeid]), positions[item.nodeid]
+        )
     directories = {key: tmp_path_factory.mktemp(name) for key, (name, _) in planned.items()}
     import os
     import psutil
@@ -165,35 +175,37 @@ def scenarios(tmp_path_factory, tshark, request):
         and psutil.virtual_memory().available >= 6 * 1024**3
         else 2
     )
-    pool = ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) if planned else None
+    if os.environ.get("PACKETBREAKER_TEST_WORKERS"):
+        workers = min(workers, max(1, int(os.environ["PACKETBREAKER_TEST_WORKERS"])))
+    work = [
+        (priority[key], "scenario", key, build_scenario_fixture, (name, kwargs, directories[key], tshark))
+        for key, (name, kwargs) in planned.items()
+    ]
+    for fixture, kind, builder in (
+        ("fragment_capture", "fragment", build_fragment_fixture),
+        ("burst_capture", "burst", build_burst_fixture),
+        ("proxy_capture", "proxy", build_proxy_fixture),
+    ):
+        modes = {}
+        for item in request.session.items:
+            mode = getattr(getattr(item, "callspec", None), "params", {}).get(fixture)
+            if mode is not None:
+                modes.setdefault(mode, positions[item.nodeid])
+        for mode, pos in modes.items():
+            directory = tmp_path_factory.mktemp(kind + "_wire")
+            args = (mode, directory, tshark) if kind == "proxy" else (mode, directory)
+            work.append((pos, kind, mode, builder, args))
+    pool = ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) if work else None
+    # First consumer first: a late heavy matrix must not starve an earlier diagnostic fixture.
+    destinations = {
+        "scenario": futures,
+        "fragment": _fragment_futures,
+        "burst": _burst_futures,
+        "proxy": _proxy_futures,
+    }
     if pool:
-        futures = {
-            key: pool.submit(build_scenario_fixture, name, kwargs, directories[key], tshark)
-            for key, (name, kwargs) in planned.items()
-        }
-
-    if pool:
-        modes = {
-            getattr(getattr(item, "callspec", None), "params", {}).get("fragment_capture")
-            for item in request.session.items
-        }
-        for mode in modes - {None}:
-            _fragment_futures[mode] = pool.submit(
-                build_fragment_fixture, mode, tmp_path_factory.mktemp("fragments")
-            )
-
-    if pool:
-        modes = {
-            getattr(getattr(item, "callspec", None), "params", {}).get("burst_capture")
-            for item in request.session.items
-        }
-        for mode in modes - {None}:
-            _burst_futures[mode] = pool.submit(build_burst_fixture, mode, tmp_path_factory.mktemp("bursts"))
-
-    if pool and any("proxy_capture" in getattr(item, "fixturenames", []) for item in request.session.items):
-        for mode in [("zero", False), ("constant", False), ("zero", True)]:
-            directory = tmp_path_factory.mktemp("proxy_wire")
-            _proxy_futures[mode] = pool.submit(build_proxy_fixture, mode, directory, tshark)
+        for pos, kind, key, builder, args in sorted(work, key=lambda task: task[0]):
+            destinations[kind][key] = pool.submit(builder, *args)
 
     def run(name, **kwargs):
         key = scenario_key(name, kwargs)

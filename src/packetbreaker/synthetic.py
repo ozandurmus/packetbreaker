@@ -77,6 +77,10 @@ def generate(
     ipv6=False,
     fault_location="FW",
 ):
+    if scenario in ("security", "security_reply"):
+        from .security_synthetic import generate as generate_security
+
+        return generate_security(directory, fault_location, ip_id, ipv6, rounds, scenario == "security_reply")
     if scenario in ("integrity_multi", "integrity_multi_asym"):
         from .attribution_synthetic import generate_attribution
 
@@ -87,7 +91,8 @@ def generate(
         return generate_integrity(directory, scenario, ipv6=ipv6, ip_id=ip_id)
     if scenario == "diagnostics":
         from .diagnostic_synthetic import generate as generate_diagnostics
-        return generate_diagnostics(directory,ip_id,ipv6)
+
+        return generate_diagnostics(directory, ip_id, ipv6)
     if scenario == "offload":
         from .offload_synthetic import generate_offload
 

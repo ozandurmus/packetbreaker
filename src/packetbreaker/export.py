@@ -33,6 +33,9 @@ class Finding(BaseModel):
     )
     id: str
     type: Literal[
+        "session_table_pressure",
+        "scan_like_fanout",
+        "syn_flood_like",
         "fragmentation",
         "recovered_loss",
         "impactful_loss",
@@ -80,7 +83,7 @@ class Finding(BaseModel):
 class FindingsExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_name: Literal["packetbreaker.findings"] = "packetbreaker.findings"
-    schema_version: Literal[5] = 5
+    schema_version: Literal[6] = 6
     engine_version: str
     exported_at: str
     findings: list[Finding]
@@ -236,6 +239,7 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <section id="proxies"><h2>Full-proxy requests and TCP legs</h2>{details(report.get("proxies", {}), "Request pairings, dwell uncertainty, evidence and independent-leg classifications")}</section>
 <section id="tls"><h2>TLS interception evidence</h2>{details(report.get("tls", []), "Visible certificate chains and unknown encrypted handshakes")}{details(report.get("application_status", []), "Application decoder status")}</section>
 <section id="dns"><h2>DNS turnaround and deadline evidence</h2>{details(report.get("dns", {}).get("summary", []), "Per-resolver/point latency distribution")}{"".join(f'<article><h3>{h(d["question"])} · {h(d["resolver"])} · {h(d["status"])}</h3><p title="{h(d["tooltip"])}">{h(d["reason"])}</p><p>{h(d.get("location"))}; latency {h(d.get("latency_ms"))} ms</p><ul>{refs(d["evidence"])}</ul></article>' for d in report.get("dns", {}).get("items", []))}</section>
+<section id="sessions"><h2>TCP session lifecycle</h2>{details(report.get("security", {}), "Heuristic thresholds and quality notes")}{details(report.get("sessions", {}), "Per-point lifecycle, half-open buckets and failed-handshake frame filters")}</section>
 <section id="microbursts"><h2>Capture microbursts</h2><p>{h(report.get("microbursts", {}).get("note"))}</p>{details(report.get("microbursts", {}).get("points", []), "Peak rate, duration and frequency by capture point")}{burst_cards}</section>
 <section id="field-diffs"><h2>Matched packet field differences</h2>{h(report.get("field_diffs", {}).get("note"))}{differences}</section>
 <section id="filters"><h2>Per-file flow filters</h2>{details(data["flow_filters"], "Copy filters for original or re-saved files")}</section>

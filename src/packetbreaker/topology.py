@@ -86,6 +86,15 @@ class Override(BaseModel):
 
 
 class Topology(BaseModel):
+    security_half_open_floor: int = Field(default=20, ge=2, le=100000)
+    security_scan_window_seconds: float = Field(default=5, ge=1, le=300, allow_inf_nan=False)
+    security_scan_targets: int = Field(default=20, ge=2, le=100000)
+    security_scan_failed_ratio: float = Field(default=0.8, ge=0.5, le=1, allow_inf_nan=False)
+    security_syn_rate: float = Field(default=50, ge=1, le=1000000, allow_inf_nan=False)
+    security_completion_ratio: float = Field(default=0.2, ge=0, le=0.5, allow_inf_nan=False)
+    security_min_sources: int = Field(default=20, ge=2, le=100000)
+    security_sustained_buckets: int = Field(default=3, ge=2, le=1000)
+    session_timeout_seconds: float = Field(default=10, ge=1, le=300, allow_inf_nan=False)
     microburst_window_ms: float = Field(default=1, ge=1, le=10, allow_inf_nan=False)
     dns_timeout_ms: float = Field(default=2000, ge=100, le=60000, allow_inf_nan=False)
     bucket_seconds: float = Field(default=1, ge=0.1, le=3600, allow_inf_nan=False)

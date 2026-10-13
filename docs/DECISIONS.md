@@ -506,3 +506,46 @@ become a device claim merely because a RST first appears on a device-adjacent ca
 - Prepared fixture handles skip repeated initialization only after a real worker build/analysis or
   a closed database copy. Source creation, schema migration and explicit cached reopen acceptance
   continue using the real Project constructor; this is not a production fast-open path.
+
+## Phase 4 / Part 4
+
+- Require the full sequence-consistent local handshake; an ACK flag alone is not establishment.
+  Count SYN retries once, and do not manufacture sessions where the SYN was not captured.
+- Use a configurable 10-second observation expiry for half-open occupancy. This is neither a
+  measured device timer nor its internal session-table occupancy. FIN means closure has started.
+- A SYN-rate excursion needs low completion ratios, at least 20 observed sources and three
+  sustained buckets (defaults: 50 sessions/s, maximum ratio 0.2). A healthy flash crowd is a
+  required negative guard. Source diversity is not proof of spoofing; incomplete deadlines,
+  capture loss, translation or clock uncertainty suppress supported absence-based patterns.
+- Fan-out alone is insufficient. Default scan pattern: at least 20 destination IP/port pairs in
+  five seconds, at least 80% unestablished handshakes, and complete observation deadlines.
+  Successful health checks, LB-style traffic and NAT-pool fan-out are mandatory distractors.
+  Intent and authorized unsuccessful scanning cannot be distinguished from packets alone.
+- Session-table pressure is corroboration, never a measured table capacity/cause. Require the
+  same stateful node, an early healthy baseline, a local connection/occupancy excursion and
+  aligned positive device-drop evidence at its onset. Supported packet loss without positive
+  device-stage evidence yields unknown. Do not promote upstream SYN symptoms to device faults.
+- Keep every stopping-hop row in DuckDB and balance representative UI evidence across direction
+  and boundary. Bounded examples cannot silently masquerade as the complete failure population.
+- Security fixtures use the same captures for healthy rate/fan-out distractors and supported
+  faults, with two firewalls and an explicit inter-device link. Native SQL mutants execute rate-only,
+  destinations-only and global-drop/spike rules; the acceptance contracts reject all three.
+- Prefetch in first-consumer order across every fixture family. Appending special diagnostic
+  builds after a late heavy matrix creates a test wait, not a detector regression; do not hide
+  it by relaxing assertions, increasing duration gates or moving the new cases to slow.
+- Bound work by the observed event population: if even every SYN-anchored session cannot reach
+  any pattern/spike floor, skip heuristic joins and remove stale heuristic tables. A no-SYN
+  lifecycle uses an empty typed observation source; it cannot manufacture establishment or zeros.
+- Keep one full default-threshold security fixture (including the strict occupancy 260 assertion).
+  The location/ID/IP-family matrix uses compact traffic with proportionally configured floors;
+  healthy distractors still exceed each configured rate/fan-out threshold and every supported/
+  unknown, evidence and exact-location assertion remains. Compact occupancy is independently 48.
+- SYN patterns use low SYN/ACK **or** established ratio, as requested. A fully replying server
+  with no client final ACK is a required wire case; requiring both ratios low would miss it.
+  Completion thresholds cannot include a healthy 100% population (maximum configurable 0.5).
+- Observation expiry only limits half-open occupancy. Late sequence-consistent handshakes and
+  later FIN/RST closure still count; expiry is not a connection lifetime or failure oracle.
+- Keep the six-target CI policy. Windows runs the same complete fast collection in two isolated
+  pytest processes within each existing job, one fixture worker each. Its unchanged 240-second
+  gate measures actual wall time including collection, process startup and teardown. JUnit counts
+  must equal the complete fast collection; failures/errors or missing cases fail the job.
