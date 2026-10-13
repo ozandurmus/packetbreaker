@@ -449,6 +449,21 @@ def align(db, topology):
             break
     for p in order:
         models.setdefault(points[p].capture_id, ClockModel(epoch=epoch))
+    # A disconnected declared domain still has valid relative clocks inside the group.
+    for name, members in groups.items():
+        if not any(models[c].offset is not None for c in members if c in models):
+            anchor = min(members)
+            models[anchor] = ClockModel(
+                0,
+                0,
+                epoch,
+                0,
+                "declared_shared",
+                "Independent declared clock domain; cross-domain timing unknown",
+                domain="shared:" + name,
+                source_domain=name,
+            )
+    inherit_domains()
     # Files split from one Fortinet transcript share an actual source clock.
     from dataclasses import replace
 
@@ -599,6 +614,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     ).fetchone()[0]
                     pending_nat = pending_nat or unresolved > 0
                 ma, mb = models[pa.capture_id], models[pb.capture_id]
+                shared_clock = pa.capture_id == pb.capture_id or bool(
+                    ma.source_domain and ma.source_domain == mb.source_domain
+                )
                 clocks_ok = ma.offset is not None and mb.offset is not None and ma.domain == mb.domain
                 from .clock import transit_quality
 
@@ -618,7 +636,11 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     [max(0.001, tolerance_ms), a, b, direction, start, start, end, end],
                 )[0]
                 timing_quality = transit_quality(matched, tolerance_ms)
-                clocks_ok = clocks_ok and not timing_quality["systematic_negative"]
+                clocks_ok = clocks_ok and (shared_clock or not timing_quality["systematic_negative"])
+                if shared_clock and timing_quality["systematic_negative"]:
+                    timing_quality["quality_notes"].append(
+                        "Shared clock: negative transit concerns capture order/timestamp placement, not relative clock fitting"
+                    )
                 reason = (
                     "Unsupported translation boundary"
                     if unsupported
@@ -712,8 +734,10 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     direction=direction,
                     reason=reason,
                     latency_confidence="estimated" if not reason else "unknown",
-                    offset_uncertainty_ms=((ma.uncertainty or 0) + (mb.uncertainty or 0)) * 1000
-                    if ma.uncertainty is not None and mb.uncertainty is not None
+                    offset_uncertainty_ms=0.0
+                    if shared_clock
+                    else ((ma.uncertainty or 0) + (mb.uncertainty or 0)) * 1000
+                    if shared_clock or (ma.uncertainty is not None and mb.uncertainty is not None)
                     else None,
                     **matched,
                     **timing_quality,
