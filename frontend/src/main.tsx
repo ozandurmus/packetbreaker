@@ -688,7 +688,7 @@ function App() {
           )}
           {tab === "Overview" && <Incident data={report?.incident} range={range} onSelect={selectRange} onEvidence={setEvidence}/> }
           {tab === "Overview" && report?.analysis_scope?.some(s=>s.excluded_single_point_frames>0) && <section><h2>Analysis flow scope</h2>{report.analysis_scope.filter(s=>s.excluded_single_point_frames>0).map(s=><p key={s.point}>{s.point}: {s.retained_frames.toLocaleString()} of {s.input_frames.toLocaleString()} frames selected for cross-point matching; {s.excluded_single_point_frames.toLocaleString()} host-only background frames excluded.</p>)}</section>}
-          {tab === "Overview" && <Cycles data={report?.cycles} delivery={report?.delivery} onEvidence={setEvidence}/> }
+          {tab === "Overview" && <Cycles data={report?.cycles} delivery={report?.delivery} range={range} onSelect={selectRange} onEvidence={setEvidence}/> }
           {tab === "Overview" && <HostPath data={report?.host_path} onEvidence={setEvidence}/> }
           {tab === "Overview" && report?.microbursts && (
             <>

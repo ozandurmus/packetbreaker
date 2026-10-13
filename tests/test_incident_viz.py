@@ -54,6 +54,9 @@ def test_global_host_summary_and_flow_distractor(incident_replica):
 
 
 def test_visualisations_and_existing_exports_have_evidence(incident_replica):
+    import io
+    import zipfile
+    from packetbreaker.engine_export import export_tables
 
     project, _, _, report = incident_replica
     incident = report["incident"]
@@ -62,6 +65,9 @@ def test_visualisations_and_existing_exports_have_evidence(incident_replica):
     assert all(r["evidence"] for r in incident["quality"])
     assert all("period" in r for r in report["cycles"]["top"])
     assert all("before_p95_ms" in r and "per_hop_added" in r for r in report["cycles"]["flow_ports"])
+    with zipfile.ZipFile(io.BytesIO(export_tables(project, "csv"))) as z:
+        assert "before_p95_ms" in z.read("flow_port.csv").decode().splitlines()[0]
+        assert "period" in z.read("top_cycles.csv").decode().splitlines()[0]
 
 
 def test_mixed_host_losses_keep_subtypes_under_one_heading():
