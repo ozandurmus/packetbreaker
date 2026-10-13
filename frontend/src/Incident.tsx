@@ -363,6 +363,36 @@ export function Incident({
           </article>
         );
       })}
+      <h3>Capture quality</h3>
+      <p className="hint">{data.quality_note}</p>
+      {boundaries.map((key) => {
+        const rows = data.quality.filter(
+          (r) => `${r.direction}: ${r.point_a} → ${r.point_b}` === key,
+        );
+        return (
+          <article key={key}>
+            <h4>{key}</h4>
+            <Chart
+              option={{
+                ...base,
+                yAxis: { type: "value", name: "Mismatch %", max: 100 },
+                series: series(
+                  rows,
+                  [
+                    "capture_miss_percent",
+                    "loss_percent",
+                    "offload_mismatch_percent",
+                    "unknown_percent",
+                  ],
+                  "quality",
+                ),
+              }}
+              onClick={click}
+              onBrush={brush}
+            />
+          </article>
+        );
+      })}
     </section>
   );
 }
