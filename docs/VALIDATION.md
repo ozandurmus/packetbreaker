@@ -1393,3 +1393,46 @@ within one second of BASE+20..45 truth. The host-path verdict appeared. In this 
 is original loss plus retry delivery, rather than a falsely reported TX delay; the compact
 jitter replicas separately verify both genuine RX and TX holds. The large case completes
 without the ACK-guard allocation failure. No claim is made about the user's untested capture.
+
+## Real-case 2b: aggregate incident summary and visualisations
+
+PR #19 merged before branching `real-case-viz`. All inputs are original synthetic fixtures.
+The new replica has 50 concurrent flows, 25 with host RX/TX holds, two stage devices/shared
+clock, no adjacent mirror in the selected topology, ±150 µs host jitter, 1% stage capture
+misses, GRO and unfiltered host noise. One healthy-network application flow has 188 ms local
+turnaround; it must not own the aggregate headline. The tests assert exactly one finding per
+direction, exactly 25 affected flows, all 50 flows in drill-down, a global event window within
+one second, and the exact raw-cycle aggregate p95 (not an average of per-flow percentiles).
+A separate mixed-loss guard preserves the 284 generic + 14 host-TX subtype counts beneath
+one boundary heading without inventing a device cause.
+
+Focused pilot/engine/clock integration: **33 passed, 20 deselected in 16.30 s** before the
+final presentation additions. Reference/runner guards: **25 passed in 0.29 s**. The first
+new presentation check exposed a test-only `str.decode()` misuse; the export returns text
+and the test now uses it directly. No assertion weakened, no test moved to slow.
+
+The synthetic UI renders the global 25-flow headline, timeline periods and cycle components.
+A timeline drag was verified to set the shared selected interval and filter the displayed
+chart data. TypeScript/Vite production build and Ruff pass. The offline export embeds its
+ECharts asset and local renderer; no CDN or external asset is needed. The final fast suite
+runs once through the existing isolated-process runner with four shards on this 10-core
+machine; every collected fast test must appear in the JUnit totals.
+
+Final full fast run, once, using **four isolated shards on 10 cores**: **593 collected and
+593 executed**, **591 passed / 2 failed**, **126.77 s wall**. The failures were this change's
+fixed-code script-count layout and a synthetic stage point lacking its ingress side. The
+HTML now combines its trusted executable assets into the existing single code script
+(the inert JSON script remains separate); the injection/external-asset assertions are
+unchanged. The fixture declares ingress. Both failed checks then passed: **2 passed in
+3.10 s**; the full suite was not repeated, per efficiency rules. Twenty-one new fast tests;
+186 slow tests retain their existing policy.
+
+A focused refresh of presentation projections against the already ingested 50-flow fixture
+verified missing RX/TX components remain null, without repeating tshark or analysis. The
+offline renderer was visually checked: timeline/stack rendered, no console errors, a point
+click exposed concrete frame/content/flow filters. It uses embedded assets only. Live timeline
+brushing was checked against the shared selected interval. Plain serial pytest remains
+available; the new parallel runner defaults to four locally and applies CPU/RAM caps.
+The prior 157.62 s serial run contained 572 tests and ran alongside a scale benchmark, so
+these figures are not claimed as a controlled same-workload speedup. No real-case capture
+was read or committed; the user's local re-run remains the incident verification.

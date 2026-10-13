@@ -57,6 +57,7 @@ def test_visualisations_and_existing_exports_have_evidence(incident_replica):
     import io
     import zipfile
     from packetbreaker.engine_export import export_tables
+    from packetbreaker.export import export_report
 
     project, _, _, report = incident_replica
     incident = report["incident"]
@@ -68,6 +69,10 @@ def test_visualisations_and_existing_exports_have_evidence(incident_replica):
     with zipfile.ZipFile(io.BytesIO(export_tables(project, "csv"))) as z:
         assert "before_p95_ms" in z.read("flow_port.csv").decode().splitlines()[0]
         assert "period" in z.read("top_cycles.csv").decode().splitlines()[0]
+    html = export_report(project, "html")
+    assert "Incident timeline" in html and "Where was the time added" in html
+    assert "Hold and release" in html and "Capture quality" in html
+    assert "https://cdn" not in html
 
 
 def test_mixed_host_losses_keep_subtypes_under_one_heading():

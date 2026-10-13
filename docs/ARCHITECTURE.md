@@ -891,3 +891,34 @@ one flow before an uncorrelated delete. This removes the whole-capture correlate
 could require a single allocation larger than the 512 MB DuckDB budget. Native spill and
 existing per-flow range preparation remain enabled; tuple-identical ranges from another
 flow cannot supply retry evidence.
+
+### Real-case 2b: aggregate summary and incident views
+
+`host_path.py` retains per-flow streams but emits one receive and one transmit finding.
+Their shared event window is learned from the maximum per-flow latency series; a minority
+flow's incident is not diluted by healthy traffic. Raw observation quantiles compute each
+direction's delay metrics, and `cycle_points` computes the server-local p95 over all valid
+cycles (not an average/max of flow p95s). The summary names the dominant boundary and exposes
+unknown application boundaries. Host-boundary loss classes retain separate evidence and
+counts beneath one localisation heading; neither a generic disappearance nor that heading
+claims a driver or firewall cause.
+
+`incident.py` projects existing `host_transit`, `delivery_series`, `cycle_points`,
+`cycle_pairs` and `adjacent_match_rates` into bounded presentation rows, attaching frame
+references in batches. No second TCP/request engine or packet parsing is introduced.
+`cycle_flow_detail` and `cycle_details` enrich the existing CSV/XLSX exports with period p95s,
+global event bounds and per-hop added time. The top-cycle stack shows last-request-byte RX,
+server-local turnaround and first-response-byte TX; incomplete components stay unknown.
+Request serialization means this stack need not equal first-byte-to-first-byte cycle time.
+
+The live ECharts views share the existing time brush with flows, findings, topology and
+ladder. Hold/release uses independently zeroed capture-local copy spacing, so its brush
+selects evidence instead of inventing a global cross-clock interval. Host-path detail and
+full-window flow/period aggregates are labelled as full-window. Offline HTML embeds the same
+incident rows, the installed ECharts distribution and a local renderer; all chart assets
+and evidence are inside the file, with outbound connections blocked by CSP.
+
+`reference.py` validates version-1 local reference files, resolves a deliberately bounded
+JSONPath subset, and returns pass/fail/not-computed. The same implementation serves CLI and
+UI/API checks, template exports and semantic report diffs. No eval, assistant call or remote
+service is used. The reference schema and units are in REFERENCE_FORMAT.md.

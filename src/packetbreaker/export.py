@@ -1,5 +1,6 @@
 """Versioned metadata export and a standalone, network-free HTML report."""
 
+from pathlib import Path
 from datetime import datetime, timezone
 from html import escape
 import json
@@ -232,6 +233,17 @@ def html_report(data):
         .replace(">", r"\u003e")
         .replace("&", r"\u0026")
     )
+    incident_library = (
+        (Path(__file__).parent / "static" / "echarts-offline.js").read_text()
+        if report.get("incident")
+        else ""
+    )
+    incident_script = (
+        (Path(__file__).parent / "static" / "incident-offline.js").read_text()
+        if report.get("incident")
+        else ""
+    )
+    incident_library = incident_library.replace("</script", "<\\/script")
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
@@ -242,6 +254,7 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <p>This file contains capture metadata, addresses and evidence filters. It embeds no packet payloads. Treat it with the same care as an investigation summary.</p>
 <nav><a href="#summary">Summary</a><a href="#onset">Onset</a><a href="#heatmap">Heatmap</a><a href="#findings">Findings</a><a href="#segments">Segments</a><a href="#filters">Flow filters</a></nav>
 <section id="summary"><h2>{h(report["verdict"])}</h2><p>{h(onset.get("summary"))}</p>{details(report["window"], "Analysis window (Unix seconds)")}{details(report["clocks"], "Clock uncertainty")}{details(report.get("limitations", []), "Interpretation limits")}</section>
+<section id="incident"><h2>Incident timeline and engine visualisations</h2><noscript>Enable JavaScript for the six interactive charts; engine data and evidence remain available below.</noscript></section>
 <section id="transport"><h2>Network or application?</h2>{"".join(f'<article><h3>{h(d["flow"])} · {h(d["direction"])} · {h(d["classification"])}</h3><p title="{h(d["tooltip"])}">{h(d["reason"])}</p>{details(d["metrics"], "Transport evidence metrics")}<ul>{refs(d["evidence"])}</ul></article>' for d in report.get("transport", {}).get("items", []))}</section>
 <section id="onset"><h2>Onset</h2>{onsets or "<p>No supported onset detected. See per-segment status.</p>"}{details(onset.get("segments", onset), "Per-segment onset status")}</section>
 <section id="heatmap"><h2>Path × time</h2><label>Metric <select id="metric"></select></label><p id="metric-note"></p><p>Grey = not capturing; amber = unknown/partial. Black markers = detected onsets. Hover for time, value and coverage.</p><div class="scroll"><canvas id="map" aria-label="Path by time heatmap"></canvas></div><p id="tip" role="status"></p><noscript>Enable JavaScript for the offline heatmap; summary, findings and evidence remain readable.</noscript></section>
@@ -249,8 +262,8 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <section id="segments"><h2>Segments</h2>{segments}</section>
 <section id="proxies"><h2>Full-proxy requests and TCP legs</h2>{details(report.get("proxies", {}), "Request pairings, dwell uncertainty, evidence and independent-leg classifications")}</section>
 <section id="tls"><h2>TLS interception evidence</h2>{details(report.get("tls", []), "Visible certificate chains and unknown encrypted handshakes")}{details(report.get("application_status", []), "Application decoder status")}</section>
-<section id="cycles"><h2>Opaque TCP cycles</h2>{details(report.get("cycles",{}), "Per-second, flow/port, RX/TX components and top-cycle evidence")}{details(report.get("delivery",{}), "Physical delay versus retry delivery")}</section>
-<section id="host-path"><h2>Host receive/transmit path and local response</h2>{details(report.get("host_path",{}), "Separate boundary latency, local service, RX/TX shares and event periods")}</section>
+<section id="cycles"><h2>Opaque TCP cycles</h2>{details(report.get("cycles", {}), "Per-second, flow/port, RX/TX components and top-cycle evidence")}{details(report.get("delivery", {}), "Physical delay versus retry delivery")}</section>
+<section id="host-path"><h2>Host receive/transmit path and local response</h2>{details(report.get("host_path", {}), "Separate boundary latency, local service, RX/TX shares and event periods")}</section>
 <section id="sip"><h2>SIP / SDP</h2>{details(report.get("sip", {}), "Expected and undeclared rewriting, actual media tuples and one-way audio evidence")}</section>
 <section id="rtp"><h2>RTP streams</h2>{details(report.get("rtp", {}), "Gaps, RFC 3550 jitter, duplicates, reordering and one-direction observations")}</section>
 <section id="udp"><h2>UDP transactions</h2>{details(report.get("udp", {}), "Turnaround, no-response-expected, unanswered/unknown and frame filters")}</section>
@@ -259,7 +272,7 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <section id="microbursts"><h2>Capture microbursts</h2><p>{h(report.get("microbursts", {}).get("note"))}</p>{details(report.get("microbursts", {}).get("points", []), "Peak rate, duration and frequency by capture point")}{burst_cards}</section>
 <section id="field-diffs"><h2>Matched packet field differences</h2>{h(report.get("field_diffs", {}).get("note"))}{differences}</section>
 <section id="filters"><h2>Per-file flow filters</h2>{details(data["flow_filters"], "Copy filters for original or re-saved files")}</section>
-<script id="report-data" type="application/json">{encoded}</script><script>{HEATMAP_SCRIPT}</script></body></html>"""
+<script id="report-data" type="application/json">{encoded}</script><script>{HEATMAP_SCRIPT}\n;{incident_library}\n;{incident_script}</script></body></html>"""
 
 
 HEATMAP_SCRIPT = r"""
