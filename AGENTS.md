@@ -32,8 +32,11 @@ code. These rules apply to every task in this repository.
 
 ## Working efficiently (mandatory)
 
-Time and credits are limited. Every task is time-boxed to **60 minutes** of work unless the prompt
-says otherwise.
+Time and credits are limited. Work like a senior engineer: the smallest correct change, fast.
+
+0. **Time box = the prompt's estimate.** Every prompt states an expected duration. If none is given:
+   a bug fix or small change is 10–15 minutes, a feature 30 minutes. If you reach 1.5x the estimate,
+   stop and report what is done and what is left.
 
 1. **Targeted tests while developing.** Run only the tests for the files you change. Run the full
    fast suite **once**, at the end, before opening the PR.
