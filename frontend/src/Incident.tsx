@@ -1,0 +1,211 @@
+import { useState } from "react";
+import { Chart } from "./Charts";
+import type { EChartsOption } from "echarts";
+import type { Ref } from "./types";
+import { num } from "./api";
+type Row = { start: number; evidence: Ref[]; [key: string]: unknown };
+type Part = {
+  name: string;
+  component: string;
+  ms: number | null;
+  uncertainty_ms: number;
+  reason?: string;
+  evidence: Ref[];
+};
+export type IncidentReport = {
+  headline: string;
+  scope: string;
+  quality_note: string;
+  window?: { start: number; end: number };
+  timeline: Row[];
+  delivery: Row[];
+  quality: Row[];
+  cycle_bars: {
+    cycle_id: string;
+    flow: string;
+    time: number;
+    total_ms: number | null;
+    rx_ms: number | null;
+    tx_ms: number | null;
+    parts: Part[];
+  }[];
+  hold_release: {
+    id: string;
+    hop: string;
+    time_range: number[];
+    metrics: { wire_spacing_ms: number[]; receive_spacing_ms: number[] };
+    evidence: Ref[];
+    tooltip: string;
+    summary: string;
+  }[];
+  loss_groups: {
+    hop: string;
+    headline: string;
+    counts: Record<string, number>;
+    evidence: Ref[];
+  }[];
+};
+const descriptions: Record<string, string> = {
+  rx_max_ms:
+    "Maximum measured same-copy RX boundary transit per second, ms; clock uncertainty applies.",
+  tx_max_ms:
+    "Maximum measured same-copy TX boundary transit per second, ms. Retry substitutions are excluded.",
+  tx_dropped:
+    "TX original copies absent across the host boundary, or supported loss; later retry is delivery, not delay.",
+  tx_delayed:
+    "TX copies with original identity observed later; delay above max(1 ms, twice clock uncertainty).",
+  retransmissions:
+    "tshark retransmissions observed at the host; sender symptom, not fault attribution.",
+  delayed:
+    "Original copy observed downstream later; same-copy evidence required.",
+  dropped: "Original disappears; retry delivery is not original transit.",
+  capture_miss_percent:
+    "Capture miss supported by ACK or a later downstream appearance / observed pair units.",
+  loss_percent:
+    "Supported dropped pair units / observed pair units; no device cause implied.",
+  offload_mismatch_percent:
+    "Unknown pairs with different segmentation and a super-frame, not network loss.",
+  unknown_percent:
+    "Other unknown pair units; identity or timing evidence insufficient.",
+};
+export function Incident({
+  data,
+  range,
+  onSelect,
+  onEvidence,
+}: {
+  data?: IncidentReport;
+  range: [number, number] | null;
+  onSelect: (r: [number, number] | null) => void;
+  onEvidence: (e: Ref[]) => void;
+}) {
+  const [sort, setSort] = useState<"total_ms" | "rx_ms" | "tx_ms">("total_ms");
+  if (!data) return null;
+  const visible = (t: number) => !range || (t >= range[0] && t < range[1]);
+  function brush(event: unknown) {
+    const a = (event as { areas?: { coordRange: number[] }[] }).areas?.[0]
+      ?.coordRange;
+    if (!a) {
+      onSelect(null);
+      return;
+    }
+    onSelect([Math.min(...a) / 1000, Math.max(...a) / 1000]);
+  }
+  const base: EChartsOption = {
+    animation: false,
+    tooltip: {
+      trigger: "item",
+      renderMode: "richText",
+      formatter: (p: unknown) => {
+        const q = p as {
+          seriesName: string;
+          data: { value: unknown[]; note?: string; evidence?: Ref[] };
+        };
+        return `${q.seriesName}\n${String(q.data.value[0])}: ${num(q.data.value[1] as number)}\n${q.data.note || ""}\nClick for frame evidence; drag to select time.`;
+      },
+    },
+    toolbox: { feature: { brush: { type: ["lineX", "clear"] } } },
+    brush: { xAxisIndex: 0, brushMode: "single" },
+    legend: { type: "scroll" },
+    grid: { top: 55, bottom: 65, left: 70, right: 75 },
+    xAxis: { type: "time" },
+    yAxis: { type: "value" },
+    dataZoom: [{ type: "slider", height: 18 }],
+  };
+  function click(event: unknown) {
+    onEvidence((event as { data?: { evidence?: Ref[] } }).data?.evidence || []);
+  }
+  function series(rows: Row[], keys: string[], stack?: string) {
+    return keys.map((name) => ({
+      name,
+      type: stack ? "bar" : "line",
+      stack,
+      showSymbol: true,
+      data: rows
+        .filter((r) => visible(r.start))
+        .map((r) => ({
+          value: [r.start * 1000, r[name] as number | null],
+          evidence: r.evidence,
+          note: descriptions[name],
+        })),
+    })) as EChartsOption["series"];
+  }
+  const shaded = data.window
+    ? {
+        data: [
+          [
+            {
+              name: "before",
+              xAxis: Math.min(...data.timeline.map((r) => r.start)) * 1000,
+            },
+            { xAxis: data.window.start * 1000 },
+          ],
+          [
+            {
+              name: "event",
+              xAxis: data.window.start * 1000,
+              itemStyle: { color: "rgba(220,140,40,.2)" },
+            },
+            { xAxis: data.window.end * 1000 },
+          ],
+          [
+            { name: "recovery", xAxis: data.window.end * 1000 },
+            {
+              xAxis:
+                Math.max(...data.timeline.map((r) => r.start)) * 1000 + 1000,
+            },
+          ],
+        ],
+      }
+    : undefined;
+  const timeline = series(data.timeline, [
+    "rx_max_ms",
+    "tx_max_ms",
+    "tx_dropped",
+    "tx_delayed",
+    "retransmissions",
+  ]) as Record<string, unknown>[];
+  timeline.forEach((s, i) => {
+    s.yAxisIndex = i < 2 ? 0 : 1;
+    if (!i) s.markArea = shaded;
+  });
+  const bars = data.cycle_bars
+    .filter((r) => visible(r.time))
+    .sort((a, b) => (b[sort] ?? -Infinity) - (a[sort] ?? -Infinity));
+  const names = [...new Set(bars.flatMap((b) => b.parts.map((p) => p.name)))];
+  const boundaries = [
+    ...new Set(
+      data.delivery.map((r) => `${r.direction}: ${r.point_a} → ${r.point_b}`),
+    ),
+  ];
+  return (
+    <section>
+      <h2>Incident timeline</h2>
+      <p className="hint">{data.scope}</p>
+      <Chart
+        option={{
+          ...base,
+          yAxis: [
+            { type: "value", name: "Boundary max ms", min: 0 },
+            { type: "value", name: "Count", min: 0 },
+          ],
+          series: timeline as EChartsOption["series"],
+        }}
+        onBrush={brush}
+        onClick={click}
+      />
+      <p>{data.headline}</p>
+      {data.loss_groups.map((g) => (
+        <article key={g.hop}>
+          <h3>{g.headline}</h3>
+          <p>
+            {Object.entries(g.counts)
+              .map(([k, v]) => `${k}: ${v}`)
+              .join(" · ")}
+          </p>
+          <button onClick={() => onEvidence(g.evidence)}>Evidence</button>
+        </article>
+      ))}
+    </section>
+  );
+}

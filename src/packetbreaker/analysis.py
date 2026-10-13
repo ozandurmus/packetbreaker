@@ -1112,6 +1112,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
 
         findings.extend(hold_release(db, segments))
         host_report["loss_groups"] = group_host_losses(findings, segments, topology)
+        from .incident import build_incident
+
+        incident = build_incident(db, topology, host_report, cycle_report, delivery, findings)
         from .pilot import flow_columns
 
         flow_columns(db, findings, topology)
@@ -1144,6 +1147,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             sip=sip_report,
             host_path=host_report,
             cycles=cycle_report,
+            incident=incident,
             delivery=delivery,
             application_status=application_status,
             proxies=proxies,

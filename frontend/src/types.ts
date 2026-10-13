@@ -173,6 +173,7 @@ export type Segment = {
 export type Report = {
   delivery?: {series:{point_a:string;point_b:string;direction:string;start:number;delayed:number;dropped:number;capture_misses:number;unknown:number;max_delay_ms:number|null;max_recovery_ms:number|null}[];note:string};
   cycles?: import("./Cycles").CycleReport;
+  incident?: import("./Incident").IncidentReport;
   host_path?: import("./HostPath").HostPathReport;
   analysis_scope?: {point:string;input_frames:number;retained_frames:number;excluded_single_point_frames:number}[];
   udp?: import("./UdpMedia").UdpReport;

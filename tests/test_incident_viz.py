@@ -53,6 +53,17 @@ def test_global_host_summary_and_flow_distractor(incident_replica):
     assert report["host_path"]["local_service"]["cycle_aggregate"]["p95_ms"] == expected
 
 
+def test_visualisations_and_existing_exports_have_evidence(incident_replica):
+
+    project, _, _, report = incident_replica
+    incident = report["incident"]
+    assert incident["timeline"] and incident["quality"] and incident["delivery"] and incident["cycle_bars"]
+    assert any(r["evidence"] for r in incident["timeline"] if r["rx_max_ms"] and r["rx_max_ms"] > 100)
+    assert all(r["evidence"] for r in incident["quality"])
+    assert all("period" in r for r in report["cycles"]["top"])
+    assert all("before_p95_ms" in r and "per_hop_added" in r for r in report["cycles"]["flow_ports"])
+
+
 def test_mixed_host_losses_keep_subtypes_under_one_heading():
     from packetbreaker.host_path import group_host_losses
     from packetbreaker.topology import Topology
