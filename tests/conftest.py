@@ -271,7 +271,7 @@ _proxy_wire_cache = {}
 
 
 @pytest.fixture(scope="session", params=[("zero", False), ("constant", False), ("zero", True)])
-def proxy_capture(request, tmp_path_factory, tshark):
+def proxy_capture(request, tmp_path_factory, tshark, scenarios):
     from concurrent.futures import ThreadPoolExecutor
     from packetbreaker.topology import Topology
 

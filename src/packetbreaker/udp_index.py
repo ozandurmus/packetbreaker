@@ -16,17 +16,27 @@ ntp.flags.mode ntp.org ntp.xmt snmp.request_id snmp.msgID snmp.data radius.id ra
 FIELDS += """tcp.srcport tcp.dstport tcp.seq_raw rtp.ssrc rtp.seq rtp.timestamp rtp.p_type rtp.version
 sip.Call-ID sip.CSeq.seq sip.CSeq.method sip.Method sip.Status-Code sip.Contact sip.Via sip.Via.branch
 sdp.connection_info.address sdp.media.port sdp.media.media sdp.media.format sdp.media_attr""".split()
-VERSION = 2
+FIELDS += ["snmp.version", "snmp.community"]
+VERSION = 3
 
 
 def index_udp(project, db, topology, cancel=None, progress=None):
     db.execute(
         "CREATE TABLE IF NOT EXISTS udp_decode_cache(point VARCHAR PRIMARY KEY,identity VARCHAR,reason VARCHAR)"
     )
+    field_columns = ",".join(chr(34) + f + chr(34) for f in FIELDS)
     schema = ",".join('"' + f + '" VARCHAR' for f in FIELDS)
     db.execute(f"CREATE TABLE IF NOT EXISTS udp_decoded(point VARCHAR,frame BIGINT,{schema})")
+    existing = {row[0] for row in db.execute("DESCRIBE udp_decoded").fetchall()}
     for field in FIELDS:
-        db.execute(f'ALTER TABLE udp_decoded ADD COLUMN IF NOT EXISTS "{field}" VARCHAR')
+        if field not in existing:
+            db.execute(f'ALTER TABLE udp_decoded ADD COLUMN "{field}" VARCHAR')
+    if not db.execute(
+        "SELECT 1 FROM obs WHERE proto='UDP' AND dns_id IS NULL OR proto='TCP' AND (sport=5060 OR dport=5060 OR json_extract_string(path_fields,'$.sip_probe')='1') LIMIT 1"
+    ).fetchone():
+        db.execute("DELETE FROM udp_decoded")
+        db.execute("DELETE FROM udp_decode_cache")
+        return []
     statuses = []
     binary = None
     for point in topology.points:
@@ -201,7 +211,7 @@ def index_udp(project, db, topology, cancel=None, progress=None):
                 if wrong:
                     raise ValueError("Decoded UDP fields do not uniquely map to original frames")
                 db.execute(
-                    f"INSERT INTO udp_decoded SELECT o.point,o.frame,r.* FROM udp_raw r JOIN udp_frame_map o ON {join}"
+                    f"INSERT INTO udp_decoded(point,frame,{field_columns}) SELECT o.point,o.frame,r.* FROM udp_raw r JOIN udp_frame_map o ON {join}"
                 )
         except (ValueError, OSError) as exc:
             reason = str(exc)
@@ -209,3 +219,68 @@ def index_udp(project, db, topology, cancel=None, progress=None):
         db.execute("INSERT OR REPLACE INTO udp_decode_cache VALUES (?,?,?)", [point.id, identity, reason])
         statuses.append(dict(point=point.id, reason=reason, cached=False))
     return statuses
+
+
+def protocol_evidence(db, predicate, params, limit=128):
+    """Add tshark header identity to portable filters, in one bounded metadata lookup."""
+    from .evidence import evidence
+
+    refs = evidence(db, predicate, params, limit)
+    if not refs:
+        return refs
+    selected = [dict(point=r["point"], frame=r["frame"]) for r in refs]
+    decoded = rows(
+        db,
+        """SELECT d.* FROM udp_decoded d JOIN(SELECT unnest(from_json(?, '[{"point":"VARCHAR","frame":"BIGINT"}]')) r) s
+        ON d.point=s.r.point AND d.frame=s.r.frame""",
+        [json.dumps(selected)],
+    )
+    lookup = {(d["point"], d["frame"]): d for d in decoded}
+    numeric = (
+        "rtp.ssrc",
+        "rtp.seq",
+        "rtp.timestamp",
+        "snmp.request_id",
+        "radius.id",
+        "radius.code",
+        "ntp.flags.mode",
+        "sip.CSeq.seq",
+    )
+    for ref in refs:
+        data = lookup.get((ref["point"], ref["frame"]), {})
+        if not ref.get("content_filter"):
+            continue
+        identity = {}
+        for field in numeric:
+            value = data.get(field)
+            if value is None:
+                continue
+            try:
+                value = int(value, 16) if value.startswith("0x") else int(value)
+            except ValueError:
+                continue
+            ref["content_filter"] += f" && {field} == {value}"
+            identity[field] = value
+        value = data.get("sip.Call-ID")
+        if value and "," not in value:
+            ref["content_filter"] += " && sip.Call-ID == " + json.dumps(value)
+            identity["sip.Call-ID"] = value
+        if identity:
+            ref["protocol_identity"] = identity
+    return refs
+
+
+def frame_evidence(db, pairs):
+    """Fetch bounded button references together rather than one SQL query per button."""
+    pairs = list(dict.fromkeys((point, frame) for point, frame in pairs if frame is not None))
+    result = {}
+    for start in range(0, len(pairs), 512):
+        wanted = [dict(point=p, frame=f) for p, f in pairs[start : start + 512]]
+        refs = protocol_evidence(
+            db,
+            'EXISTS(SELECT 1 FROM(SELECT unnest(from_json(?, \'[{"point":"VARCHAR","frame":"BIGINT"}]\')) r) s WHERE s.r.point=o.point AND s.r.frame=o.frame)',
+            [json.dumps(wanted)],
+            512,
+        )
+        result.update({(r["point"], r["frame"]): r for r in refs})
+    return result

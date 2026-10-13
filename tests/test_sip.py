@@ -65,7 +65,13 @@ def test_missing_endpoint_and_uncertain_clocks_never_claim_media_failure(scenari
     for c in clocks.values():
         c["uncertainty"] = None
     with shared.connect() as db:
-        _, findings = build_sip(db, Topology.model_validate(topology), report["segments"], clocks, [])
+        _, findings = build_sip(
+            db,
+            Topology.model_validate(topology),
+            report["segments"],
+            clocks,
+            [f for f in report["findings"] if f["type"] == "rtp_loss"],
+        )
         assert not findings
 
 
@@ -82,3 +88,30 @@ def test_sendonly_is_legitimate_not_one_way_failure(scenarios, clone_project):
             db, Topology.model_validate(topology), report["segments"], report["clocks"], losses
         )
         assert not sip["one_way"] and not any(f["type"] == "one_way_audio" for f in findings)
+
+
+@pytest.mark.parametrize("media_mode", ["healthy", "capture_miss"])
+def test_healthy_rewriting_and_capture_misses_are_not_audio_failure(scenarios, media_mode):
+    _, _, _, report = scenarios("udp_transactions", fault_location="FW2", ip_id="zero", media_mode=media_mode)
+    media_types = {"rtp_loss", "rtp_jitter", "sdp_media_mismatch", "one_way_audio", "sip_rewritten"}
+    assert not any(f["type"] in media_types and f["confidence"] == "supported" for f in report["findings"])
+    assert not report["sip"]["one_way"]
+    assert report["rtp"]["streams"]
+
+
+def test_video_sdp_does_not_become_one_way_audio(scenarios, clone_project):
+    from packetbreaker.sip import build_sip
+    from packetbreaker.topology import Topology
+
+    shared, _, topology, report = scenarios("udp_transactions", fault_location="FW2", ip_id="zero")
+    clone = clone_project(shared)
+    with clone.connect() as db:
+        db.execute('UPDATE udp_decoded SET "sdp.media.media"=\'video\' WHERE "sip.Call-ID" IS NOT NULL')
+        _, findings = build_sip(
+            db,
+            Topology.model_validate(topology),
+            report["segments"],
+            report["clocks"],
+            [f for f in report["findings"] if f["type"] == "rtp_loss"],
+        )
+        assert not any(f["type"] == "one_way_audio" for f in findings)

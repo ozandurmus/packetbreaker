@@ -27,3 +27,48 @@ def test_udp_identity_ambiguity_capture_miss_and_oneway_first(scenarios, fault_l
     assert rows[8][1] == "unanswered" and rows[8][3] == truth["expected_response_hop"]
     assert rows[9][1] == "answered" and rows[9][3] is None
     assert report["udp"]["items"] and all(i["evidence"] and i["tooltip"] for i in report["udp"]["items"])
+
+
+def test_udp_incomplete_response_drop_inventory_and_selected_window_are_unknown(scenarios, clone_project):
+    from packetbreaker.udp import build_udp
+    from packetbreaker.topology import Topology
+    import json
+
+    shared, _, topology, report = scenarios("udp_transactions", fault_location="FW2", ip_id="zero")
+    clone = clone_project(shared)
+    with clone.connect() as db:
+        db.execute("UPDATE obs SET caplen=wirelen-1 WHERE point='client' AND sport=123 AND dport=41000")
+        udp = build_udp(db, Topology.model_validate(topology), report["segments"])
+        assert (
+            next(i for i in udp["items"] if i["point"] == "client" and i["protocol"] == "NTP")["status"]
+            == "unknown"
+        )
+        inventory = json.loads(db.execute("SELECT inventory FROM captures LIMIT 1").fetchone()[0])
+        inventory["ifdrop"] = 5
+        db.execute("UPDATE captures SET inventory=?", [json.dumps(inventory)])
+        udp = build_udp(db, Topology.model_validate(topology), report["segments"])
+        assert not any(i["status"] == "unanswered" for i in udp["items"])
+        narrowed = Topology.model_validate({**topology, "start": 1700000010.0, "end": 1700000012.0})
+        build_udp(db, narrowed, report["segments"])
+        assert db.execute(
+            "SELECT min(corrected),max(corrected) FROM udp_transactions"
+        ).fetchone() == pytest.approx((1700000010.0, 1700000012.0), abs=0.01)
+
+
+def test_snmp_context_mismatch_cannot_answer_another_community(scenarios, clone_project):
+    from packetbreaker.udp import build_udp
+    from packetbreaker.topology import Topology
+
+    shared, _, topology, report = scenarios("udp_transactions", fault_location="FW2", ip_id="zero")
+    clone = clone_project(shared)
+    with clone.connect() as db:
+        db.execute(
+            "UPDATE udp_decoded SET \"snmp.community\"='other' WHERE point='client' AND \"snmp.data\"='2'"
+        )
+        build_udp(db, Topology.model_validate(topology), report["segments"])
+        assert (
+            db.execute(
+                "SELECT status FROM udp_transactions WHERE point='client' AND protocol='SNMP'"
+            ).fetchone()[0]
+            != "answered"
+        )

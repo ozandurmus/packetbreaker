@@ -43,7 +43,7 @@ def snmp(ident, response=False):
     return ber(0x30, ber(2, b"\1") + ber(4, b"fixture") + pdu)
 
 
-def generate(directory, location="FW2", ip_id="zero", ipv6=False, scenario="udp"):
+def generate(directory, location="FW2", ip_id="zero", ipv6=False, media_mode="faults"):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     location = "FW2" if location == "FW" else location
@@ -124,7 +124,7 @@ def generate(directory, location="FW2", ip_id="zero", ipv6=False, scenario="udp"
     r2 = b"\x24" + b"\0" * 23 + struct.pack("!II", 3900000002, 23456) + b"\0" * 16
     emit(16.01, q2, 41008, 123)
     emit(16.074, r2, 41008, 123, True)
-    maps, media_truth = add_media(captures, ipv6, location, ip_id)
+    maps, media_truth = add_media(captures, ipv6, location, ip_id, media_mode)
     file = directory / "points.pcapng"
     write_points(file, captures)
     topology = dict(
@@ -212,7 +212,7 @@ def sip_message(call, src, dst, addr, port, answer=False):
     ).encode()
 
 
-def add_media(captures, ipv6, location, ip_id):
+def add_media(captures, ipv6, location, ip_id, media_mode="faults"):
     rng = random.Random(451)
     maps = []
     rewrite = {"FW1": 2, "FW2": 4, "link": 3}[location]
@@ -232,11 +232,17 @@ def add_media(captures, ipv6, location, ip_id):
                 addr = (
                     peers[call]
                     if reverse
-                    else (bad if call == 0 else pools[call])
+                    else (bad if call == 0 and media_mode == "faults" else pools[call])
                     if i >= rewrite
                     else clients[call]
                 )
-                port = 50000 if reverse else (41000 if call == 0 else 44000) if i >= rewrite else 40000
+                port = (
+                    50000
+                    if reverse
+                    else (41000 if call == 0 and media_mode == "faults" else 44000)
+                    if i >= rewrite
+                    else 40000
+                )
                 payload = sip_message(
                     call,
                     peers[call] if reverse else pools[call] if i >= rewrite else src,
@@ -267,18 +273,20 @@ def add_media(captures, ipv6, location, ip_id):
                     + b"\x7f" * 20
                 )
                 for i in range(8):
+                    if media_mode == "capture_miss" and n == 5 and i == 3:
+                        continue
                     # Pure capture miss on a healthy stream reappears downstream.
                     if call == 1 and not reverse and n == 5 and i == 3:
                         continue
                     # One actual forward datagram loss after the selected FW/link.
-                    if call == 0 and not reverse and n == 10 and i >= loss:
+                    if media_mode == "faults" and call == 0 and not reverse and n == 10 and i >= loss:
                         continue
                     # Wrong-SDP return for call 0; policy-drop return for call 1.
-                    if reverse and i < loss:
+                    if media_mode == "faults" and reverse and i < loss:
                         continue
                     local = pools[call] if i >= 4 else clients[call]
                     local_port = 44000 if i >= 4 else 40000
-                    if reverse and call == 0:
+                    if media_mode == "faults" and reverse and call == 0:
                         local = bad
                         local_port = 41000
                     a, b = (peers[call], local) if reverse else (local, peers[call])
@@ -291,8 +299,12 @@ def add_media(captures, ipv6, location, ip_id):
                         0 if ip_id == "zero" else 42,
                         64 - (7 - i if reverse else i),
                     )
-                    delay = (0, 6, 1, 9, 4)[n % 5] / 1000 if i >= 6 and not reverse else 0
-                    if i >= 6 and not reverse and n == 12:
+                    delay = (
+                        (0, 6, 1, 9, 4)[n % 5] / 1000
+                        if media_mode == "faults" and i >= 6 and not reverse
+                        else 0
+                    )
+                    if media_mode == "faults" and i >= 6 and not reverse and n == 12:
                         delay += 0.035
                     t = BASE + stamp + (7 - i if reverse else i) * 0.0003 + delay
                     captures[i].append((t, wire))

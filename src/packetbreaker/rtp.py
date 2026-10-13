@@ -1,14 +1,14 @@
 """RTP header accounting and RFC 3550 jitter, in native SQL on scoped streams."""
 
 from .store import rows
-from .evidence import evidence
+from .udp_index import protocol_evidence as evidence, frame_evidence
 
 NOTE = "Sequence gaps are observations, not automatically network loss. Streams are scoped by canonical directional tuple and SSRC, never SSRC/port alone. RFC 3550 jitter uses arrival order and a declared/SDP/static payload clock; absent or changing clocks stay unknown. Hop attribution requires independently supported matching, clocks and coverage."
 
 
 def media_finding(db, kind, segment, ts, summary, metrics, refs, supported=True):
     return dict(
-        id=f"media:{kind}:{segment['id']}:{metrics.get('flow', '')}:{ts}",
+        id=f"media:{kind}:{segment['id']}:{metrics.get('flow', '')}:{metrics.get('call_id', '')}:{ts}",
         type=kind,
         hop=segment["id"],
         device=segment.get("device"),
@@ -40,8 +40,8 @@ def build_rtp(db, topology, segments, clocks):
         try_cast(d."rtp.p_type" AS INTEGER) AS pt,
         coalesce(?,r.rate,CASE WHEN d."rtp.p_type" IN ('0','8','13') THEN 8000 END) AS rate
         FROM obs o JOIN udp_decoded d USING(point,frame) LEFT JOIN LATERAL(SELECT min(rate) AS rate FROM rtp_rates r WHERE r.point=o.point AND r.pt=try_cast(d."rtp.p_type" AS INTEGER)
-        AND r.port IN(o.sport,o.dport) HAVING count(DISTINCT rate)=1) r ON true WHERE d."rtp.version"='2' AND d."rtp.ssrc" IS NOT NULL""",
-        [rate],
+        AND r.port IN(o.sport,o.dport) HAVING count(DISTINCT rate)=1) r ON true WHERE d."rtp.version"='2' AND d."rtp.ssrc" IS NOT NULL AND (? IS NULL OR o.corrected>=?) AND (? IS NULL OR o.corrected<=?)""",
+        [rate, topology.start, topology.start, topology.end, topology.end],
     )
     if not db.execute("SELECT 1 FROM rtp_input LIMIT 1").fetchone():
         db.execute("DROP TABLE IF EXISTS rtp_packets")
@@ -82,6 +82,9 @@ def build_rtp(db, topology, segments, clocks):
         CASE WHEN count(DISTINCT rate)=1 AND count(*) FILTER(WHERE abs(ds)>3000)=0 THEN max(jitter_ms) END AS jitter_max_ms,
         arg_min(frame,ts) AS first_frame,arg_max(frame,ts) AS last_frame FROM rtp_packets GROUP BY ALL""")
     streams = rows(db, "SELECT * FROM rtp_streams ORDER BY point,flow,direction,ssrc LIMIT 200")
+    refs_by_frame = frame_evidence(
+        db, [(s["point"], f) for s in streams for f in (s["first_frame"], s["last_frame"])]
+    )
     for stream in streams:
         stream["tooltip"] = NOTE
         stream["reason"] = (
@@ -93,12 +96,11 @@ def build_rtp(db, topology, segments, clocks):
             stream["gaps"] = None
         if stream["rate"] is None:
             stream["reason"] += "; clock rate unknown (no matching SDP, static payload rate or override)"
-        stream["evidence"] = evidence(
-            db,
-            "o.point=? AND o.frame IN (?,?)",
-            [stream["point"], stream["first_frame"], stream["last_frame"]],
-            2,
-        )
+        stream["evidence"] = [
+            refs_by_frame[(stream["point"], f)]
+            for f in dict.fromkeys((stream["first_frame"], stream["last_frame"]))
+            if (stream["point"], f) in refs_by_frame
+        ]
     points = {p.id: p for p in topology.points}
     findings = []
     for segment in segments:
@@ -190,5 +192,5 @@ def build_rtp(db, topology, segments, clocks):
         one_way=one_way,
         total=db.execute("SELECT count(*) FROM rtp_streams").fetchone()[0],
         note=NOTE,
-        scope="Full saved analysis window; up to 200 stream examples",
+        scope="Selected window; jitter starts at the first sample; up to 200 stream examples",
     ), findings

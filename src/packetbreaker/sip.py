@@ -1,7 +1,7 @@
 """Compare tshark SIP/SDP messages and bind media by uniquely advertised source endpoints."""
 
 from .store import rows
-from .evidence import evidence
+from .udp_index import protocol_evidence as evidence, frame_evidence
 from .rtp import media_finding
 
 NOTE = "SIP message identity includes canonical signaling flow, Call-ID, CSeq, status and direction. Only unique bounded pairs are compared. Declared ALG rewriting is expected, not a bug. Media association requires a unique SDP source endpoint; ports or SSRC alone cannot identify a call. SDP/media mismatch is corroboration, not proof of a policy cause."
@@ -12,7 +12,7 @@ def build_sip(db, topology, segments, clocks, rtp_findings):
     db.execute("""CREATE OR REPLACE TABLE sip_messages AS SELECT o.*,d."sip.Call-ID" AS call_id,
         d."sip.CSeq.seq" AS cseq,d."sip.CSeq.method" AS method,coalesce(d."sip.Status-Code",'request') AS status,
         d."sdp.connection_info.address" AS address,try_cast(d."sdp.media.port" AS INTEGER) AS port,
-        d."sdp.media_attr" AS attributes,d."sip.Contact" AS contact,d."sip.Via" AS via,
+        d."sdp.media_attr" AS attributes,d."sdp.media.media" AS media,d."sip.Contact" AS contact,d."sip.Via" AS via,
         o.eligible AND o.caplen=o.wirelen AND c.reason IS NULL AND NOT contains(d."sip.CSeq.seq",',') AS complete
         FROM obs o JOIN udp_decoded d USING(point,frame) JOIN udp_decode_cache c USING(point)
         WHERE d."sip.Call-ID" IS NOT NULL""")
@@ -36,8 +36,27 @@ def build_sip(db, topology, segments, clocks, rtp_findings):
             min(frame_b) AS frame_b,min(address_b) AS address_b,min(port_b) AS port_b,min(contact_b) AS contact_b,min(via_b) AS via_b
             FROM candidates GROUP BY frame)
             SELECT x.call_id,x.flow,x.direction,x.corrected AS time,x.frame,x.address,x.port,x.contact,x.via,
-            p.* EXCLUDE(frame) FROM sip_messages x LEFT JOIN pairs p USING(frame) WHERE x.point=? AND x.direction=?""",
-            [a, b, segment["direction"], topology.match_window_ms / 1000, a, segment["direction"]],
+            p.* EXCLUDE(frame) FROM sip_messages x LEFT JOIN pairs p USING(frame) WHERE x.point=? AND x.direction=? AND (? IS NULL OR x.corrected>=?) AND (? IS NULL OR x.corrected<=?)""",
+            [
+                a,
+                b,
+                segment["direction"],
+                topology.match_window_ms / 1000,
+                a,
+                segment["direction"],
+                topology.start,
+                topology.start,
+                topology.end,
+                topology.end,
+            ],
+        )
+        refs_by_frame = frame_evidence(
+            db,
+            [
+                (point, frame)
+                for message in messages
+                for point, frame in ((a, message["frame"]), (b, message["frame_b"]))
+            ],
         )
         reliable = not segment.get("reason") and all(
             clocks.get(points[p].capture_id, {}).get("uncertainty") is not None for p in (a, b)
@@ -52,12 +71,11 @@ def build_sip(db, topology, segments, clocks, rtp_findings):
             expected = bool(
                 segment.get("device") and any(points[p].payload_transform == "alg" for p in (a, b))
             )
-            refs = evidence(
-                db,
-                "(o.point=? AND o.frame=?) OR (o.point=? AND o.frame=?)",
-                [a, message["frame"], b, message["frame_b"] if supported else None],
-                2,
-            )
+            refs = [
+                refs_by_frame[(point, frame)]
+                for point, frame in ((a, message["frame"]), (b, message["frame_b"] if supported else None))
+                if (point, frame) in refs_by_frame
+            ]
             item = dict(
                 call_id=message["call_id"],
                 flow=message["flow"],
@@ -109,7 +127,7 @@ def build_sip(db, topology, segments, clocks, rtp_findings):
     # Earliest sending-side SDP of each role anchors media source identity before NAT.
     db.execute(
         """CREATE OR REPLACE TEMP TABLE sip_endpoints AS SELECT call_id,flow AS signaling_flow,direction,address,port,corrected AS time,
-        attributes,point,frame FROM sip_messages WHERE complete AND port>0 AND address IS NOT NULL AND NOT contains(address,',')
+        attributes,point,frame FROM sip_messages WHERE complete AND media='audio' AND port>0 AND address IS NOT NULL AND NOT contains(address,',')
         AND (direction='forward' AND point=? OR direction='reverse' AND point=?)
         QUALIFY row_number() OVER(PARTITION BY flow,call_id,direction ORDER BY corrected,frame)=1""",
         [topology.forward[0], topology.reverse[0] if topology.reverse else None],
@@ -195,8 +213,15 @@ def build_sip(db, topology, segments, clocks, rtp_findings):
                 continue
             loss = losses[0]
             segment = next(s for s in segments if s["id"] == loss["hop"])
+            if segment.get("reason") or any(
+                clocks.get(points[p].capture_id, {}).get("uncertainty") is None
+                for p in (segment["point_a"], segment["point_b"])
+            ):
+                continue
             mismatch = any(
-                f["type"] == "sdp_media_mismatch" and f["metrics"]["call_id"] == call["call_id"]
+                f["type"] == "sdp_media_mismatch"
+                and f["metrics"]["call_id"] == call["call_id"]
+                and f["metrics"]["flow"] == call["signaling_flow"]
                 for f in findings
             )
             reason = (
@@ -229,5 +254,5 @@ def build_sip(db, topology, segments, clocks, rtp_findings):
         total=len(comparisons),
         one_way=one_way,
         note=NOTE,
-        scope="Full saved analysis window; up to 200 message comparisons; single SDP media section only",
+        scope="Selected-window comparisons; earlier SDP provides context; up to 200 comparisons; single SDP media section only",
     ), findings

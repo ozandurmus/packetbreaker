@@ -1,7 +1,7 @@
 """One-to-one UDP transactions scoped to a point and reversed observed tuple."""
 
 from .store import rows
-from .evidence import evidence
+from .udp_index import protocol_evidence as evidence, frame_evidence
 
 NOTE = "Known transaction IDs come from tshark. Unknown protocols pair forward initiators with reversed-tuple packets in a bounded window, never nearest-time guesses. Timing is same-point; unanswered traffic is not proof of an endpoint or device cause."
 
@@ -17,11 +17,24 @@ def build_udp(db, topology, segments):
         WHEN d."syslog.level" IS NOT NULL THEN 'oneway' WHEN d."frame.protocols" LIKE '%:ntp%' OR d."frame.protocols" LIKE '%:snmp%' OR d."frame.protocols" LIKE '%:radius%' THEN 'unsupported'
         WHEN o.direction='forward' THEN 'request' WHEN o.direction='reverse' THEN 'response' ELSE 'unsupported' END AS role,
         CASE WHEN d."ntp.flags.mode"='3' THEN d."ntp.xmt" WHEN d."ntp.flags.mode"='4' THEN d."ntp.org"
-        WHEN d."snmp.data" IS NOT NULL THEN d."snmp.request_id" ELSE d."radius.id" END AS token,
+        WHEN d."snmp.data" IS NOT NULL AND d."snmp.request_id" IS NOT NULL THEN
+            CASE WHEN d."snmp.version" IN ('0','1') AND d."snmp.community" IS NOT NULL THEN concat(d."snmp.version",':',md5(d."snmp.community"),':',d."snmp.request_id")
+                WHEN d."snmp.version"='3' AND d."snmp.msgID" IS NOT NULL THEN concat('3:',d."snmp.msgID",':',d."snmp.request_id") END
+            ELSE d."radius.id" END AS token,
         d."radius.code" AS radius_code,c.reason AS decode_reason,
         o.eligible AND o.caplen=o.wirelen AND c.reason IS NULL AS complete
         FROM obs o LEFT JOIN udp_decoded d USING(point,frame) LEFT JOIN udp_decode_cache c USING(point)
         WHERE o.proto='UDP' AND o.dns_id IS NULL AND NOT coalesce(d."frame.protocols" LIKE '%:sip%' OR d."frame.protocols" LIKE '%:rtp%',false)""")
+    if not db.execute("SELECT 1 FROM udp_protocol LIMIT 1").fetchone():
+        db.execute("DROP TABLE IF EXISTS udp_transactions")
+        return dict(
+            summary=[],
+            items=[],
+            total=0,
+            timeout_ms=topology.udp_timeout_ms,
+            note=NOTE,
+            scope="Query initiations in selected window",
+        )
     db.execute(
         """CREATE OR REPLACE TEMP TABLE udp_candidates AS WITH c AS(
         SELECT q.point,q.frame,r.frame AS response_frame,r.ts AS response_ts,r.packet_key AS response_key
@@ -41,12 +54,17 @@ def build_udp(db, topology, segments):
             CASE WHEN p.candidates=1 AND NOT p.ambiguous THEN p.response_frame END AS response_frame,
             CASE WHEN p.candidates=1 AND NOT p.ambiguous THEN p.response_key END AS response_key,
             CASE WHEN p.candidates=1 AND NOT p.ambiguous THEN (p.response_ts-q.ts)*1000 END AS latency_ms,
-            q.ts+?<=c.stop AS covered FROM udp_protocol q LEFT JOIN pairs p USING(point,frame)
-            LEFT JOIN(SELECT point,max(ts) AS stop FROM obs GROUP BY point)c USING(point) WHERE role IN ('request','oneway','unsupported'))
+            q.ts+?<=c.stop AS covered,
+            EXISTS(SELECT 1 FROM udp_protocol r WHERE r.point=q.point AND r.tuple_key=q.reverse_tuple
+                AND r.ts BETWEEN q.ts AND q.ts+? AND NOT r.complete) AS incomplete_response,
+            coalesce(try_cast(json_extract_string(i.inventory,'$.ifdrop') AS BIGINT),0)>0
+                OR coalesce(try_cast(json_extract_string(i.inventory,'$.osdrop') AS BIGINT),0)>0 AS capture_drops
+            FROM udp_protocol q LEFT JOIN pairs p USING(point,frame) LEFT JOIN captures i ON i.id=q.capture_id
+            LEFT JOIN(SELECT point,max(ts) AS stop FROM obs GROUP BY point)c USING(point) WHERE role IN ('request','oneway','unsupported') AND (? IS NULL OR q.corrected>=?) AND (? IS NULL OR q.corrected<=?))
         SELECT *,CASE WHEN role='oneway' THEN 'no_response_expected' WHEN NOT complete OR role='unsupported' OR ambiguous OR candidates>1 THEN 'unknown'
-            WHEN response_frame IS NOT NULL THEN 'answered' WHEN covered THEN 'unanswered' ELSE 'unknown' END AS status
+            WHEN response_frame IS NOT NULL THEN 'answered' WHEN incomplete_response OR capture_drops OR protocol<>'UNKNOWN' AND role='request' AND token IS NULL THEN 'unknown' WHEN covered THEN 'unanswered' ELSE 'unknown' END AS status
         FROM merged""",
-        [timeout],
+        [timeout, timeout, topology.start, topology.start, topology.end, topology.end],
     )
     # Reuse only supported disappearance classifications; a downstream reappearance remains capture miss.
     db.execute("CREATE OR REPLACE TEMP TABLE udp_supported(hop VARCHAR)")
@@ -71,23 +89,30 @@ def build_udp(db, topology, segments):
     )
     items = rows(
         db,
-        "SELECT point,frame,flow,protocol,role,token,status,latency_ms,hop,packet_key,response_frame,lost_response_key,candidates,ambiguous,complete,covered,decode_reason FROM udp_transactions ORDER BY ts,point LIMIT 200",
+        "SELECT point,frame,flow,protocol,role,token,status,latency_ms,hop,packet_key,response_frame,lost_response_key,candidates,ambiguous,complete,covered,decode_reason,incomplete_response,capture_drops FROM udp_transactions ORDER BY ts,point LIMIT 200",
+    )
+    refs_by_frame = frame_evidence(
+        db, [(i["point"], f) for i in items for f in (i["frame"], i["response_frame"])]
     )
     for item in items:
-        item["reason"] = (
-            "Unique reversed-tuple and decoded identity response"
-            if item["status"] == "answered"
-            else "Known one-way traffic; no reply is expected"
-            if item["status"] == "no_response_expected"
-            else "No unique response before the covered deadline; endpoint/device cause unknown"
-            if item["status"] == "unanswered"
-            else item["decode_reason"]
-            or "Ambiguous ownership, unsupported identity, incomplete packet or insufficient deadline coverage"
-        )
+        if item["status"] == "answered":
+            item["reason"] = "Unique reversed-tuple and decoded identity response"
+        elif item["status"] == "no_response_expected":
+            item["reason"] = "Known one-way traffic; no reply is expected"
+        elif item["status"] == "unanswered":
+            item["reason"] = "No unique response before the covered deadline; endpoint/device cause unknown"
+        else:
+            item["reason"] = item["decode_reason"] or (
+                "Capture drops or incomplete candidate response; absence cannot establish timeout"
+                if item["incomplete_response"] or item["capture_drops"]
+                else "Ambiguous ownership, unsupported identity, incomplete packet or insufficient deadline coverage"
+            )
         item["tooltip"] = NOTE
-        item["evidence"] = evidence(
-            db, "o.point=? AND o.frame IN (?,?)", [item["point"], item["frame"], item["response_frame"]], 2
-        )
+        item["evidence"] = [
+            refs_by_frame[(item["point"], f)]
+            for f in (item["frame"], item["response_frame"])
+            if (item["point"], f) in refs_by_frame
+        ]
         if item["hop"]:
             item["evidence"] += evidence(
                 db, "o.packet_key IN (?,?)", [item["packet_key"], item["lost_response_key"]], 16
@@ -98,5 +123,5 @@ def build_udp(db, topology, segments):
         total=db.execute("SELECT count(*) FROM udp_transactions").fetchone()[0],
         timeout_ms=topology.udp_timeout_ms,
         note=NOTE,
-        scope="Full saved analysis window; bounded examples, all transactions stored",
+        scope="Query initiations in the selected window; replies may extend to the covered deadline; bounded examples, all transactions stored",
     )
