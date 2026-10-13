@@ -206,6 +206,77 @@ export function Incident({
           <button onClick={() => onEvidence(g.evidence)}>Evidence</button>
         </article>
       ))}
+      <h3>Where was the time added?</h3>
+      <label>
+        Sort top cycles{" "}
+        <select
+          value={sort}
+          onChange={(e) => setSort(e.target.value as typeof sort)}
+        >
+          <option value="total_ms">Total</option>
+          <option value="rx_ms">RX</option>
+          <option value="tx_ms">TX</option>
+        </select>
+      </label>
+      <p className="hint">
+        Stacked last-request-byte RX + server-local turnaround +
+        first-response-byte TX. Missing components stay unknown; components may
+        not sum to the cycle duration (request serialization and incomplete
+        coverage).
+      </p>
+      <Chart
+        option={{
+          ...base,
+          xAxis: {
+            type: "category",
+            data: bars.map((b) => b.cycle_id.slice(0, 8)),
+            axisLabel: { rotate: 35 },
+          },
+          yAxis: { type: "value", name: "Added ms" },
+          series: names.map((name) => ({
+            name,
+            type: "bar",
+            stack: "time",
+            data: bars.map((b) => {
+              const p = b.parts.find((p) => p.name === name);
+              return {
+                value: p?.ms ?? null,
+                evidence: p?.evidence,
+                note: `${p?.reason || "Observed component"}; uncertainty ±${num(p?.uncertainty_ms)} ms; cycle total ${num(b.total_ms)} ms`,
+              };
+            }),
+          })),
+          tooltip: {
+            trigger: "item",
+            renderMode: "richText",
+            formatter: (e: unknown) => {
+              const p = e as {
+                seriesName: string;
+                data: { value: number; note: string };
+              };
+              return `${p.seriesName}: ${num(p.data.value)} ms\n${p.data.note}`;
+            },
+          },
+        }}
+        onClick={click}
+        onBrush={(e) => {
+          const a = (e as { areas?: { coordRange: number[] }[] }).areas?.[0]
+            ?.coordRange;
+          if (!a) {
+            onSelect(null);
+            return;
+          }
+          const b = bars.slice(
+            Math.max(0, Math.ceil(Math.min(...a))),
+            Math.floor(Math.max(...a)) + 1,
+          );
+          if (b.length)
+            onSelect([
+              Math.min(...b.map((x) => x.time)),
+              Math.max(...b.map((x) => x.time)) + 1,
+            ]);
+        }}
+      />
     </section>
   );
 }
