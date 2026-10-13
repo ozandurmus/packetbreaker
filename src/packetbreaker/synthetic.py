@@ -77,7 +77,19 @@ def generate(
     ipv6=False,
     fault_location="FW",
     media_mode="faults",
+    pilot_shared=True,
 ):
+    if scenario in ("pilot", "pilot_healthy"):
+        from .pilot_synthetic import make_pilot
+
+        return make_pilot(
+            directory,
+            healthy=scenario == "pilot_healthy",
+            ipv6=ipv6,
+            fault="host" if fault_location == "FW" else fault_location,
+            shared=pilot_shared,
+            ip_id=ip_id,
+        )
     if scenario == "udp_transactions":
         from .voip_synthetic import generate as generate_udp
 

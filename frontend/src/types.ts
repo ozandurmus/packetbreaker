@@ -28,6 +28,9 @@ export type Point = {
   device: string;
   kind: string;
   side: string;
+  stage_capture?: boolean;
+  clock_domain?: string | null;
+  host_capture?: boolean;
   capture_id: string;
   interface: number | null;
   vendor?: string;
@@ -162,8 +165,12 @@ export type Segment = {
   excluded_counts: Record<string, number>;
   classes: Record<string, number>;
   offset_uncertainty_ms: number | null;
+  latency_uncertainty_ms?: number;
+  quality_notes?: string[];
 };
 export type Report = {
+  host_path?: import("./HostPath").HostPathReport;
+  analysis_scope?: {point:string;input_frames:number;retained_frames:number;excluded_single_point_frames:number}[];
   udp?: import("./UdpMedia").UdpReport;
   rtp?: import("./UdpMedia").RtpReport;
   sip?: import("./UdpMedia").SipReport;

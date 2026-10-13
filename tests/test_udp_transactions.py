@@ -72,3 +72,46 @@ def test_snmp_context_mismatch_cannot_answer_another_community(scenarios, clone_
             ).fetchone()[0]
             != "answered"
         )
+
+
+def test_batched_udp_headers_equal_isolated_tshark_fields(scenarios, clone_project, monkeypatch):
+    from packetbreaker import udp_index
+    from packetbreaker.topology import Topology
+
+    shared, _, topology, _ = scenarios("udp_transactions", fault_location="FW2", ip_id="zero")
+    clone = clone_project(shared)
+    calls = []
+    running = udp_index.running
+
+    def counted(*args, **kwargs):
+        calls.append(args[0])
+        return running(*args, **kwargs)
+
+    monkeypatch.setattr(udp_index, "running", counted)
+    fields = ",".join('"' + f + '"' for f in udp_index.FIELDS if f != "frame.number")
+    with clone.connect() as db:
+        db.execute("DELETE FROM udp_decode_cache")
+        statuses = udp_index.index_udp(clone, db, Topology.model_validate(topology), batch_headers=True)
+        assert all(s["reason"] is None for s in statuses)
+        batch = db.execute(
+            "SELECT point,frame," + fields + " FROM udp_decoded ORDER BY point,frame"
+        ).fetchall()
+        assert len(calls) == 1
+        calls.clear()
+        statuses = udp_index.index_udp(clone, db, Topology.model_validate(topology), batch_headers=False)
+        assert all(s["reason"] is None for s in statuses)
+        isolated = db.execute(
+            "SELECT point,frame," + fields + " FROM udp_decoded ORDER BY point,frame"
+        ).fetchall()
+        assert len(calls) == 16 and batch == isolated
+        db.execute(
+            "UPDATE obs SET path_fields=json_merge_patch(path_fields, '{\"sip_probe\":\"1\"}') WHERE point='server' AND proto='TCP'"
+        )
+
+        def require_isolation(cmd, *args, **kwargs):
+            assert "-w" in cmd
+            raise RuntimeError("TCP SIP isolation requested")
+
+        monkeypatch.setattr(udp_index, "running", require_isolation)
+        with pytest.raises(RuntimeError, match="TCP SIP isolation requested"):
+            udp_index.index_udp(clone, db, Topology.model_validate(topology), batch_headers=True)

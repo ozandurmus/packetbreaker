@@ -17,10 +17,10 @@ FIELDS += """tcp.srcport tcp.dstport tcp.seq_raw rtp.ssrc rtp.seq rtp.timestamp 
 sip.Call-ID sip.CSeq.seq sip.CSeq.method sip.Method sip.Status-Code sip.Contact sip.Via sip.Via.branch
 sdp.connection_info.address sdp.media.port sdp.media.media sdp.media.format sdp.media_attr""".split()
 FIELDS += ["snmp.version", "snmp.community"]
-VERSION = 3
+VERSION = 4
 
 
-def index_udp(project, db, topology, cancel=None, progress=None):
+def index_udp(project, db, topology, cancel=None, progress=None, *, batch_headers=True):
     db.execute(
         "CREATE TABLE IF NOT EXISTS udp_decode_cache(point VARCHAR PRIMARY KEY,identity VARCHAR,reason VARCHAR)"
     )
@@ -38,6 +38,7 @@ def index_udp(project, db, topology, cancel=None, progress=None):
         db.execute("DELETE FROM udp_decode_cache")
         return []
     statuses = []
+    file_headers = {}
     binary = None
     for point in topology.points:
         if not db.execute(
@@ -50,6 +51,7 @@ def index_udp(project, db, topology, cancel=None, progress=None):
         identity = json.dumps(
             [
                 VERSION,
+                batch_headers,
                 capture["identity"],
                 topology.rtp_port_ranges,
                 point.model_dump(
@@ -97,12 +99,25 @@ def index_udp(project, db, topology, cancel=None, progress=None):
             if progress:
                 progress(state="reading UDP protocol fields", point=point.id)
             count = db.execute("SELECT count(*) FROM obs WHERE point=?", [point.id]).fetchone()[0]
+            # Explicit UDP decode-as makes these header fields packet-local. TCP SIP still isolates before reassembly.
+            header_only = bool(
+                batch_headers
+                and topology.rtp_port_ranges
+                and point.vendor == "none"
+                and inv.get("format") != "snoop"
+                and sum(p.capture_id == point.capture_id for p in topology.points) > 1
+                and not db.execute(
+                    "SELECT 1 FROM obs WHERE capture_id=? AND proto='TCP' AND (sport=5060 OR dport=5060 OR json_extract_string(path_fields,'$.sip_probe')='1') LIMIT 1",
+                    [point.capture_id],
+                ).fetchone()
+            )
+            header_table = file_headers.get(point.capture_id) if header_only else None
             with (
                 tempfile.TemporaryDirectory(prefix="udp-point-") as directory,
                 tempfile.TemporaryFile(mode="w+", encoding="utf-8") as errors,
             ):
                 selected = source
-                direct = can_decode_source(point, inv, count)
+                direct = header_only or can_decode_source(point, inv, count)
                 if not direct:
                     selected = Path(directory) / "point.pcapng"
                     cmd = [
@@ -128,79 +143,88 @@ def index_udp(project, db, topology, cancel=None, progress=None):
                     "CREATE OR REPLACE TEMP TABLE udp_frame_map AS SELECT *,row_number() OVER(ORDER BY frame) AS ordinal FROM obs WHERE point=?",
                     [point.id],
                 )
-                output = Path(directory) / "fields.csv"
-                cmd = [
-                    binary,
-                    "-n",
-                    "-2",
-                    "-r",
-                    str(selected),
-                    "-Y",
-                    "(udp || sip) && !dns && !(gre || vxlan || geneve || icmp || icmpv6)",
-                    "-T",
-                    "fields",
-                    "-E",
-                    "header=y",
-                    "-E",
-                    "separator=,",
-                    "-E",
-                    "quote=d",
-                    "-E",
-                    "occurrence=a",
-                    *options,
-                ]
-                if direct and inv.get("frame_limit") is not None:
-                    cmd += ["-c", str(inv["frame_limit"])]
-                for lo, hi in topology.rtp_port_ranges:
-                    cmd += ["-d", f"udp.port=={lo}-{hi},rtp"]
-                for field in FIELDS:
-                    cmd += ["-e", field]
-                with output.open("wb") as stream, running(cmd, errors, env, cancel, stream) as proc:
-                    code = proc.wait()
-                if cancel and cancel.is_set():
-                    raise InterruptedError("UDP indexing cancelled")
-                if code:
-                    errors.seek(0)
-                    raise ValueError("UDP decode failed: " + errors.read(1000))
-                db.execute(f"CREATE OR REPLACE TEMP TABLE udp_raw({schema})")
-                shape = json.dumps([{field: "VARCHAR" for field in FIELDS}])
-                buffer = []
-
-                def flush():
-                    if buffer:
-                        db.execute(
-                            "INSERT INTO udp_raw SELECT r.* FROM(SELECT unnest(from_json(?,?)) r)",
-                            [json.dumps(buffer), shape],
-                        )
-                        buffer.clear()
-
-                def load_fields():
-                    db.execute("DELETE FROM udp_raw")
-                    with output.open(encoding="utf-8", newline="") as stream:
-                        reader = csv.DictReader(stream)
-                        if reader.fieldnames != FIELDS:
-                            raise ValueError("UDP decoder field schema differs")
-                        for record in reader:
-                            buffer.append({k: v or None for k, v in record.items()})
-                            if len(buffer) >= 4096:
-                                flush()
-                        flush()
-
-                load_fields()
-                # SDP is authoritative port negotiation; never infer RTP from arbitrary UDP bytes.
-                learned = db.execute(
-                    """SELECT DISTINCT try_cast(port AS INTEGER) FROM udp_raw,unnest(string_split("sdp.media.port",',')) p(port) WHERE try_cast(port AS INTEGER) BETWEEN 1 AND 65535 LIMIT 257"""
-                ).fetchall()
-                if len(learned) > 256:
-                    raise ValueError("Too many SDP media ports; narrow the selected window/capture")
-                if learned and not topology.rtp_port_ranges:
-                    for (port,) in learned:
-                        cmd += ["-d", f"udp.port=={port},rtp"]
+                if not header_table:
+                    output = Path(directory) / "fields.csv"
+                    cmd = [
+                        binary,
+                        "-n",
+                        "-2",
+                        "-r",
+                        str(selected),
+                        "-Y",
+                        ("udp" if header_only else "(udp || sip)")
+                        + " && !dns && !(gre || vxlan || geneve || icmp || icmpv6)",
+                        "-T",
+                        "fields",
+                        "-E",
+                        "header=y",
+                        "-E",
+                        "separator=,",
+                        "-E",
+                        "quote=d",
+                        "-E",
+                        "occurrence=a",
+                        *options,
+                    ]
+                    if direct and inv.get("frame_limit") is not None:
+                        cmd += ["-c", str(inv["frame_limit"])]
+                    for lo, hi in topology.rtp_port_ranges:
+                        cmd += ["-d", f"udp.port=={lo}-{hi},rtp"]
+                    for field in FIELDS:
+                        cmd += ["-e", field]
                     with output.open("wb") as stream, running(cmd, errors, env, cancel, stream) as proc:
                         code = proc.wait()
+                    if cancel and cancel.is_set():
+                        raise InterruptedError("UDP indexing cancelled")
                     if code:
-                        raise ValueError("SDP-directed media decode failed")
+                        errors.seek(0)
+                        raise ValueError("UDP decode failed: " + errors.read(1000))
+                    db.execute(f"CREATE OR REPLACE TEMP TABLE udp_raw({schema})")
+                    shape = json.dumps([{field: "VARCHAR" for field in FIELDS}])
+                    buffer = []
+
+                    def flush():
+                        if buffer:
+                            db.execute(
+                                "INSERT INTO udp_raw SELECT r.* FROM(SELECT unnest(from_json(?,?)) r)",
+                                [json.dumps(buffer), shape],
+                            )
+                            buffer.clear()
+
+                    def load_fields():
+                        db.execute("DELETE FROM udp_raw")
+                        with output.open(encoding="utf-8", newline="") as stream:
+                            reader = csv.DictReader(stream)
+                            if reader.fieldnames != FIELDS:
+                                raise ValueError("UDP decoder field schema differs")
+                            for record in reader:
+                                buffer.append({k: v or None for k, v in record.items()})
+                                if len(buffer) >= 4096:
+                                    flush()
+                            flush()
+
                     load_fields()
+                    # SDP is authoritative port negotiation; never infer RTP from arbitrary UDP bytes.
+                    learned = db.execute(
+                        """SELECT DISTINCT try_cast(port AS INTEGER) FROM udp_raw,unnest(string_split("sdp.media.port",',')) p(port) WHERE try_cast(port AS INTEGER) BETWEEN 1 AND 65535 LIMIT 257"""
+                    ).fetchall()
+                    if len(learned) > 256:
+                        raise ValueError("Too many SDP media ports; narrow the selected window/capture")
+                    if learned and not topology.rtp_port_ranges:
+                        for (port,) in learned:
+                            cmd += ["-d", f"udp.port=={port},rtp"]
+                        with output.open("wb") as stream, running(cmd, errors, env, cancel, stream) as proc:
+                            code = proc.wait()
+                        if code:
+                            raise ValueError("SDP-directed media decode failed")
+                        load_fields()
+                    if header_only:
+                        header_table = f"udp_headers_{len(file_headers)}"
+                        db.execute(f"CREATE OR REPLACE TEMP TABLE {header_table} AS SELECT * FROM udp_raw")
+                        file_headers[point.capture_id] = header_table
+                if header_only:
+                    db.execute(f"""CREATE OR REPLACE TEMP TABLE udp_raw AS SELECT r.* FROM {header_table} r
+                        JOIN udp_frame_map o ON try_cast(r."frame.number" AS BIGINT)=o.frame""")
                 join = 'r."frame.number"::BIGINT=o.frame' if direct else 'r."frame.number"::BIGINT=o.ordinal'
                 valid = """coalesce(r."ip.src",r."ipv6.src")=o.src AND coalesce(r."ip.dst",r."ipv6.dst")=o.dst
                     AND try_cast(coalesce(r."udp.srcport",r."tcp.srcport") AS INTEGER)=o.sport AND try_cast(coalesce(r."udp.dstport",r."tcp.dstport") AS INTEGER)=o.dport

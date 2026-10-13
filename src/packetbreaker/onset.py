@@ -234,7 +234,11 @@ def add_onsets(db, topology, segments):
             ("resets", 0.0),
             ("zero_windows", 0.0),
         ):
-            item, reason = detect_series(values, metric, floor)
+            item, reason = (
+                latency_window(values, floor, metric)
+                if metric == "latency_p95_ms"
+                else detect_series(values, metric, floor)
+            )
             if not item:
                 unknown.append(
                     dict(
@@ -253,7 +257,12 @@ def add_onsets(db, topology, segments):
                 time_labels=time_labels(item["time"], topology.report_timezone),
                 clock_uncertainty_ms=s["offset_uncertainty_ms"],
                 quality_notes=quality_notes,
-                scope="network_segment" if metric in NETWORK_SIGNALS else "capture_signal",
+                scope="host_capture_boundary"
+                if metric == "latency_p95_ms"
+                and any(p.host_capture and p.id in (s["point_a"], s["point_b"]) for p in topology.points)
+                else "network_segment"
+                if metric in NETWORK_SIGNALS
+                else "capture_signal",
             )
             if metric in ("loss_percent", "failed_handshakes"):
                 kinds = (
@@ -281,12 +290,11 @@ def add_onsets(db, topology, segments):
                 )
             else:
                 pair = db.execute(
-                    """SELECT a.packet_key FROM obs a JOIN obs b USING(packet_key)
-                    WHERE a.point=? AND b.point=? AND a.direction=? AND a.eligible AND b.eligible
-                    AND a.corrected>=? AND a.corrected<? ORDER BY b.corrected-a.corrected DESC LIMIT 1""",
+                    """SELECT key_a,key_b FROM observation_matches WHERE point_a=? AND point_b=? AND direction=?
+                    AND time_a>=? AND time_a<? ORDER BY time_b-time_a DESC LIMIT 1""",
                     [s["point_a"], s["point_b"], s["direction"], item["time"], item["end"]],
                 ).fetchone()
-                refs = evidence(db, "o.packet_key=?", [pair[0]]) if pair else []
+                refs = evidence(db, "o.packet_key IN (?,?)", list(pair)) if pair else []
             item["evidence"] = refs
             item["explanation"] = (
                 f"{metric}: baseline {item['baseline_value']:.3f}; threshold {item['threshold']:.3f} "
@@ -319,7 +327,7 @@ def add_onsets(db, topology, segments):
             text = f" Change-point onset at {labels['local']} / {labels['utc']}; {first['explanation']} Timing uncertainty includes the {topology.bucket_seconds:g} s bucket and capture clock estimates."
             s["headline"] = s.get("headline", f"Observed {first['metric']} change at {s['label']}.") + text
     label_retransmissions(db, segments, detections, topology)
-    network_detections = [x for x in detections if x["scope"] == "network_segment"]
+    network_detections = [x for x in detections if x["scope"] in ("network_segment", "host_capture_boundary")]
     directions = {}
     for d in ("forward", "reverse"):
         first_by_segment = {}
@@ -331,7 +339,7 @@ def add_onsets(db, topology, segments):
         groups = []
         for x in ordered:
             uncertainty = (x["clock_uncertainty_ms"] or 0) / 1000
-            lower, upper = x["time"] - uncertainty, x["end"] + uncertainty
+            lower, upper = x["time"] - uncertainty, x.get("onset_bucket_end", x["end"]) + uncertainty
             if not groups or lower >= groups[-1]["end"]:
                 groups.append(dict(time=x["time"], end=upper, segments=[x["segment"]]))
             else:
@@ -346,7 +354,9 @@ def add_onsets(db, topology, segments):
     overall, status_counts, fallback_summary = status_summary(segments)
     earliest = min(network_detections, key=lambda x: x["time"]) if network_detections else None
     if earliest:
-        tied = [x for x in network_detections if x["time"] < earliest["end"]]
+        tied = [
+            x for x in network_detections if x["time"] < earliest.get("onset_bucket_end", earliest["end"])
+        ]
         suspects = list(dict.fromkeys(x["label"] + " (" + x["direction"] + ")" for x in tied))
         summary = f"First detected degradation: {', '.join(suspects)} at {earliest['time_labels']['local']} / {earliest['time_labels']['utc']}. Earliest segments are prime suspects, not proven causes; same-bucket order is unresolved and clock uncertainty applies."
     elif detections:
@@ -377,3 +387,68 @@ def ordered_onsets(items, directions):
             x["metric"],
         ),
     )
+
+
+def latency_window(values, floor, metric="latency_p95_ms"):
+    """Find a bounded sustained excursion and its first recovered bucket, preserving idle gaps."""
+    valid = [
+        v
+        for v in values
+        if v.get(metric) is not None and v.get("coverage", "capturing") == "capturing" and not v.get("reason")
+    ]
+    if len(valid) < 8:
+        return None, "unknown: insufficient matched baseline and recovery samples"
+    baseline = [v[metric] for v in valid[:5]]
+    center = median(baseline)
+    mad = median(abs(v - center) for v in baseline)
+    threshold = center + max(floor, 6 * 1.4826 * mad)
+    if max(baseline) - min(baseline) > max(floor, 6 * 1.4826 * mad):
+        return None, "unknown: unstable early latency baseline"
+    changed = []
+    start_index = None
+    for i, v in enumerate(valid[5:], 5):
+        if v[metric] > threshold:
+            changed = [j for j in changed if valid[j]["start"] >= v["start"] - 15] + [i]
+            if len(changed) >= 3:
+                start_index = changed[0]
+                break
+    if start_index is None:
+        return None, "No sustained departure from the early healthy baseline"
+    last = start_index
+    quiet = []
+    recovery = None
+    for index, v in enumerate(valid[start_index + 1 :], start_index + 1):
+        if v[metric] > threshold:
+            last = index
+            quiet = []
+        else:
+            quiet.append(v)
+            if len(quiet) == 3:
+                recovery = quiet[0]
+                break
+    first = valid[start_index]
+    if any(
+        v.get("coverage", "capturing") != "capturing" or v.get("reason")
+        for v in values
+        if valid[0]["start"] <= v["start"] < (recovery["start"] if recovery else valid[-1]["end"])
+    ):
+        return None, "unknown: capture/quality gap interrupts baseline or event chronology"
+    return dict(
+        metric=metric,
+        time=first["start"],
+        end=recovery["start"] if recovery else valid[-1]["end"],
+        bucket=first.get("bucket", int(first["start"])),
+        first_crossing_bucket=first.get("bucket", int(first["start"])),
+        confirmed_bucket=valid[changed[-1]].get("bucket", int(valid[changed[-1]]["start"])),
+        onset_bucket_end=first["end"],
+        baseline_value=center,
+        mad=mad,
+        threshold=threshold,
+        multiplier=6,
+        minimum_delta=floor,
+        value=first[metric],
+        baseline_buckets=[v.get("bucket", int(v["start"])) for v in valid[:5]],
+        recovery_confirmed=recovery is not None,
+        last_delayed_bucket=valid[last]["start"],
+        baseline_method="early matched latency median/MAD; three crossings within 15 s; three healthy observations confirm recovery",
+    ), None

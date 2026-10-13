@@ -72,3 +72,11 @@ def test_measured_costs_balance_expensive_files_instead_of_equal_case_counts():
         ["tests/b.py"],
         ["tests/c.py", "tests/a.py"],
     ]
+
+
+def test_shard_count_respects_cpu_and_memory_budget():
+    gib = 1024**3
+    assert suite.shard_count(4, 16 * gib) == 3
+    assert suite.shard_count(4, 3 * gib) == 2
+    assert suite.shard_count(2, 16 * gib) == 1
+    assert suite.shard_count(16, gib) == 1

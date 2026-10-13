@@ -32,6 +32,8 @@ def main():
         default="demo",
         choices=[
             "udp_transactions",
+            "pilot",
+            "pilot_healthy",
             "security",
             "security_reply",
             "diagnostics",

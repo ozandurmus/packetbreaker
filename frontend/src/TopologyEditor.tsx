@@ -202,7 +202,7 @@ export function TopologyEditor({
     onChange({
       ...current(),
       points: current().points.map((p) =>
-        p.id === selected.id ? { ...p, ...patch } : p,
+        p.id === selected.id ? { ...p, ...patch } : patch.stage_capture !== undefined && p.device === selected.device ? {...p, stage_capture: patch.stage_capture} : p,
       ),
     });
   }
@@ -424,6 +424,9 @@ export function TopologyEditor({
                   ))}
                 </select>
               </label>
+              <label>Shared clock domain (same name for files from one appliance)<input value={selected.clock_domain||""} onChange={e=>update({clock_domain:e.target.value||null})}/></label>
+              <label><input type="checkbox" checked={selected.host_capture||false} onChange={e=>update({host_capture:e.target.checked})}/>Host capture (OS receive/transmit path)</label>
+              <label><input type="checkbox" checked={selected.stage_capture||false} onChange={e=>update({stage_capture:e.target.checked})}/>Device stage captures: rx/ingress then tx/egress in both directions</label>
               <label>
                 Side
                 <select

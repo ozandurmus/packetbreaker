@@ -45,7 +45,7 @@ jobs:
       - name: Fast portability suite
         if: runner.os != 'Windows'
         run: pytest -m "not slow" -q --durations=20 --junitxml=fast-suite.xml
-      - name: Fast Windows portability suite (all tests, two isolated processes)
+      - name: Fast Windows portability suite (all tests, resource-bounded isolated processes)
         if: runner.os == 'Windows'
         run: python tools/windows_fast_suite.py
       - name: Hosted Windows fast-suite budget

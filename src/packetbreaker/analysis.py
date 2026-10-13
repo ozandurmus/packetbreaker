@@ -57,7 +57,10 @@ def prepare(db, topology, project=None, cancel=None):
     ready = {r[0] for r in db.execute("SELECT id FROM captures WHERE state='ready'").fetchall()}
     used = set(topology.forward + (topology.reverse or list(reversed(topology.forward))))
     used.update(p.id for p in topology.points if p.vendor == "paloalto")
-    for point in topology.points:
+    db.execute(
+        "CREATE OR REPLACE TABLE analysis_scope(point VARCHAR,input_frames BIGINT,retained_frames BIGINT,excluded_single_point_frames BIGINT)"
+    )
+    for point in sorted(topology.points, key=lambda p: p.host_capture):
         if point.id not in used:
             continue
         if point.capture_id not in ready:
@@ -76,6 +79,30 @@ def prepare(db, topology, project=None, cancel=None):
                 )
             clause += " AND iface=?"
             params.append(point.interface)
+        input_frames = db.execute(f"SELECT count(*) FROM packets WHERE {clause}", params).fetchone()[0]
+        if point.host_capture and any(not p.host_capture and p.id in used for p in topology.points):
+            # Non-host points have already selected/decapsulated their identities. Keep both local NAT tuples.
+            db.execute(
+                "CREATE OR REPLACE TEMP TABLE path_tuples AS SELECT DISTINCT least(tuple_key,reverse_tuple) AS tuple_key FROM obs"
+            )
+            mapped = [
+                key
+                for mapping in topology.nat_mappings
+                for key in (
+                    mapping.tuple_a,
+                    mapping.tuple_b,
+                    reverse_tuple(mapping.tuple_a),
+                    reverse_tuple(mapping.tuple_b),
+                )
+            ]
+            if mapped:
+                db.executemany("INSERT INTO path_tuples VALUES (?)", [(k,) for k in mapped])
+            clause += " AND (least(tuple_key,reverse_tuple) IN (SELECT tuple_key FROM path_tuples) OR tuple_key IN (SELECT tuple_key FROM path_tuples))"
+        retained = db.execute(f"SELECT count(*) FROM packets WHERE {clause}", params).fetchone()[0]
+        db.execute(
+            "INSERT INTO analysis_scope VALUES (?,?,?,?)",
+            [point.id, input_frames, retained, input_frames - retained],
+        )
         db.execute(
             f"INSERT INTO obs SELECT *,seq,ack,NULL,NULL,?,tuple_key FROM packets WHERE {clause}",
             [point.id, *params],
@@ -259,6 +286,33 @@ def align(db, topology):
             topology.forward + topology.reverse + [p.id for p in topology.points if p.vendor == "paloalto"]
         )
     )
+    from dataclasses import replace
+    from .clock import infer_shared_clock
+
+    groups = {}
+    for p in topology.points:
+        if p.clock_domain:
+            groups.setdefault(p.clock_domain, set()).add(p.capture_id)
+
+    def inherit_domains():
+        for name, members in groups.items():
+            known = next(
+                (
+                    models[cid]
+                    for cid in sorted(members, key=lambda c: (c not in topology.clock_overrides, c != ref, c))
+                    if cid in models and models[cid].offset is not None
+                ),
+                None,
+            )
+            if known is not None:
+                for cid in members:
+                    models[cid] = replace(
+                        known,
+                        source_domain=name,
+                        confidence="declared_shared",
+                        reason="User-declared shared appliance clock; no relative fitting",
+                    )
+
     models = {}
     ref = points[order[0]].capture_id
     epoch = db.execute("SELECT min(ts) FROM obs WHERE capture_id=?", [ref]).fetchone()[0] or 0
@@ -274,6 +328,7 @@ def align(db, topology):
             "User-supplied clock correction; uncertainty unverified",
             domain=ref,
         )
+    inherit_domains()
     # Multiple passes permit an asymmetric return-path point to calibrate against any known point.
     for _ in range(len(order)):
         changed = False
@@ -292,14 +347,57 @@ def align(db, topology):
                     ORDER BY hash(a.packet_key) LIMIT 20000""",
                     [a, b],
                 ).fetchall()
-                # Reverse orientation if the known point is downstream in the forward path.
-                flip = (
-                    a in topology.forward
-                    and b in topology.forward
-                    and topology.forward.index(a) > topology.forward.index(b)
-                )
+                forward_before = topology.precedes(a, b, "forward")
+                reverse_before = topology.precedes(a, b, "reverse")
+                shared_bound = None
+                if (
+                    any(abs(y - x) <= 0.0005 for x, y, _, _, _ in data)
+                    and not points[a].host_capture
+                    and not points[b].host_capture
+                    and not points[a].clock_domain
+                    and not points[b].clock_domain
+                ):
+                    shared_bound = infer_shared_clock(
+                        [
+                            (
+                                x,
+                                x + (y - x) * (1 if (forward_before if f else reverse_before) == f else -1),
+                                f,
+                            )
+                            for x, y, f, _, _ in data
+                        ]
+                    )
+                if shared_bound is not None:
+                    models[cid] = replace(
+                        models[aid],
+                        source_domain=models[aid].source_domain or aid,
+                        uncertainty=max(models[aid].uncertainty, shared_bound)
+                        if models[aid].uncertainty is not None
+                        else None,
+                        confidence="inferred_shared",
+                        reason="Consistent near-zero positive transit in both directions; shared clock inferred, small offset remains indistinguishable from transit",
+                    )
+                    models[cid].samples = len(data)
+                    models[cid].evidence = []
+                    for forward in (True, False):
+                        sample = next((r for r in data if r[2] == forward), None)
+                        if sample:
+                            models[cid].evidence.extend(
+                                evidence(
+                                    db,
+                                    "(o.point=? AND o.frame=?) OR(o.point=? AND o.frame=?)",
+                                    [a, sample[3], b, sample[4]],
+                                    2,
+                                )
+                            )
+                    changed = True
+                    inherit_domains()
+                    break
                 model = fit_clock(
-                    [(models[aid].correct(x), y, not f if flip else f) for x, y, f, _, _ in data]
+                    [
+                        (models[aid].correct(x), y, (forward_before if f else reverse_before))
+                        for x, y, f, _, _ in data
+                    ]
                 )
                 if model.offset is not None:
                     model.domain = models[aid].domain
@@ -320,6 +418,7 @@ def align(db, topology):
                             )
                         )
                     models[cid] = model
+                    inherit_domains()
                     changed = True
                     break
         if not changed:
@@ -365,6 +464,22 @@ def align(db, topology):
                 models[cid].confidence = "low"
                 models[cid].uncertainty = None
                 models[cid].reason = "Relative Fortinet timestamps anchored by a user-supplied start time"
+    # Relative adjacent timestamp differences bound jitter without absorbing sparse host-delay events.
+    for cid, model in models.items():
+        if (
+            model.offset is None
+            or cid == ref
+            or not any(p.stage_capture or p.clock_domain or p.host_capture for p in topology.points)
+        ):
+            continue
+        noise = db.execute(
+            """WITH pairs AS(SELECT b.ts-a.ts AS delta,a.ts,
+            lag(b.ts-a.ts) OVER(PARTITION BY a.point,b.point,a.direction ORDER BY a.ts) AS previous
+            FROM calibration a JOIN calibration b USING(packet_key) WHERE a.capture_id=? AND b.capture_id=? AND a.eligible AND b.eligible)
+            SELECT least(.002,coalesce(quantile_cont(abs(delta-previous),.5),0)*4) FROM pairs""",
+            [ref, cid],
+        ).fetchone()[0]
+        model.timestamp_jitter = max(model.timestamp_jitter, noise)
     db.execute(
         "CREATE OR REPLACE TEMP TABLE clock_values(capture_id VARCHAR,epoch DOUBLE,offset_s DOUBLE,drift DOUBLE)"
     )
@@ -481,18 +596,25 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     pending_nat = pending_nat or unresolved > 0
                 ma, mb = models[pa.capture_id], models[pb.capture_id]
                 clocks_ok = ma.offset is not None and mb.offset is not None and ma.domain == mb.domain
+                from .clock import transit_quality
+
+                tolerance_ms = (
+                    (ma.uncertainty or 0) + (mb.uncertainty or 0) + ma.timestamp_jitter + mb.timestamp_jitter
+                ) * 1000
                 matched = rows(
                     db,
                     """SELECT count(*) AS matched,min(time_b-time_a)*1000 AS min_ms,
                     quantile_cont((time_b-time_a)*1000,.5) AS p50_ms,
+                    quantile_cont((time_b-time_a)*1000,.05) AS p05_ms,
+                    count(*) FILTER(WHERE (time_b-time_a)*1000 < -?) AS negative_outliers,
                     quantile_cont((time_b-time_a)*1000,.95) AS p95_ms,
                     max((time_b-time_a)*1000) AS max_ms
                     FROM observation_matches WHERE point_a=? AND point_b=? AND direction=?
                     AND (? IS NULL OR time_a>=?) AND (? IS NULL OR time_a<=?)""",
-                    [a, b, direction, start, start, end, end],
+                    [max(0.001, tolerance_ms), a, b, direction, start, start, end, end],
                 )[0]
-                negative = matched["min_ms"] is not None and matched["min_ms"] < -0.001
-                clocks_ok = clocks_ok and not negative
+                timing_quality = transit_quality(matched, tolerance_ms)
+                clocks_ok = clocks_ok and not timing_quality["systematic_negative"]
                 reason = (
                     "Unsupported translation boundary"
                     if unsupported
@@ -590,6 +712,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     if ma.uncertainty is not None and mb.uncertainty is not None
                     else None,
                     **matched,
+                    **timing_quality,
                 )
                 if reason:
                     for key in ("min_ms", "p50_ms", "p95_ms", "max_ms"):
@@ -930,6 +1053,12 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             db, topology, segments, {cid: m.json() for cid, m in models.items()}, rtp_findings
         )
         findings.extend(sip_findings)
+        from .host_path import host_path
+
+        host_report, host_findings = host_path(db, topology, segments)
+        findings.extend(host_findings)
+        if host_findings:
+            onsets["summary"] = host_findings[0]["headline"] + " " + onsets["summary"]
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         from .pilot import flow_columns
 
@@ -952,6 +1081,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         )
         report = dict(
             schema_version=2,
+            analysis_scope=rows(db, "SELECT * FROM analysis_scope"),
             tunnel_points=tunnel_report(db),
             fragment_points=fragment_quality,
             microbursts=microbursts,
@@ -960,6 +1090,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             udp=udp_report,
             rtp=rtp_report,
             sip=sip_report,
+            host_path=host_report,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,
@@ -974,6 +1105,8 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             generated_at=datetime.now(timezone.utc).isoformat(),
             verdict="Security heuristic patterns observed; interpretation required"
             if any(f["confidence"] == "supported" for f in security_findings)
+            else "Host receive/transmit path delay observed; application timing reported separately"
+            if host_findings
             else "Path integrity findings observed"
             if any(
                 f["confidence"] == "supported" and f["severity"] != "quality"
@@ -992,7 +1125,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 4 / Part 4; observed lifecycle and conservative security heuristics",
+            scope="Pilot diagnostics; stage clocks, host boundary delay and evidence-led path analysis",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,

@@ -646,6 +646,8 @@ class Checks:
                 ),
             ]
             for kind, condition, label, tooltip in conditions:
+                if kind == "ttl_path" and (a.stage_capture or b.stage_capture):
+                    continue
                 if (
                     kind == "dscp_remark"
                     and not self.hints["dscp"]
@@ -745,6 +747,7 @@ class Checks:
             if (
                 segment["direction"] == "forward"
                 and segment.get("location") == "link"
+                and not (self.points[a].stage_capture or self.points[b].stage_capture)
                 and a in reverse
                 and b in reverse
             ):

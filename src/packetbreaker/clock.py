@@ -15,6 +15,8 @@ class ClockModel:
     samples: int = 0
     evidence: list = field(default_factory=list)
     domain: str | None = None
+    source_domain: str | None = None
+    timestamp_jitter: float = 0.0
 
     def correct(self, timestamp):
         if self.offset is None:
@@ -62,7 +64,16 @@ def fit_clock(samples):
     fw = [b - a - drift * (a - epoch) for a, b, f in samples if f]
     rv = [b - a - drift * (a - epoch) for a, b, f in samples if not f]
     upper, lower = min(fw), max(rv)
-    if lower > upper + 1e-6:
+    jitter = 0.0
+    if lower > upper:
+        noise = []
+        for direction in (True, False):
+            ordered = sorted((a, b - a - drift * (a - epoch)) for a, b, f in samples if f == direction)
+            noise.extend(abs(b[1] - a[1]) for a, b in zip(ordered, ordered[1:]))
+        jitter = min(0.002, median(noise) * 4) if noise else 0
+    if lower > upper and lower - upper <= max(2 * jitter, 0.000001):
+        upper, lower = median(fw), median(rv)
+    if lower > upper + max(2 * jitter, 1e-6):
         return ClockModel(
             epoch=epoch, samples=len(samples), reason="No feasible non-negative bidirectional delay envelope"
         )
@@ -73,6 +84,41 @@ def fit_clock(samples):
         uncertainty=max(0, (upper - lower) / 2),
         confidence="estimated",
         samples=len(samples),
+        timestamp_jitter=jitter,
         reason="Minimum-path symmetry assumed; path asymmetry is included in offset uncertainty"
         + ("; drift fitted" if drift else "; offset-only fit"),
+    )
+
+
+def infer_shared_clock(samples):
+    """Near-zero stable, positive transit in both directional orders is bounded evidence, not proof."""
+    from statistics import quantiles
+
+    if not samples or max(a for a, _, _ in samples) - min(a for a, _, _ in samples) < 5:
+        return None
+    groups = [[b - a if f else a - b for a, b, f in samples if f == direction] for direction in (True, False)]
+    if min(map(len, groups)) < 8:
+        return None
+    centers = [median(g) for g in groups]
+    if min(centers) < 0 or max(centers) > 0.00025:
+        return None
+    residuals = [abs(x) for g in groups for x in g]
+    bound = quantiles(residuals, n=20, method="inclusive")[-1]
+    return bound if bound <= 0.0005 else None
+
+
+def transit_quality(stats, tolerance_ms):
+    tolerance_ms = max(0.001, tolerance_ms)
+    systematic = bool(stats.get("p50_ms") is not None and stats["p50_ms"] < -tolerance_ms)
+    outliers = stats.get("negative_outliers") or 0
+    return dict(
+        systematic_negative=systematic,
+        latency_uncertainty_ms=tolerance_ms,
+        quality_notes=(
+            [
+                f"{outliers} negative transit outlier(s) exceed ±{tolerance_ms:.3f} ms timestamp/offset uncertainty; retained as quality evidence"
+            ]
+            if outliers
+            else []
+        ),
     )
