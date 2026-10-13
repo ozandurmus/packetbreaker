@@ -620,3 +620,27 @@ The user clarified that equivalence means transport analysis; payload-dependent
 results are unknown. Preserve header options as requested: sensitive custom options
 remain the operator's review responsibility. Reject unsupported/fragmented/incomplete
 headers and SPB rather than claim safe sanitization. No network calls or new dependency.
+
+The proof caught two clock reproducibility defects: missing payload removed otherwise
+unique offload anchors (including SQL NULL prefixes), and packet-key hash ordering
+changed with mapped addresses. Use unique flow/direction/sequence starts, with captured
+prefix comparison when available, and stable physical frame ordering. Do not relax
+clock tolerances or exact report assertions to conceal the difference. Content erasure
+cannot establish payload equality or UDP transaction identity: these stay unknown.
+
+New expensive generated-project preparation joins the existing bounded session fixture
+pool. Each small test database uses one SQL thread on all platforms, as Windows already
+did; product databases and standalone benchmarks retain their configuration. Assertions
+and the fast/slow split are unchanged. Batch tshark field-oracle reads per fixture rather
+than starting a new decoder for each assertion.
+
+Hosted Windows scheduling now uses measured hosted costs and preserves shared
+anonymizer/pilot/evidence baselines. The original equivalence project is the same
+session fixture used elsewhere; it is not rebuilt in another process. Keep the
+240-second gate and two-process cap. Refuse anonymizer publication on source identity
+or timestamp/size changes, since a capture still being copied is not a stable input.
+
+Anonymization requests only the tshark header protocol trees needed for the retained
+bytes. Tshark still owns dissection; container metadata is scrubbed independently.
+The projected and full-tree decodes must produce byte-identical sanitized captures.
+This removes unnecessary application-payload XML, rather than changing test coverage.

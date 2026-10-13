@@ -839,3 +839,11 @@ blocks; timestamp resolution/offset and numeric drop statistics survive. Per-fra
 memory is bounded to 64 MiB; unknown encapsulations fail before output publication.
 CLI single/folder exports and the local POST UI ZIP use the same implementation.
 No source file, original filename or key is included in a project ZIP.
+
+Transport equivalence includes the six-point GRO/TSO pilot. Unique directional
+sequence starts remain valid byte-range clock anchors with absent payload; repeated
+starts still fail cardinality. Clock sampling uses frame pairs, and adjacent jitter
+uses timestamp/frame ordering, so mapped addresses cannot perturb the sample or
+same-time ties. All-zero UDP payload has insufficient transaction identity; all-zero
+content hashes are explicitly unverified in field comparisons. Parser version 13
+invalidates re-ingest caches for these quality semantics.

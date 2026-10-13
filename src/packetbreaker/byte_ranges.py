@@ -12,12 +12,14 @@ MAX_ATOMS = 1_000_000
 
 
 def add_byte_calibration(db):
+    # A unique directional sequence start is a clock anchor even with payload removed.
+    # Repeated starts remain excluded by per-point cardinality below.
     db.execute("""CREATE OR REPLACE TEMP TABLE byte_calibration AS
         WITH source AS (SELECT *, (seq+CASE WHEN (flags&2)>0 THEN 1 ELSE 0 END)%4294967296 AS data_seq FROM obs),
         candidates AS (SELECT *,min(length(coalesce(prefix,''))) OVER(PARTITION BY flow,direction,data_seq) AS n
             FROM source WHERE eligible AND proto='TCP' AND length>0 AND (flags&4)=0
             AND flow IN (SELECT flow FROM obs WHERE proto='TCP' AND length>1500)),
-        keyed AS (SELECT *,md5('range-start:'||flow||direction||data_seq||left(prefix,n)) AS key FROM candidates WHERE n>=16)
+        keyed AS (SELECT *,md5('range-start:'||flow||direction||data_seq||left(coalesce(prefix,''),n)) AS key FROM candidates)
         SELECT point,capture_id,frame,ts,key AS packet_key,direction,eligible FROM keyed
         QUALIFY count(*) OVER(PARTITION BY point,key)=1""")
     db.execute("INSERT INTO calibration SELECT * FROM byte_calibration")

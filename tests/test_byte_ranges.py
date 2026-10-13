@@ -44,3 +44,28 @@ def test_partial_byte_delivery_is_unknown_not_whole_frame_network_loss():
         db.execute("INSERT INTO byte_obs VALUES ('two',true,true,'c')")
         range_later_seen(db, "a", "b", "forward", ["c"])
         assert db.execute("SELECT later_seen,range_unknown FROM missing").fetchone() == (True, None)
+
+
+def test_header_only_clock_anchors_require_unique_sequence_start():
+    import duckdb
+    from packetbreaker.byte_ranges import add_byte_calibration
+
+    with duckdb.connect() as db:
+        db.execute("""CREATE TABLE obs(point VARCHAR,capture_id VARCHAR,frame BIGINT,ts DOUBLE,
+            seq BIGINT,flags BIGINT,flow VARCHAR,direction VARCHAR,prefix VARCHAR,
+            eligible BOOLEAN,proto VARCHAR,length BIGINT)""")
+        db.execute("""INSERT INTO obs VALUES
+            ('fw','f',1,1,100,16,'flow','forward',NULL,true,'TCP',800),
+            ('lb','l',1,1.001,100,16,'flow','forward',NULL,true,'TCP',800),
+            ('host','h',1,1.002,100,16,'flow','forward',NULL,true,'TCP',3200),
+            ('fw','f',2,2,4000,16,'flow','forward',NULL,true,'TCP',800),
+            ('fw','f',3,2.3,4000,16,'flow','forward',NULL,true,'TCP',800),
+            ('host','h',2,2.301,4000,16,'flow','forward',NULL,true,'TCP',3200)""")
+        db.execute(
+            "CREATE TABLE calibration AS SELECT point,capture_id,frame,ts,''::VARCHAR AS packet_key,direction,eligible FROM obs WHERE false"
+        )
+        add_byte_calibration(db)
+        assert db.execute(
+            "SELECT count(DISTINCT packet_key),count(*) FROM calibration WHERE frame=1"
+        ).fetchone() == (1, 3)
+        assert db.execute("SELECT count(*) FROM calibration WHERE point='fw' AND frame>1").fetchone()[0] == 0

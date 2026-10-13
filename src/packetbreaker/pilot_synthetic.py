@@ -11,7 +11,17 @@ PATH = ["a_rx", "a_tx", "b_rx", "b_tx", "mirror", "host"]
 RETURN = ["host", "mirror", "b_rx", "b_tx", "a_rx", "a_tx"]
 
 
-def make_pilot(directory, *, healthy=False, ipv6=False, fault="host", noise=2000, shared=True, ip_id="zero"):
+def make_pilot(
+    directory,
+    *,
+    healthy=False,
+    ipv6=False,
+    fault="host",
+    noise=2000,
+    shared=True,
+    ip_id="zero",
+    boundary_loss=False,
+):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     rng = random.Random(177)
@@ -54,6 +64,8 @@ def make_pilot(directory, *, healthy=False, ipv6=False, fault="host", noise=2000
             res_header = f"HTTP/1.1 200 OK\r\nContent-Length: {3200 - len(res_header)}\r\n\r\n".encode()
             response = (res_header + b"y" * 3200)[:3200]
             host_receive = t + 0.00008 + (rx if fault == "host" else rx + tx)
+            if boundary_loss and call == 0 and n == 3:
+                host_receive += 0.3
             response_time = host_receive + 0.0005
             for reverse, path, payload, base_seq, ack in [
                 (False, PATH, req, sq, rq),
@@ -78,9 +90,18 @@ def make_pilot(directory, *, healthy=False, ipv6=False, fault="host", noise=2000
                     for offset, chunk in chunks:
                         if point.endswith(("rx", "tx")) and rng.random() < 0.01:
                             continue
+                        lost = (
+                            boundary_loss and call == 0 and ((n == 3 and not reverse) or (n == 4 and reverse))
+                        )
+                        stamp = origin + i * 0.000016 + offset / 800 * 0.000002
+                        if lost:
+                            if (reverse and point != "host") or (not reverse and point == "host"):
+                                stamp += 0.3
+                            else:
+                                emit(point, stamp + 0.3, reverse, port, base_seq + offset, ack, 24, chunk)
                         emit(
                             point,
-                            origin + i * 0.000016 + offset / 800 * 0.000002,
+                            stamp,
                             reverse,
                             port,
                             base_seq + offset,

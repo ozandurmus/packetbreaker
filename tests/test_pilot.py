@@ -366,3 +366,32 @@ def test_dominant_host_window_precedes_single_loss(scenarios):
         )["id"]
         == "isolated"
     )
+
+
+def test_larger_network_delay_does_not_promote_host_symptom(scenarios):
+    from copy import deepcopy
+    from packetbreaker.host_path import polish_findings
+
+    _, _, topology, report = scenarios("pilot", ip_id="zero")
+    findings = deepcopy(report["findings"])
+    for f in findings:
+        if f["type"] in ("host_receive_delay", "host_transmit_delay"):
+            f["severity"] = "low"
+            f["metrics"].pop("primary_degradation", None)
+    segments = deepcopy(report["segments"])
+    hop = next(s for s in segments if s["id"] == "forward:a_tx:b_rx")
+    hop["max_ms"] = 5000
+    onsets = dict(
+        items=[
+            dict(
+                segment=hop["id"],
+                metric="latency_p95_ms",
+                scope="network_segment",
+                value=2,
+                baseline_value=0.1,
+            )
+        ],
+        summary="Network event",
+    )
+    assert polish_findings(findings, segments, Topology.model_validate(topology), onsets) is None
+    assert onsets["summary"] == "Network event"

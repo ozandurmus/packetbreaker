@@ -236,7 +236,7 @@ def polish_findings(findings, segments, topology, onsets):
         candidate = max(delays, key=lambda f: f["metrics"]["max_ms"] - f["metrics"]["uncertainty_ms"])
         added = candidate["metrics"]["max_ms"] - candidate["metrics"]["uncertainty_ms"]
         competing = [
-            i.get("value", 0) - i.get("baseline_value", 0)
+            (hops.get(i.get("segment"), {}).get("max_ms") or i.get("value", 0)) - i.get("baseline_value", 0)
             for i in onsets.get("items", [])
             if i.get("metric") == "latency_p95_ms" and i.get("scope") != "host_capture_boundary"
         ]

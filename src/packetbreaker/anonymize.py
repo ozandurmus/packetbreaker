@@ -102,6 +102,8 @@ def decoded_packets(path, tshark=None):
         str(path),
         "-T",
         "pdml",
+        "-J",
+        " ".join(sorted((HEADERS - {"sll2", "loop"}) | {"frame", "tcp", "udp", "icmp", "icmpv6"})),
         "-o",
         "tcp.desegment_tcp_streams:FALSE",
         "-o",
@@ -354,6 +356,11 @@ def anonymize(source, destination, *, mode="zero", key=None, map_ips=False, tsha
         raise ValueError("Output must be a new file, different from the input")
     if map_ips and key is None:
         raise ValueError("IP mapping requires a local key; reuse it across every project file")
+    before = source.stat()
+
+    def identity(s):
+        return s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns
+
     mapper = Mapper(key or hashlib.sha256(b"PacketBreaker MAC masking v1").digest())
     fd, temporary = tempfile.mkstemp(prefix=".anonymize-", dir=destination.parent)
     try:
@@ -363,6 +370,10 @@ def anonymize(source, destination, *, mode="zero", key=None, map_ips=False, tsha
             decoded_packets(source, tshark) as packets,
         ):
             count = rewrite(input_file, output, packets, mode, mapper, map_ips)
+        if identity(source.stat()) != identity(before):
+            raise ValueError(
+                "Input changed during anonymization; no output published. Finish copying the capture first."
+            )
         # Publish without replacing an existing output, including a race with another writer.
         os.link(temporary, destination)
     finally:

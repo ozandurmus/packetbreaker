@@ -344,7 +344,7 @@ def align(db, topology):
                     """SELECT a.ts,b.ts,a.direction='forward',a.frame,b.frame
                     FROM calibration a JOIN calibration b USING(packet_key) WHERE a.point=? AND b.point=?
                     AND a.eligible AND b.eligible AND a.direction<>'unknown'
-                    ORDER BY hash(a.packet_key) LIMIT 20000""",
+                    ORDER BY hash(a.frame,b.frame),a.frame,b.frame LIMIT 20000""",
                     [a, b],
                 ).fetchall()
                 forward_before = topology.precedes(a, b, "forward")
@@ -474,7 +474,7 @@ def align(db, topology):
             continue
         noise = db.execute(
             """WITH pairs AS(SELECT b.ts-a.ts AS delta,a.ts,
-            lag(b.ts-a.ts) OVER(PARTITION BY a.point,b.point,a.direction ORDER BY a.ts) AS previous
+            lag(b.ts-a.ts) OVER(PARTITION BY a.point,b.point,a.direction ORDER BY a.ts,a.frame,b.frame) AS previous
             FROM calibration a JOIN calibration b USING(packet_key) WHERE a.capture_id=? AND b.capture_id=? AND a.eligible AND b.eligible)
             SELECT least(.002,coalesce(quantile_cont(abs(delta-previous),.5),0)*4) FROM pairs""",
             [ref, cid],
@@ -1332,6 +1332,8 @@ def findings_page(project, start=None, end=None):
             and (start is None or f["time_range"][1] >= start)
             and (end is None or f["time_range"][0] < end)
         )
+        order = {f["id"]: i for i, f in enumerate(report["findings"])}
+        items.sort(key=lambda f: order.get(f["id"], len(order)))
         return dict(items=items)
 
 
