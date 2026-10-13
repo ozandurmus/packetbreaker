@@ -772,3 +772,17 @@ fixture exercises the distinction. Captured late SYN/ACK/final ACK remain establ
 past half-open expiry. Windows CI partitions whole test files into two isolated processes in the
 same acceptance job, with one fixture worker per process and complete-collection/JUnit checks.
 Default local pytest and the six-target/one-slow-job policy are unchanged.
+
+## Phase 4 / Part 5 — UDP transactions
+
+`udp_index.py` isolates capture points before two-pass tshark field export, validates each
+ordinal/tuple/timestamp against the original index, and caches by source identity and point
+selection. Bounded 4,096-row metadata batches enter native SQL; external DuckDB file access
+remains disabled. DNS keeps its existing index/view. New UDP analysis handles NTP transmit/origin,
+SNMP request ID, RADIUS identifier/response-code families and decoded syslog one-way traffic.
+Unknown protocols use reversed observed tuples and declared direction in a bounded window.
+One-to-one candidate cardinality gates pairs; timing never breaks an ambiguous ownership tie.
+All transactions persist, with bounded UI/HTML/JSON evidence and native response distributions.
+Supported existing packet disappearance events provide query/response stopping hops; capture
+misses never supply loss evidence. Vendor/tunnel/fragment views without validated field ownership
+remain explicitly unknown rather than mixing protocol layers.

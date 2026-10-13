@@ -1,3 +1,4 @@
+import { UdpMedia } from "./UdpMedia";
 import { CasePreflight } from "./CasePreflight";
 import type { TopologyOverlay } from "./types";
 import { Sessions } from "./Sessions";
@@ -474,19 +475,25 @@ function App() {
         </div>
         <div className="workspace-label">LOCAL WORKSPACE</div>
         <nav>
-          {["Overview", "Captures", "Path", "Flows", "DNS", "Settings"].map(
-            (x, i) => (
-              <button
-                key={x}
-                className={tab === x ? "active" : ""}
-                onClick={() => setTab(x)}
-              >
-                <span>{["◈", "▤", "⌘", "≋", "⇄", "⚙"][i]}</span>
-                {x}
-                {x === "Captures" && <b>{state.captures.length}</b>}
-              </button>
-            ),
-          )}
+          {[
+            "Overview",
+            "Captures",
+            "Path",
+            "Flows",
+            "DNS",
+            "UDP / Media",
+            "Settings",
+          ].map((x, i) => (
+            <button
+              key={x}
+              className={tab === x ? "active" : ""}
+              onClick={() => setTab(x)}
+            >
+              <span>{["◈", "▤", "⌘", "≋", "⇄", "⚙"][i]}</span>
+              {x}
+              {x === "Captures" && <b>{state.captures.length}</b>}
+            </button>
+          ))}
         </nav>
         <div className="sidebar-bottom">
           <span className="local-dot" /> Local processing only
@@ -666,6 +673,9 @@ function App() {
               </p>
               <button onClick={() => selectRange(null)}>Clear selection</button>
             </section>
+          )}
+          {tab === "UDP / Media" && (
+            <UdpMedia udp={report?.udp} onEvidence={setEvidence} />
           )}
           {tab === "DNS" && (
             <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />
@@ -2133,6 +2143,21 @@ function App() {
               </section>
               <section>
                 <h2>Analysis window and thresholds</h2>
+                <label>
+                  UDP response window (ms)
+                  <input
+                    type="number"
+                    min={100}
+                    max={60000}
+                    value={topology.udp_timeout_ms ?? 2000}
+                    onChange={(e) =>
+                      setTopology({
+                        ...topology,
+                        udp_timeout_ms: Number(e.target.value),
+                      })
+                    }
+                  />
+                </label>
                 <div className="two-col">
                   <label>
                     Pressure minimum observed half-open sessions

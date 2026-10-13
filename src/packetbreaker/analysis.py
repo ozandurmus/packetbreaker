@@ -237,6 +237,10 @@ def prepare(db, topology, project=None, cancel=None):
         SELECT DISTINCT point,canon FROM obs WHERE point IN (SELECT unnest(?::VARCHAR[]))""",
         [nat_points],
     )
+    from .udp_index import index_udp
+
+    if project is not None:
+        index_udp(project, db, topology, cancel)
     prepare_occurrences(db, topology.duplicate_us)
     if db.execute("SELECT count(*) FROM obs WHERE proto='TCP' AND length>1500 AND eligible").fetchone()[0]:
         add_byte_calibration(db)
@@ -906,6 +910,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             db, topology, coverage, timeseries, segments, {cid: m.json() for cid, m in models.items()}
         )
         findings.extend(security_findings)
+        from .udp import build_udp
+
+        udp_report = build_udp(db, topology, segments)
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         from .pilot import flow_columns
 
@@ -933,6 +940,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             microbursts=microbursts,
             sessions=sessions,
             security=security_report,
+            udp=udp_report,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,

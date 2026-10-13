@@ -86,6 +86,7 @@ class Override(BaseModel):
 
 
 class Topology(BaseModel):
+    udp_timeout_ms: float = Field(default=2000, ge=100, le=60000, allow_inf_nan=False)
     security_half_open_floor: int = Field(default=20, ge=2, le=100000)
     security_scan_window_seconds: float = Field(default=5, ge=1, le=300, allow_inf_nan=False)
     security_scan_targets: int = Field(default=20, ge=2, le=100000)

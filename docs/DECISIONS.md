@@ -549,3 +549,14 @@ become a device claim merely because a RST first appears on a device-adjacent ca
   pytest processes within each existing job, one fixture worker each. Its unchanged 240-second
   gate measures actual wall time including collection, process startup and teardown. JUnit counts
   must equal the complete fast collection; failures/errors or missing cases fail the job.
+
+## Phase 4 / Part 5
+
+- tshark owns NTP/SNMP/RADIUS/syslog decoding. A protocol transaction identifier correlates
+  observed packets; it does not authenticate a response or prove the responder's internal cause.
+- Unknown UDP pairing is conditional on declared client direction and a finite response window.
+  Reject multiple candidates or reused responses; never choose the nearest candidate to hide
+  ambiguity. Known one-way messages are not unanswered requests.
+- Protocol fields use a cached, point-isolated secondary decode only when non-DNS UDP is present;
+  pure TCP captures retain their existing first pass. Validate source identity and original-frame
+  mapping. Reuse bounded native JSON batches instead of widening DuckDB's file permissions.

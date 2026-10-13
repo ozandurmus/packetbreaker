@@ -77,6 +77,10 @@ def generate(
     ipv6=False,
     fault_location="FW",
 ):
+    if scenario == "udp_transactions":
+        from .voip_synthetic import generate as generate_udp
+
+        return generate_udp(directory, fault_location, ip_id, ipv6)
     if scenario in ("security", "security_reply"):
         from .security_synthetic import generate as generate_security
 

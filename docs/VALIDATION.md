@@ -1179,3 +1179,13 @@ occupancy only. Healthy-completion thresholds cannot be configured to include ra
 Final local default: **473 passed / 166 deselected in 96.14 s** (**639 total / 35 new fast cases**).
 Ruff and TypeScript/Vite pass. The remaining hosted wall-time/full-matrix result is recorded in
 PR #13 before close-out. Large-capture ingest/analysis/RSS was not re-benchmarked in this part.
+
+## Phase 4 / Part 5 — UDP, RTP and SIP
+
+PR #13 was merged at `e6c0a06` before branching `phase4-part5`. All new captures are wholly
+synthetic. Initial UDP contracts failed before pipeline integration (unknown fixture); subsequent
+execution caught the disabled external-file-access constraint. Bounded field batches preserve
+that security boundary. Nine real-tshark point-isolated fixtures passed in 15.36 s: exact FW1,
+FW2 or inter-device-link response stops × zero/constant IPv4 IDs and IPv6; known NTP/SNMP/RADIUS
+turnaround; syslog no-response expectation; ambiguous unknown ownership and a pure capture miss.
+TypeScript/Vite and Ruff pass. Further media/SIP acceptance and full CI follow at close-out.
