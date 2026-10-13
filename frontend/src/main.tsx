@@ -1546,7 +1546,7 @@ function App() {
                 </section>
               )}
 
-              <TopologySuggestions topology={topology} captures={state.captures} onChange={setTopology}/>
+              <TopologySuggestions topology={topology} captures={state.captures} onChange={setTopology} onEvidence={setEvidence}/>
               <section>
                 <TopologyEditor
                   topology={topology}
