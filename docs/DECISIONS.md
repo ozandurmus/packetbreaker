@@ -598,3 +598,10 @@ Pilot replica/limits: six original generated files model two stage devices, a mi
 Pilot CI budget: balanced two-process runs still varied beyond 240 s on hosted Windows despite all assertions passing. Use up to three isolated pytest processes when CPU/RAM permits (one fixture producer each), preserving shared-family placement, exact collection coverage and the same wall-time gate. This changes test scheduling, not ingest concurrency or product memory limits.
 
 Measured follow-up: three-way hosted execution increased contention, so the active cap is two. Explicit-range UDP header dissection is stateless and can be shared per physical file, with point selection applied through validated original frames. TCP SIP/reassembly and undecided decoding remain isolated. This is a tshark-pass reduction, not a replacement dissector or a widening of DuckDB filesystem permissions.
+
+
+## Pilot polish / anonymizer — item 0
+
+A supported host boundary event window with the largest added delay leads the ranked findings and executive summary at high severity. An isolated earlier packet loss cannot displace it by timestamp alone. Positive retransmission delivery at a host/wire boundary gets a host receive/transmit-path loss label; recovery class remains in metrics and internal event counters, preserving loss-rate accounting. Capture misses, absent recovery, uncertain coverage and ordinary device/link losses retain their classifications. Findings export schema 9 adds both boundary classes. The boundary does not prove a particular driver/NIC cause.
+
+Focused pilot checks: 21 passed, 13 slow cases deselected in 4.57 s. Tests include two devices and a link as negative attribution candidates and an executed naive severity/time ranking that incorrectly prioritizes an isolated loss. Full suite/CI are the final close-out gate.

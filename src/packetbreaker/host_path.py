@@ -185,3 +185,67 @@ def host_path(db, topology, segments):
         note=NOTE,
         scope="Saved selected window; per-second series; RX/TX shares are byte-weighted excess delay, not CPU time",
     ), findings
+
+
+def host_loss_type(points, a, b, kind, recovered):
+    """A host boundary label needs positive retry delivery, not absence alone."""
+    if kind not in ("impactful_loss", "recovered_loss") or not recovered:
+        return None
+    if points[a].host_capture and not points[b].host_capture:
+        return "host_transmit_path_loss"
+    if points[b].host_capture and not points[a].host_capture:
+        return "host_receive_path_loss"
+    return None
+
+
+def polish_findings(findings, segments, topology, onsets):
+    points = {p.id: p for p in topology.points}
+    hops = {s["id"]: s for s in segments}
+    for f in findings:
+        s = hops.get(f["hop"])
+        if not s:
+            continue
+        m = f["metrics"]
+        kind = host_loss_type(
+            points,
+            s["point_a"],
+            s["point_b"],
+            f["type"],
+            m.get("delivered_retries", 0) == m.get("count") and m.get("data_count", 0) == m.get("count"),
+        )
+        if kind:
+            m["recovery_class"] = f["type"]
+            f["type"] = kind
+            f["cause"] = "host_capture_boundary"
+            f["headline"] = f["summary"] = (
+                f"{m['count']} {kind.replace('_', ' ')} event(s) between {s['label'].replace(' → ', ' and ')}; "
+                "original byte range absent across the boundary, later retry delivered."
+            )
+            f["tooltip"] = (
+                "Host/wire boundary localisation, not proof of a NIC, driver or application cause. Capture-miss and uncertain events keep their original classification."
+            )
+    delays = [
+        f
+        for f in findings
+        if f["type"] in ("host_receive_delay", "host_transmit_delay")
+        and f["confidence"] == "supported"
+        and f["metrics"].get("window")
+    ]
+    dominant = None
+    if delays:
+        candidate = max(delays, key=lambda f: f["metrics"]["max_ms"] - f["metrics"]["uncertainty_ms"])
+        added = candidate["metrics"]["max_ms"] - candidate["metrics"]["uncertainty_ms"]
+        competing = [
+            i.get("value", 0) - i.get("baseline_value", 0)
+            for i in onsets.get("items", [])
+            if i.get("metric") == "latency_p95_ms" and i.get("scope") != "host_capture_boundary"
+        ]
+        if added > max(competing, default=0):
+            dominant = candidate
+            dominant["severity"] = "high"
+            dominant["metrics"]["primary_degradation"] = True
+            hops[dominant["hop"]]["severity"] = "high"
+            onsets["summary"] = dominant["headline"] + " " + onsets["summary"]
+    rank = {"high": 0, "low": 1, "quality": 2, "unknown": 3}
+    findings.sort(key=lambda f: (f is not dominant, rank[f["severity"]], f["time_range"][0]))
+    return dominant

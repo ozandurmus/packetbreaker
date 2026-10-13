@@ -1053,13 +1053,11 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             db, topology, segments, {cid: m.json() for cid, m in models.items()}, rtp_findings
         )
         findings.extend(sip_findings)
-        from .host_path import host_path
+        from .host_path import host_path, polish_findings
 
         host_report, host_findings = host_path(db, topology, segments)
         findings.extend(host_findings)
-        if host_findings:
-            onsets["summary"] = host_findings[0]["headline"] + " " + onsets["summary"]
-        findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
+        primary_host = polish_findings(findings, segments, topology, onsets)
         from .pilot import flow_columns
 
         flow_columns(db, findings, topology)
@@ -1103,8 +1101,10 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             onsets=onsets,
             engine_version=__version__,
             generated_at=datetime.now(timezone.utc).isoformat(),
-            verdict="Security heuristic patterns observed; interpretation required"
-            if any(f["confidence"] == "supported" for f in security_findings)
+            verdict=primary_host["headline"]
+            if primary_host
+            else "Security heuristic patterns observed; interpretation required"
+            if primary_host or any(f["confidence"] == "supported" for f in security_findings)
             else "Host receive/transmit path delay observed; application timing reported separately"
             if host_findings
             else "Path integrity findings observed"
@@ -1226,6 +1226,7 @@ def ladder(project, flow, offset=0, limit=150, start=None, end=None):
             "SELECT * FROM events WHERE flow=? AND (? IS NULL OR ts>=?) AND (? IS NULL OR ts<?) ORDER BY ts LIMIT 200",
             [flow, start, start, end, end],
         )
+        label_host_events(events, project.get(db, "topology"))
         local_metrics = rows(
             db,
             """SELECT point,min(tuple_key) AS tuple,min(reverse_tuple) AS reverse_tuple,
@@ -1270,6 +1271,7 @@ def event_page(project, a, b, direction, offset=0, limit=50, start=None, end=Non
             """SELECT * FROM events WHERE point_a=? AND point_b=? AND direction=? AND (? IS NULL OR ts>=?) AND (? IS NULL OR ts<?) ORDER BY ts LIMIT ? OFFSET ?""",
             [a, b, direction, start, start, end, end, limit, offset],
         )
+        label_host_events(data, project.get(db, "topology"))
         for item in data:
             if item.get("byte_ranges"):
                 item["byte_ranges"] = json.loads(item["byte_ranges"])
@@ -1312,7 +1314,7 @@ def findings_page(project, start=None, end=None):
                 AND direction=? AND kind=? AND (? IS NULL OR ts>=?) AND (? IS NULL OR ts<?) ORDER BY ts LIMIT 1""",
                 [g["point_a"], g["point_b"], g["direction"], g["kind"], start, start, end, end],
             ).fetchone()
-            text = f"{g['count']} {g['kind'].replace('_', ' ')} events in the selected interval."
+            text = f"{g['count']} {f['type'].replace('_', ' ')} events in the selected interval."
             items.append(
                 {
                     **f,
@@ -1331,3 +1333,22 @@ def findings_page(project, start=None, end=None):
             and (end is None or f["time_range"][0] < end)
         )
         return dict(items=items)
+
+
+def label_host_events(events, topology):
+    from .host_path import host_loss_type
+
+    if not topology:
+        return
+    points = {p.id: p for p in Topology.model_validate(topology).points}
+    for item in events:
+        kind = host_loss_type(
+            points,
+            item["point_a"],
+            item["point_b"],
+            item["kind"],
+            item.get("recovery_key") and item.get("is_data"),
+        )
+        if kind:
+            item["recovery_class"] = item["kind"]
+            item["kind"] = kind
