@@ -57,7 +57,10 @@ def prepare(db, topology, project=None, cancel=None):
     ready = {r[0] for r in db.execute("SELECT id FROM captures WHERE state='ready'").fetchall()}
     used = set(topology.forward + (topology.reverse or list(reversed(topology.forward))))
     used.update(p.id for p in topology.points if p.vendor == "paloalto")
-    for point in topology.points:
+    db.execute(
+        "CREATE OR REPLACE TABLE analysis_scope(point VARCHAR,input_frames BIGINT,retained_frames BIGINT,excluded_single_point_frames BIGINT)"
+    )
+    for point in sorted(topology.points, key=lambda p: p.host_capture):
         if point.id not in used:
             continue
         if point.capture_id not in ready:
@@ -76,6 +79,30 @@ def prepare(db, topology, project=None, cancel=None):
                 )
             clause += " AND iface=?"
             params.append(point.interface)
+        input_frames = db.execute(f"SELECT count(*) FROM packets WHERE {clause}", params).fetchone()[0]
+        if point.host_capture and any(not p.host_capture and p.id in used for p in topology.points):
+            # Non-host points have already selected/decapsulated their identities. Keep both local NAT tuples.
+            db.execute(
+                "CREATE OR REPLACE TEMP TABLE path_tuples AS SELECT DISTINCT least(tuple_key,reverse_tuple) AS tuple_key FROM obs"
+            )
+            mapped = [
+                key
+                for mapping in topology.nat_mappings
+                for key in (
+                    mapping.tuple_a,
+                    mapping.tuple_b,
+                    reverse_tuple(mapping.tuple_a),
+                    reverse_tuple(mapping.tuple_b),
+                )
+            ]
+            if mapped:
+                db.executemany("INSERT INTO path_tuples VALUES (?)", [(k,) for k in mapped])
+            clause += " AND (least(tuple_key,reverse_tuple) IN (SELECT tuple_key FROM path_tuples) OR tuple_key IN (SELECT tuple_key FROM path_tuples))"
+        retained = db.execute(f"SELECT count(*) FROM packets WHERE {clause}", params).fetchone()[0]
+        db.execute(
+            "INSERT INTO analysis_scope VALUES (?,?,?,?)",
+            [point.id, input_frames, retained, input_frames - retained],
+        )
         db.execute(
             f"INSERT INTO obs SELECT *,seq,ack,NULL,NULL,?,tuple_key FROM packets WHERE {clause}",
             [point.id, *params],
@@ -1023,6 +1050,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         )
         report = dict(
             schema_version=2,
+            analysis_scope=rows(db, "SELECT * FROM analysis_scope"),
             tunnel_points=tunnel_report(db),
             fragment_points=fragment_quality,
             microbursts=microbursts,

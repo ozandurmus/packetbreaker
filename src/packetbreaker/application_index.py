@@ -354,7 +354,7 @@ def index_applications(project, db, topology, cancel=None, progress=None):
         ).fetchone()[0]
         > 0
     )
-    if not needed:
+    if not needed and not any(p.host_capture for p in topology.points):
         # A new non-TLS generation must not reuse certificates/state from older captures.
         for table in ("app_protocol", "app_protocol_cache", "tcp_point_analysis"):
             db.execute("DELETE FROM " + table)
@@ -362,6 +362,8 @@ def index_applications(project, db, topology, cancel=None, progress=None):
     binary = find_tshark(project.get(db, "preferences", {}).get("tshark"))
     statuses = []
     for point in topology.points:
+        if not needed and not point.host_capture:
+            continue
         capture = db.execute(
             "SELECT path,identity,inventory FROM captures WHERE id=?", [point.capture_id]
         ).fetchone()
@@ -425,6 +427,20 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                     "-o",
                     f"fw1.with_uuid:{str(inventory.get('checkpoint_uuid', False)).upper()}",
                 ]
+            scoped_filter = read_filter(point, inventory)
+            if point.host_capture:
+                from .evidence import tuple_filter
+
+                tuples = db.execute(
+                    "SELECT DISTINCT proto,src,dst,sport,dport FROM obs WHERE point=? LIMIT 129", [point.id]
+                ).fetchall()
+                if len(tuples) > 128:
+                    raise ValueError(
+                        "Host application decode exceeds 128 scoped tuples; select the incident flow for application timing"
+                    )
+                filters = sorted({tuple_filter(*t, True) for t in tuples if t[0] in ("TCP", "UDP")})
+                if filters:
+                    scoped_filter += " && (" + " || ".join(filters) + ")"
             environment = os.environ.copy()
             environment.pop("SSLKEYLOGFILE", None)
             with (
@@ -443,7 +459,7 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                         "-r",
                         str(source),
                         "-Y",
-                        read_filter(point, inventory),
+                        scoped_filter,
                         "-w",
                         str(selected),
                         "-F",

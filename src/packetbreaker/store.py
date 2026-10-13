@@ -124,6 +124,7 @@ class Project:
                 config={
                     "memory_limit": "512MB",
                     "threads": "2",
+                    "preserve_insertion_order": "false",
                     "enable_external_access": str(allow_external).lower(),
                     "temp_directory": str(self.path / ".spill"),
                     "autoinstall_known_extensions": "false",
@@ -132,6 +133,10 @@ class Project:
             )
             try:
                 yield db
+            except duckdb.OutOfMemoryException as exc:
+                raise ValueError(
+                    "Analysis exceeded the DuckDB memory budget. Temporary spill storage is enabled; check free disk space, select the shared incident flow or narrow the capture window, and retry. Captures and ingest checkpoints are preserved."
+                ) from exc
             finally:
                 db.close()
 
