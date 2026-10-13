@@ -1036,6 +1036,8 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
 
         host_report, host_findings = host_path(db, topology, segments)
         findings.extend(host_findings)
+        if host_findings:
+            onsets["summary"] = host_findings[0]["headline"] + " " + onsets["summary"]
         findings.sort(key=lambda f: (rank[f["severity"]], f["time_range"][0]))
         from .pilot import flow_columns
 

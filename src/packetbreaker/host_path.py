@@ -4,6 +4,7 @@ from .store import rows
 from .evidence import evidence
 from .rtp import media_finding
 from .onset import latency_window
+from .headlines import time_labels
 
 NOTE = "Delay is observed between a wire mirror and an OS host capture. It includes capture/NIC/driver/GRO/TSO timing and is not proof of application processing or a specific driver cause. Byte ranges preserve offload matching. Local service time uses separately decoded HTTP boundaries; opaque protocols remain unknown."
 
@@ -149,6 +150,7 @@ def host_path(db, topology, segments):
             else "host-local application response time is unknown"
         )
         headline = f"Delay occurs between {points[segment['point_a']].label} and {points[segment['point_b']].label}; {local_text}."
+        headline += f" Observed event window {time_labels(window['time'], topology.report_timezone)['local']} / {time_labels(window['time'], topology.report_timezone)['utc']} through {time_labels(window['end'], topology.report_timezone)['utc']}; recovery {'confirmed' if window['recovery_confirmed'] else 'unknown'}, boundary uncertainty ±{stream['uncertainty_ms']:.3f} ms."
         stream["headline"] = headline
         f = media_finding(
             db,
