@@ -277,6 +277,64 @@ export function Incident({
             ]);
         }}
       />
+      <h3>Hold and release</h3>
+      {!data.hold_release.length && (
+        <p>No supported hold-and-release copy train in this saved window.</p>
+      )}
+      {data.hold_release
+        .filter((f) => visible(f.time_range[0]))
+        .map((f) => {
+          const points = [...new Set(f.evidence.map((e) => e.point))];
+          const copies = points.map((point) => {
+            const refs = f.evidence
+              .filter((e) => e.point === point)
+              .sort((a, b) => (a.observed_time ?? 0) - (b.observed_time ?? 0));
+            const t = refs[0]?.observed_time ?? 0;
+            return {
+              name: point,
+              type: "line",
+              data: refs.map((r, i) => ({
+                value: [((r.observed_time ?? t) - t) * 1000, i + 1],
+                evidence: [r],
+                note: `${r.file} frame ${r.frame}; observed ${r.observed_time}; local spacing, clock independent.`,
+              })),
+            };
+          });
+          return (
+            <article key={f.id}>
+              <p>{f.summary}</p>
+              <p className="hint">
+                {f.tooltip} Each point starts at its own first copy; this is
+                local spacing, not cross-clock transit.
+              </p>
+              <Chart
+                option={{
+                  ...base,
+                  xAxis: { type: "value", name: "Local elapsed ms" },
+                  yAxis: { type: "value", name: "Copy number", minInterval: 1 },
+                  series: copies as EChartsOption["series"],
+                }}
+                onClick={click}
+                onBrush={(e) => {
+                  const a = (e as { areas?: { coordRange: number[] }[] })
+                    .areas?.[0]?.coordRange;
+                  if (a)
+                    onEvidence(
+                      copies.flatMap((p) =>
+                        p.data
+                          .filter(
+                            (d) =>
+                              d.value[0] >= Math.min(...a) &&
+                              d.value[0] <= Math.max(...a),
+                          )
+                          .flatMap((d) => d.evidence),
+                      ),
+                    );
+                }}
+              />
+            </article>
+          );
+        })}
     </section>
   );
 }
