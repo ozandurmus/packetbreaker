@@ -206,14 +206,35 @@ def range_recoveries(db, a, b):
 
 
 def range_ack_guard(db, a, b):
-    db.execute(
-        """DELETE FROM acked WHERE packet_key IN (
-        SELECT DISTINCT m.source_packet_key FROM byte_missing_atoms m JOIN obs ack ON ack.point=m.point_a AND ack.packet_key=acked.ack_key
-        JOIN byte_obs retry ON retry.point=m.point_a AND retry.base_key=m.base_key AND retry.is_atom AND retry.eligible
-            AND retry.corrected>m.corrected AND retry.corrected<ack.corrected
-        WHERE m.point_a=? AND m.point_b=?)""",
+    flows = db.execute(
+        """SELECT DISTINCT m.flow FROM byte_missing_atoms m JOIN acked k
+        ON k.packet_key=m.source_packet_key WHERE m.point_a=? AND m.point_b=?""",
         [a, b],
-    )
+    ).fetchall()
+    for (flow,) in flows:
+        db.execute(
+            """CREATE OR REPLACE TEMP TABLE ack_guard_missing AS
+            SELECT m.source_packet_key,m.base_key,m.corrected,k.ack_key FROM byte_missing_atoms m
+            JOIN acked k ON k.packet_key=m.source_packet_key
+            WHERE m.point_a=? AND m.point_b=? AND m.flow=?""",
+            [a, b, flow],
+        )
+        db.execute(
+            """CREATE OR REPLACE TEMP TABLE ack_guard_times AS SELECT packet_key,corrected
+            FROM obs WHERE point=? AND flow=?""",
+            [a, flow],
+        )
+        db.execute(
+            """CREATE OR REPLACE TEMP TABLE ack_guard_retries AS SELECT base_key,corrected
+            FROM byte_obs WHERE point=? AND flow=? AND is_atom AND eligible""",
+            [a, flow],
+        )
+        db.execute("""DELETE FROM acked USING (
+            SELECT DISTINCT m.source_packet_key FROM ack_guard_missing m
+            JOIN ack_guard_times ack ON ack.packet_key=m.ack_key
+            JOIN ack_guard_retries retry ON retry.base_key=m.base_key
+                AND retry.corrected>m.corrected AND retry.corrected<ack.corrected
+            ) bad WHERE acked.packet_key=bad.source_packet_key""")
 
 
 def range_notes(db):

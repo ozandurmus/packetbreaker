@@ -23,6 +23,8 @@ def make_pilot(
     boundary_loss=False,
     flows=2,
     real_case=False,
+    host_jitter_us=1,
+    rounds=27,
 ):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -52,7 +54,13 @@ def make_pilot(
             else ((identity if identity is not None else seq + ack + flags) % 65536)
         )
         packet = tcp_packet(src, dst, sp, dp, seq, ack, flags, payload, pid, ttl=ttl)
-        jitter = rng.uniform(-0.0002, 0.0002) if point == "mirror" else rng.uniform(-0.000001, 0.000001)
+        jitter = (
+            rng.uniform(-0.0002, 0.0002)
+            if point == "mirror"
+            else rng.uniform(-host_jitter_us * 1e-6, host_jitter_us * 1e-6)
+            if point == "host"
+            else rng.uniform(-0.000001, 0.000001)
+        )
         captures[point].append((BASE + t + jitter + (0.04 if point == "host" else 0), packet))
 
     for call, port in enumerate(range(41000, 41000 + flows)):
@@ -63,7 +71,7 @@ def make_pilot(
             emit(point, 0.002, False, port, sq + 1, rq + 1, 16)
         sq += 1
         rq += 1
-        for n in range(27):
+        for n in range(rounds):
             t = 4 + n * 2 + call * 0.02
             active = not healthy and call == 0 and 20 <= t < 45
             rx = [0.1, 0.35, 0.85, 1.3][n % 4] if active and n % 3 != 1 else 0

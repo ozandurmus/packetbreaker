@@ -664,3 +664,21 @@ Keep the repository's new efficiency rules from PR #17: targeted checks during i
 one final fast run, one push and one CI check. Timing/runner noise is advisory. No test-speed
 project, real capture benchmark or extra CI monitoring was added. Full 2.4M-frame performance
 is not claimed from the compact/50-flow replica; all processing retains the native spill budget.
+
+### Robust host timestamp envelope
+
+Replace extreme min/max bounds and the median fallback with p1/p99. Estimate jitter from
+three times each healthy-facing p1-to-p25 / p75-to-p99 tail width, capped at 2 ms; this is a
+conservative timestamp-noise estimate, not a guarantee of clock accuracy. Pool detrended
+samples because repeated/correlated errors can make per-bin and adjacent-difference noise
+estimates vanish. Long positive transit delays do not define those healthy-facing tails.
+Accept envelope infeasibility only within two jitter radii and widen uncertainty. Missing
+directions and a 40 ms incompatible envelope remain unknown.
+
+### Bounded ACK guard
+
+Keep the existing ACK/retry semantics, but materialize each candidate flow before joining
+its missing atoms to ACKs and retries. Do not increase the DuckDB memory budget to hide the
+allocation failure. Flow equality is explicit even when synthetic base keys collide. The
+requested scale reproduction uses 50 concurrent flows, 750 request/response rounds, GRO,
+stage/shared clocks, timestamp jitter, capture misses, RX holds and TX retry delivery.

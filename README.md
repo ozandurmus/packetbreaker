@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.3.6-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.3.7-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -786,3 +786,7 @@ now processes one flow at a time under DuckDB's existing memory/spill settings,
 without a global one-million-atom rejection. A single frame still has a 65,535-boundary
 safety bound. Cached reports reopen without reparsing; re-analyze an older project to
 populate the new engine tables. XLSX has Excel's per-sheet row limit; use CSV above it.
+
+Version 0.3.7 makes host clock fitting tolerant of timestamp jitter and bounds the
+byte-range ACK guard to one flow at a time. Reopen the project and run analysis again;
+existing capture indexes are reused. Clock uncertainty remains visible.
