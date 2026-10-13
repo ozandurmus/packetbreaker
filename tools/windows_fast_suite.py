@@ -1,4 +1,4 @@
-"""Run every fast test in resource-bounded isolated Windows processes; budget is actual elapsed wall time."""
+"""Run every fast test in resource-bounded isolated processes (macOS and Windows); budget is actual elapsed wall time."""
 
 import json
 import os
@@ -78,10 +78,17 @@ def file_timings(paths):
 
 def shard_count(cores, available_bytes):
     # One fixture producer per shard; leave a CPU free and budget 1.5 GiB per parent/producer pair.
-    return min(3, max(1, cores - 1), max(1, available_bytes // (3 * 1024**3 // 2)))
+    return min(4, max(1, cores - 1), max(1, available_bytes // (3 * 1024**3 // 2)))
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--workers", type=int, default=4 if sys.platform != "win32" else 2)
+    args = parser.parse_args()
+    if args.workers < 1:
+        parser.error("workers must be positive")
     start = time.perf_counter()
     collected = subprocess.run(
         [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m", "not slow"],
@@ -97,7 +104,7 @@ def main():
     cores = os.cpu_count() or 1
     available = psutil.virtual_memory().available
     # Three-way execution was slower on hosted four-core runners; retain the measured two-process cap.
-    groups = [g for g in partition(ids, min(2, shard_count(cores, available)), costs) if g]
+    groups = [g for g in partition(ids, min(args.workers, shard_count(cores, available)), costs) if g]
     print(json.dumps(dict(cpu_cores=cores, available_ram_bytes=available, shards=len(groups))), flush=True)
     workers = []
     outputs = []
