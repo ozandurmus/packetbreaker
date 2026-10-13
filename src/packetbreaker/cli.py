@@ -45,6 +45,7 @@ def main():
         choices=[
             "udp_transactions",
             "pilot",
+            "real_case_2",
             "pilot_healthy",
             "security",
             "security_reply",
@@ -95,7 +96,7 @@ def main():
     run = commands.add_parser("analyze", help="Analyze saved or supplied topology; print JSON")
     run.add_argument("--topology", type=Path)
     export = commands.add_parser("export", help="Export the last analysis as offline HTML or versioned JSON")
-    export.add_argument("--format", required=True, choices=["html", "json"])
+    export.add_argument("--format", required=True, choices=["html", "json", "csv", "xlsx"])
     export.add_argument("--output", "-o", type=Path, help="New output file; defaults to stdout")
     forti = commands.add_parser(
         "import-fortinet", help="Convert verbose-6 text and add one capture point per interface"
@@ -175,6 +176,16 @@ def main():
                 )
             )
         elif args.command == "export":
+            if args.format in ("csv", "xlsx"):
+                from .engine_export import export_tables
+
+                if not args.output:
+                    parser.error("CSV/XLSX engine exports require --output (CSV is a ZIP of tables)")
+                content = export_tables(Project(args.project), args.format)
+                with args.output.open("xb") as output:
+                    output.write(content)
+                print(f"Exported {args.output}")
+                return
             content = export_report(Project(args.project), args.format)
             if args.output:
                 with args.output.open("x", encoding="utf-8") as output:

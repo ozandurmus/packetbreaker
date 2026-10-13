@@ -33,6 +33,8 @@ class Finding(BaseModel):
     )
     id: str
     type: Literal[
+        "hold_release",
+        "cycle_wait",
         "host_receive_delay",
         "host_receive_path_loss",
         "host_transmit_path_loss",
@@ -92,7 +94,7 @@ class Finding(BaseModel):
 class FindingsExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_name: Literal["packetbreaker.findings"] = "packetbreaker.findings"
-    schema_version: Literal[9] = 9
+    schema_version: Literal[10] = 10
     engine_version: str
     exported_at: str
     findings: list[Finding]
@@ -247,6 +249,7 @@ body{{font:15px system-ui,sans-serif;color:#173d40;background:#f3f7f6;max-width:
 <section id="segments"><h2>Segments</h2>{segments}</section>
 <section id="proxies"><h2>Full-proxy requests and TCP legs</h2>{details(report.get("proxies", {}), "Request pairings, dwell uncertainty, evidence and independent-leg classifications")}</section>
 <section id="tls"><h2>TLS interception evidence</h2>{details(report.get("tls", []), "Visible certificate chains and unknown encrypted handshakes")}{details(report.get("application_status", []), "Application decoder status")}</section>
+<section id="cycles"><h2>Opaque TCP cycles</h2>{details(report.get("cycles",{}), "Per-second, flow/port, RX/TX components and top-cycle evidence")}{details(report.get("delivery",{}), "Physical delay versus retry delivery")}</section>
 <section id="host-path"><h2>Host receive/transmit path and local response</h2>{details(report.get("host_path",{}), "Separate boundary latency, local service, RX/TX shares and event periods")}</section>
 <section id="sip"><h2>SIP / SDP</h2>{details(report.get("sip", {}), "Expected and undeclared rewriting, actual media tuples and one-way audio evidence")}</section>
 <section id="rtp"><h2>RTP streams</h2>{details(report.get("rtp", {}), "Gaps, RFC 3550 jitter, duplicates, reordering and one-direction observations")}</section>

@@ -197,7 +197,9 @@ class Checks:
         if not selected:
             return []
         predicate = " OR ".join("(o.point=? AND o.frame=?)" for _ in selected)
-        return evidence(self.db, predicate, [v for pair in selected for v in pair], 16, _expand_ranges=False)
+        refs = evidence(self.db, predicate, [v for pair in selected for v in pair], 16, _expand_ranges=False)
+        order = {pair: i for i, pair in enumerate(selected)}
+        return sorted(refs, key=lambda r: order.get((r["point"], r["frame"]), len(order)))
 
     def add(
         self,
@@ -555,10 +557,13 @@ class Checks:
                 continue
             losses = rows(
                 self.db,
-                """SELECT a.flow,min(a.length) AS min_length,count(DISTINCT a.seq) AS lost_ranges,
-                first(a ORDER BY a.corrected) AS packet FROM events e JOIN obs a ON a.packet_key=e.packet_key AND a.point=e.point_a
+                """SELECT a.flow,min(least(a.length,coalesce(e.missing_bytes,a.length))) AS min_length,count(DISTINCT a.seq) AS lost_ranges,
+                first(a ORDER BY a.corrected) AS packet,list(DISTINCT a.frame) AS large_frames FROM events e JOIN obs a ON a.packet_key=e.packet_key AND a.point=e.point_a
                 WHERE e.point_a=? AND e.point_b=? AND e.direction=? AND e.kind IN ('impactful_loss','unrecovered_loss','recovered_loss')
                 AND a.proto='TCP' AND a.length BETWEEN 1200 AND 9000
+                AND coalesce(e.missing_bytes,a.length)>=greatest(1200,.9*coalesce(
+                    (SELECT min(m.mss) FROM obs m WHERE m.flow=a.flow AND m.direction<>a.direction AND m.mss>0),
+                    CASE WHEN contains(a.src,':') THEN 1440 ELSE 1460 END))
                 GROUP BY a.flow HAVING count(DISTINCT a.seq)>=3 LIMIT ?""",
                 [segment["point_a"], segment["point_b"], segment["direction"], LIMIT],
             )
@@ -598,12 +603,17 @@ class Checks:
                     [packet["flow"]],
                 )
                 name = self.location(segment)
+                large_packets = rows(
+                    self.db,
+                    "SELECT * FROM obs WHERE point=? AND frame IN (SELECT unnest(?::BIGINT[])) ORDER BY corrected",
+                    [segment["point_a"], loss["large_frames"][:3]],
+                )
                 self.add(
                     segment,
                     "mtu_black_hole",
                     packet,
                     f"MTU/PMTUD black-hole pattern at {name}; cause unknown" + (f" ({why})" if why else ""),
-                    "At least three distinct large TCP ranges disappear while three smaller payload segments of the same flow pass. DF/IPv6 and quoted-flow ICMP feedback are shown. Size-selective policy or capture loss can mimic MTU trouble; missing ICMP is not proof it was never sent.",
+                    "At least three distinct near-MSS TCP ranges disappear (missing bytes, not the enclosing GRO frame size) while three smaller payload segments of the same flow pass. DF/IPv6 and quoted-flow ICMP feedback are shown. Size-selective policy or capture loss can mimic MTU trouble; missing ICMP is not proof it was never sent.",
                     dict(
                         count=loss["lost_ranges"],
                         large_min_bytes=loss["min_length"],
@@ -614,7 +624,7 @@ class Checks:
                         quality_reason=why,
                     ),
                     not why,
-                    [packet, *small, *feedback],
+                    [*large_packets, *small, *feedback],
                     severity="high",
                 )
 

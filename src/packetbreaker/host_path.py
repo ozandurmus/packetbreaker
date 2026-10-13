@@ -6,7 +6,7 @@ from .rtp import media_finding
 from .onset import latency_window
 from .headlines import time_labels
 
-NOTE = "Delay is observed between a wire mirror and an OS host capture. It includes capture/NIC/driver/GRO/TSO timing and is not proof of application processing or a specific driver cause. Byte ranges preserve offload matching. Local service time uses separately decoded HTTP boundaries; opaque protocols remain unknown."
+NOTE = "Delay is observed between a path capture point and an OS host capture. It includes capture/NIC/driver/GRO/TSO timing and is not proof of application processing or a specific driver cause. Byte ranges preserve offload matching. Local service time uses separately decoded HTTP boundaries; opaque protocols remain unknown."
 
 
 def host_path(db, topology, segments):
@@ -137,7 +137,20 @@ def host_path(db, topology, segments):
         stream["window"] = window
         stream["window_reason"] = why
         if not window:
-            continue
+            if (
+                len(series) >= 8
+                or stream["matched_ranges"] < 3
+                or stream["p95_ms"] <= max(1, 2 * stream["uncertainty_ms"])
+            ):
+                continue
+            window = dict(
+                time=series[0]["start"],
+                end=series[-1]["end"],
+                recovery_confirmed=False,
+                status="unknown",
+                reason=why,
+            )
+            stream["window"] = window
         stream["periods"] = rows(
             db,
             """SELECT CASE WHEN time<? THEN 'before' WHEN time<? THEN 'event' ELSE 'recovery' END AS period,
@@ -145,6 +158,9 @@ def host_path(db, topology, segments):
             FROM host_transit WHERE hop=? AND flow=? GROUP BY period ORDER BY min(time)""",
             [window["time"], window["end"], stream["hop"], stream["flow"]],
         )
+        if window.get("status") == "unknown":
+            for period in stream["periods"]:
+                period["period"] = "observed; onset/recovery unknown"
         stream["window"]["start"] = window["time"]
         label = "receive" if stream["direction"] == "rx" else "transmit"
         local_text = (
@@ -156,6 +172,8 @@ def host_path(db, topology, segments):
         )
         headline = f"Delay occurs between {points[segment['point_a']].label} and {points[segment['point_b']].label}; {local_text}."
         headline += f" Observed event window {time_labels(window['time'], topology.report_timezone)['local']} / {time_labels(window['time'], topology.report_timezone)['utc']} through {time_labels(window['end'], topology.report_timezone)['utc']}; recovery {'confirmed' if window['recovery_confirmed'] else 'unknown'}, boundary uncertainty ±{stream['uncertainty_ms']:.3f} ms."
+        if window.get("status") == "unknown":
+            headline = f"Delay occurs between {points[segment['point_a']].label} and {points[segment['point_b']].label}; {local_text}. Onset/recovery unknown: {why}; boundary uncertainty ±{stream['uncertainty_ms']:.3f} ms."
         stream["headline"] = headline
         f = media_finding(
             db,
@@ -249,3 +267,42 @@ def polish_findings(findings, segments, topology, onsets):
     rank = {"high": 0, "low": 1, "quality": 2, "unknown": 3}
     findings.sort(key=lambda f: (f is not dominant, rank[f["severity"]], f["time_range"][0]))
     return dominant
+
+
+def lead_degradation(report, findings, segments):
+    """Direct degradation measurements outrank diagnostic integrity hypotheses."""
+    allowed = {
+        "cycle_wait",
+        "host_receive_delay",
+        "host_transmit_delay",
+        "host_transmit_path_loss",
+        "host_receive_path_loss",
+        "impactful_loss",
+        "recovered_loss",
+        "confirmed_device_drop",
+    }
+    candidates = [f for f in findings if f["type"] in allowed and f["confidence"] == "supported"]
+    if not candidates:
+        return
+
+    def score(f):
+        m = f["metrics"]
+        return (
+            bool(m.get("primary_degradation")),
+            bool(m.get("window")),
+            (m.get("max_ms") or m.get("max_recovery_ms") or m.get("max_stall_ms") or 0)
+            * max(1, m.get("count", 1)),
+        )
+
+    primary = max(candidates, key=score)
+    findings.sort(key=lambda f: (f is not primary, f["severity"] not in ("high", "low"), f["time_range"][0]))
+    report["findings"] = findings[:200]
+    report["finding_count"] = len(findings)
+    if (
+        primary["type"] == "cycle_wait"
+        or report.get("host_path", {}).get("streams")
+        or any(f["type"].startswith("host_") for f in candidates)
+    ):
+        report["verdict"] = primary.get("headline") or primary["summary"]
+    elif report["verdict"] == "Path integrity findings observed":
+        report["verdict"] = primary.get("headline") or primary["summary"]

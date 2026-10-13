@@ -334,9 +334,9 @@ def align(db, topology):
         changed = False
         for b in order:
             cid = points[b].capture_id
-            if cid in models:
+            if cid in models and models[cid].offset is not None:
                 continue
-            for a in order:
+            for a in sorted(order, key=lambda point: abs(order.index(point) - order.index(b))):
                 aid = points[a].capture_id
                 if aid not in models or models[aid].offset is None:
                     continue
@@ -347,6 +347,10 @@ def align(db, topology):
                     ORDER BY hash(a.frame,b.frame),a.frame,b.frame LIMIT 20000""",
                     [a, b],
                 ).fetchall()
+                if (points[a].host_capture or points[b].host_capture or points[b].kind == "Server") and (
+                    len(data) < 6 or len({r[2] for r in data}) < 2
+                ):
+                    data = clock_range_candidates(db, a, b)
                 forward_before = topology.precedes(a, b, "forward")
                 reverse_before = topology.precedes(a, b, "reverse")
                 shared_bound = None
@@ -399,6 +403,8 @@ def align(db, topology):
                         for x, y, f, _, _ in data
                     ]
                 )
+                if model.offset is None and (cid not in models or model.samples > models[cid].samples):
+                    models[cid] = model
                 if model.offset is not None:
                     model.domain = models[aid].domain
                     model.uncertainty = (
@@ -425,7 +431,12 @@ def align(db, topology):
             if any(p.translation == "full_proxy" for p in topology.points):
                 # Calibrate disconnected TCP legs locally, without asserting cross-proxy clock alignment.
                 missing = next(
-                    (points[p].capture_id for p in order if points[p].capture_id not in models), None
+                    (
+                        points[p].capture_id
+                        for p in order
+                        if points[p].capture_id not in models or models[points[p].capture_id].offset is None
+                    ),
+                    None,
                 )
                 if missing:
                     local_epoch = db.execute(
@@ -445,6 +456,21 @@ def align(db, topology):
             break
     for p in order:
         models.setdefault(points[p].capture_id, ClockModel(epoch=epoch))
+    # A disconnected declared domain still has valid relative clocks inside the group.
+    for name, members in groups.items():
+        if not any(models[c].offset is not None for c in members if c in models):
+            anchor = min(members)
+            models[anchor] = ClockModel(
+                0,
+                0,
+                epoch,
+                0,
+                "declared_shared",
+                "Independent declared clock domain; cross-domain timing unknown",
+                domain="shared:" + name,
+                source_domain=name,
+            )
+    inherit_domains()
     # Files split from one Fortinet transcript share an actual source clock.
     from dataclasses import replace
 
@@ -515,6 +541,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         link_tcp_sessions(db, topology)
         propagate_translation_unknown(db)
         byte_active = prepare_byte_ranges(db, topology)
+        from .delivery import prepare_delivery
+
+        prepare_delivery(db, topology)
         prepare_flow_filters(db)
         proxies = correlate(db, topology, models, application_status)
         add_dwell(db, topology, models, proxies)
@@ -595,6 +624,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     ).fetchone()[0]
                     pending_nat = pending_nat or unresolved > 0
                 ma, mb = models[pa.capture_id], models[pb.capture_id]
+                shared_clock = pa.capture_id == pb.capture_id or bool(
+                    ma.source_domain and ma.source_domain == mb.source_domain
+                )
                 clocks_ok = ma.offset is not None and mb.offset is not None and ma.domain == mb.domain
                 from .clock import transit_quality
 
@@ -614,7 +646,11 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     [max(0.001, tolerance_ms), a, b, direction, start, start, end, end],
                 )[0]
                 timing_quality = transit_quality(matched, tolerance_ms)
-                clocks_ok = clocks_ok and not timing_quality["systematic_negative"]
+                clocks_ok = clocks_ok and (shared_clock or not timing_quality["systematic_negative"])
+                if shared_clock and timing_quality["systematic_negative"]:
+                    timing_quality["quality_notes"].append(
+                        "Shared clock: negative transit concerns capture order/timestamp placement, not relative clock fitting"
+                    )
                 reason = (
                     "Unsupported translation boundary"
                     if unsupported
@@ -708,8 +744,10 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     direction=direction,
                     reason=reason,
                     latency_confidence="estimated" if not reason else "unknown",
-                    offset_uncertainty_ms=((ma.uncertainty or 0) + (mb.uncertainty or 0)) * 1000
-                    if ma.uncertainty is not None and mb.uncertainty is not None
+                    offset_uncertainty_ms=0.0
+                    if shared_clock
+                    else ((ma.uncertainty or 0) + (mb.uncertainty or 0)) * 1000
+                    if shared_clock or (ma.uncertainty is not None and mb.uncertainty is not None)
                     else None,
                     **matched,
                     **timing_quality,
@@ -1058,6 +1096,18 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         host_report, host_findings = host_path(db, topology, segments)
         findings.extend(host_findings)
         primary_host = polish_findings(findings, segments, topology, onsets)
+        from .cycles import build_cycles, cycle_findings
+
+        engine_topology = topology.model_copy(update={"start": start, "end": end})
+        cycle_report = build_cycles(db, engine_topology, segments, host_report, onsets)
+        findings.extend(cycle_findings(db, topology, segments))
+        from .delivery import delivery_report
+
+        delivery, delivery_findings = delivery_report(db, engine_topology, segments)
+        findings.extend(delivery_findings)
+        from .hold_release import hold_release
+
+        findings.extend(hold_release(db, segments))
         from .pilot import flow_columns
 
         flow_columns(db, findings, topology)
@@ -1089,6 +1139,8 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             rtp=rtp_report,
             sip=sip_report,
             host_path=host_report,
+            cycles=cycle_report,
+            delivery=delivery,
             application_status=application_status,
             proxies=proxies,
             tls=tls_notes,
@@ -1149,6 +1201,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                 "Unrecovered disappearance cannot confirm a device drop without positive device evidence.",
             ],
         )
+        from .host_path import lead_degradation
+
+        lead_degradation(report, findings, segments)
         project.set(db, "topology", topology.model_dump())
         project.set(db, "export_findings", findings)
         project.set(db, "report", report)
@@ -1354,3 +1409,19 @@ def label_host_events(events, topology):
         if kind:
             item["recovery_class"] = item["kind"]
             item["kind"] = kind
+
+
+def clock_range_candidates(db, a, b):
+    """Header-only calibration fallback; equal cardinality prevents retry rank shifting."""
+    return db.execute(
+        """WITH ranked AS (
+        SELECT point,frame,ts,flow,direction,seq,ack,flags,
+        row_number() OVER(PARTITION BY point,flow,direction,seq,ack,flags ORDER BY ts,frame) AS occurrence,
+        count(*) OVER(PARTITION BY point,flow,direction,seq,ack,flags) AS n
+        FROM obs WHERE point IN (?,?) AND eligible AND proto='TCP'), paired AS(
+        SELECT a.ts AS time_a,b.ts AS time_b,a.direction='forward' AS forward,a.frame AS frame_a,b.frame AS frame_b
+        FROM ranked a JOIN ranked b USING(flow,direction,seq,ack,flags,occurrence,n)
+        WHERE a.point=? AND b.point=? AND a.direction<>'unknown')
+        SELECT * FROM paired ORDER BY hash(frame_a,frame_b),frame_a,frame_b LIMIT 20000""",
+        [a, b, a, b],
+    ).fetchall()

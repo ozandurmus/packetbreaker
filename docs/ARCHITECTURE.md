@@ -847,3 +847,32 @@ uses timestamp/frame ordering, so mapped addresses cannot perturb the sample or
 same-time ties. All-zero UDP payload has insufficient transaction identity; all-zero
 content hashes are explicitly unverified in field comparisons. Parser version 13
 invalidates re-ingest caches for these quality semantics.
+
+## Real-case round 2
+
+- Byte-range occurrence assignment materializes one flow at a time and appends its result
+  to the persistent atom table. `byte_work_units` records each unit; the 512 MB native SQL
+  budget/spill directory remains. No global atom-count rejection remains. Physical-frame
+  atom indexing retains its 65,535-boundary safety limit.
+- Clock fitting tries the nearest aligned point first, with an equal-cardinality TCP
+  sequence/ACK occurrence fallback when unique calibration anchors are absent. Failed
+  fits keep their sample counts. Declared disconnected groups get an independent relative
+  reference; cross-domain timing stays unknown. A systematic negative transit within a
+  shared clock is capture-order/timestamp evidence, not relative clock unreliability.
+- MTU candidates require three distinct near-MSS missing ranges, not the enclosing GRO
+  frame length. Tiny missing ranges do not qualify; the first evidence frames are large.
+- `delivery.py` bounds physical-pair work to actual adjacent edges. Inferred per-flow IPv4
+  ID preservation, positive upstream retries, downstream-original absence and capture-miss
+  guards separate substituted copies from measured transit. Ambiguous copies cannot enter
+  the latency view. Source observations are counted once even with one-to-many offload links.
+- `cycles.py` stores point cycles, per-second/flow-port metrics, adjacent RX/TX components,
+  onset-defined periods and top cycles. Cross-point components use known relative clocks;
+  local durations remain available with an unaligned clock. Missing top-cycle points are
+  explicit unknown rows. Native SQL performs grouping; Python only handles bounded evidence.
+- `hold_release.py` first selects repeated ranges, then compares bounded copy trains across
+  adjacent edges. Local spacing is independent of offsets. The finding is a signature, not
+  proof of a queue, appliance or driver cause. `topology_suggest.py` is read-only; UI confirmation
+  changes the editor and ordinary Save validates/persists it.
+- `engine_export.py` streams SQL batches into CSV ZIP or minimal OOXML XLSX, with numeric
+  values and formula-safe text, capture-point mapping and flow/frame filters. No new dependency.
+  Finding schema 10 adds `hold_release` and `cycle_wait`; HTML/JSON include engine summaries.

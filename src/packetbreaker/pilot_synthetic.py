@@ -21,6 +21,8 @@ def make_pilot(
     shared=True,
     ip_id="zero",
     boundary_loss=False,
+    flows=2,
+    real_case=False,
 ):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -30,16 +32,30 @@ def make_pilot(
     server = "2001:db8:2::1" if ipv6 else "192.0.2.20"
     truth = dict(start=BASE + 20, end=BASE + 45, rx=[], tx=[], local_ms=0.5, fault=fault)
 
-    def emit(point, t, reverse, port, seq, ack, flags, payload=b""):
+    def emit(point, t, reverse, port, seq, ack, flags, payload=b"", identity=None):
         src, dst = (server, client) if reverse else (client, server)
         sp, dp = (8080, port) if reverse else (port, 8080)
         # A stage hook may see post-routing TTL already at rx; it is not a wire interface.
         ttl = 61 if point.endswith("rx") else 64
-        packet = tcp_packet(src, dst, sp, dp, seq, ack, flags, payload, 0 if ip_id == "zero" else 42, ttl=ttl)
+        if real_case:
+            levels = (
+                {"a_rx": 0, "a_tx": 1, "b_rx": 1, "b_tx": 2, "mirror": 2, "host": 2}
+                if not reverse
+                else {"host": 0, "mirror": 0, "b_rx": 0, "b_tx": 1, "a_rx": 1, "a_tx": 2}
+            )
+            ttl = 64 - levels[point]
+        pid = (
+            0
+            if ip_id == "zero"
+            else 42
+            if ip_id == "constant"
+            else ((identity if identity is not None else seq + ack + flags) % 65536)
+        )
+        packet = tcp_packet(src, dst, sp, dp, seq, ack, flags, payload, pid, ttl=ttl)
         jitter = rng.uniform(-0.0002, 0.0002) if point == "mirror" else rng.uniform(-0.000001, 0.000001)
         captures[point].append((BASE + t + jitter + (0.04 if point == "host" else 0), packet))
 
-    for call, port in enumerate([41000, 41001]):
+    for call, port in enumerate(range(41000, 41000 + flows)):
         sq, rq = 1000 + call * 100000, 9000 + call * 100000
         for point in PATH:
             emit(point, 0, False, port, sq, 0, 2)
@@ -82,6 +98,8 @@ def make_pilot(
                         and i >= path.index("b_rx" if reverse and fault == "mirror" else fault)
                     ):
                         origin += rx + tx
+                    if real_case and reverse and fault == "host":
+                        origin = response_time
                     chunks = (
                         [(0, payload)]
                         if point == "host"
@@ -94,6 +112,39 @@ def make_pilot(
                             boundary_loss and call == 0 and ((n == 3 and not reverse) or (n == 4 and reverse))
                         )
                         stamp = origin + i * 0.000016 + offset / 800 * 0.000002
+                        identity = (base_seq // 800 + offset // 800 + port) % 5000
+                        if real_case and active and reverse and tx > 0:
+                            # Original is captured at the host, absent on every downstream wire point.
+                            if point == "host":
+                                emit(point, stamp, reverse, port, base_seq + offset, ack, 24, chunk, identity)
+                            emit(
+                                point,
+                                stamp + 0.2,
+                                reverse,
+                                port,
+                                base_seq + offset,
+                                ack,
+                                24,
+                                chunk,
+                                identity + 5000,
+                            )
+                            continue
+                        if real_case and active and not reverse and rx >= 0.85:
+                            compressed = i >= path.index(fault)
+                            for retry, gap in enumerate((0, 0.2, 0.6)):
+                                when = stamp + (retry * 0.001 if compressed else gap)
+                                emit(
+                                    point,
+                                    when,
+                                    reverse,
+                                    port,
+                                    base_seq + offset,
+                                    ack,
+                                    24,
+                                    chunk,
+                                    identity + retry * 5000,
+                                )
+                            continue
                         if lost:
                             if (reverse and point != "host") or (not reverse and point == "host"):
                                 stamp += 0.3
@@ -108,6 +159,7 @@ def make_pilot(
                             ack,
                             24,
                             chunk,
+                            identity if real_case else None,
                         )
             sq += 3200
             rq += 3200
@@ -147,7 +199,12 @@ def make_pilot(
         points=points, forward=PATH, reverse=RETURN, client_cidrs=[client + ("/128" if ipv6 else "/32")]
     )
     truth["files"] = [str(directory / (p + ".pcap")) for p in PATH]
-    truth.update(scenario="pilot", expected_local_p95_ms=0.5, host_noise_frames=noise)
+    truth.update(
+        scenario="real_case_2" if real_case else "pilot",
+        expected_local_p95_ms=0.5,
+        host_noise_frames=noise,
+        flows=flows,
+    )
     (directory / "ground-truth.json").write_text(json.dumps(truth, indent=2))
     (directory / "topology.json").write_text(json.dumps(topology, indent=2))
     return truth, topology

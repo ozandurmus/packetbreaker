@@ -1,4 +1,6 @@
 import { AnonymizeExport } from "./AnonymizeExport";
+import { Cycles } from "./Cycles";
+import { TopologySuggestions } from "./TopologySuggestions";
 import { HostPath } from "./HostPath";
 import { UdpMedia } from "./UdpMedia";
 import { CasePreflight } from "./CasePreflight";
@@ -684,6 +686,7 @@ function App() {
             <DNS rangeQuery={rangeQuery} onEvidence={setEvidence} />
           )}
           {tab === "Overview" && report?.analysis_scope?.some(s=>s.excluded_single_point_frames>0) && <section><h2>Analysis flow scope</h2>{report.analysis_scope.filter(s=>s.excluded_single_point_frames>0).map(s=><p key={s.point}>{s.point}: {s.retained_frames.toLocaleString()} of {s.input_frames.toLocaleString()} frames selected for cross-point matching; {s.excluded_single_point_frames.toLocaleString()} host-only background frames excluded.</p>)}</section>}
+          {tab === "Overview" && <Cycles data={report?.cycles} delivery={report?.delivery} onEvidence={setEvidence}/> }
           {tab === "Overview" && <HostPath data={report?.host_path} onEvidence={setEvidence}/> }
           {tab === "Overview" && report?.microbursts && (
             <>
@@ -1540,6 +1543,7 @@ function App() {
                 </section>
               )}
 
+              <TopologySuggestions topology={topology} captures={state.captures} onChange={setTopology}/>
               <section>
                 <TopologyEditor
                   topology={topology}
@@ -2378,6 +2382,8 @@ function App() {
                       }
                     />
                   </label>
+                  <label>Opaque cycle stall threshold (ms)<input type="number" min="1" max="60000" value={topology.cycle_stall_ms??100} onChange={e=>setTopology({...topology,cycle_stall_ms:Number(e.target.value)})}/></label>
+                  <label>Top slow cycles<input type="number" min="1" max="100" value={topology.cycle_top_n??20} onChange={e=>setTopology({...topology,cycle_top_n:Number(e.target.value)})}/></label>
                   <label title="DNS response deadline at each observation point; incomplete coverage stays unknown. Re-analyze after changing it.">
                     DNS timeout (ms)
                     <input

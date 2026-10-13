@@ -211,3 +211,16 @@ into proof of queue overflow or identify unseen devices. The owner chooses the n
   closed. Header options/timing/traffic patterns remain visible. Content-dependent
   analysis becomes unknown; transport equivalence is proven for the generated TCP
   and GRO/TSO pilot cases, not for erased UDP/application transaction identities.
+
+## Real-case round 2 addendum
+
+- **Done:** per-flow byte-range work units; nearest-point clock fallback and shared-domain
+  relative clocks; near-MSS missing-byte guard; dominant measured-wait verdicts.
+- **Done:** observed opaque TCP cycles, point/local and adjacent RX/TX timing, configurable
+  stalls, flow/port grouping, onset periods and top-cycle frame evidence (`cycles.py`).
+- **Done:** physical-copy delay/retry separation with conservative identity unknowns,
+  clock-independent hold/release signatures, confirmed topology-role suggestions.
+- **Done:** complete CSV ZIP/XLSX engine table exports (`engine_export.py`, `test_real_case_2.py`).
+- **Partial by design:** these are TCP data turns, not arbitrary application transactions.
+  Pipelining, uncertain copy identity and missing boundaries stay unknown. No full real
+  2.4M-frame benchmark or proof of hardware/driver causality is claimed.

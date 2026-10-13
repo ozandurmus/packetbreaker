@@ -89,6 +89,8 @@ class Override(BaseModel):
 
 
 class Topology(BaseModel):
+    cycle_stall_ms: float = Field(default=100, ge=1, le=60000, allow_inf_nan=False)
+    cycle_top_n: int = Field(default=20, ge=1, le=100)
     rtp_port_ranges: list[tuple[int, int]] = Field(default_factory=list, max_length=16)
     rtp_clock_rate: int | None = Field(default=None, ge=1000, le=192000)
     rtp_jitter_ms: float = Field(default=2, ge=0.1, le=1000, allow_inf_nan=False)

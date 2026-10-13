@@ -8,7 +8,6 @@ from .matching import match_occurrences
 from .store import rows
 
 MOD = 4294967296
-MAX_ATOMS = 1_000_000
 
 
 def add_byte_calibration(db):
@@ -54,34 +53,17 @@ def prepare_byte_ranges(db, topology):
         SELECT r.flow,r.direction,lo AS edge FROM range_intervals r JOIN byte_flows USING(flow,direction)
         UNION SELECT r.flow,r.direction,hi FROM range_intervals r JOIN byte_flows USING(flow,direction))
         SELECT flow,direction,edge AS lo,lead(edge) OVER(PARTITION BY flow,direction ORDER BY edge) AS hi FROM bounds""")
-    n, largest = db.execute("""SELECT coalesce(sum(n),0),coalesce(max(n),0) FROM (
-        SELECT r.point,r.frame,count(*) AS n FROM range_intervals r JOIN range_atoms a
-        ON r.flow=a.flow AND r.direction=a.direction AND a.lo>=r.lo AND a.hi<=r.hi AND a.hi>a.lo
-        GROUP BY r.point,r.frame)""").fetchone()
-    if n > MAX_ATOMS or largest > 65535:
-        raise ValueError(
-            "Byte-range budget exceeded (one million atoms or 65535 boundaries per frame); split the input captures"
-        )
-    db.execute(f"""CREATE OR REPLACE TABLE byte_obs AS
-        SELECT o.point,-(o.frame*65536+row_number() OVER(PARTITION BY o.point,o.frame ORDER BY a.lo)) AS frame,
-            o.frame AS source_frame,o.packet_key AS source_packet_key,o.flow,o.direction,o.ts,o.corrected,o.stream,
-            a.lo,a.hi,CASE WHEN r.kind='data' THEN a.hi-a.lo ELSE 0 END AS range_length,
-            CASE WHEN r.kind='data' THEN substr(coalesce(o.prefix,''),2*((a.lo-o.seq-CASE WHEN (o.flags&2)>0 THEN 1 ELSE 0 END+{MOD})%{MOD})+1,2*(a.hi-a.lo)) ELSE '' END AS prefix,
-            md5(o.flow||o.direction||':'||a.lo||':'||a.hi||':'||r.kind) AS base_key,
-            md5(o.flow||o.direction||':'||a.lo||':'||a.hi||':'||r.kind) AS packet_key,
-            NULL::BIGINT AS occurrence,true AS eligible,NULL::VARCHAR AS excluded_reason,true AS is_atom,r.kind
-        FROM range_intervals r JOIN range_atoms a ON r.flow=a.flow AND r.direction=a.direction
-            AND a.lo>=r.lo AND a.hi<=r.hi AND a.hi>a.lo
-        JOIN obs o ON o.point=r.point AND o.frame=r.frame""")
-    db.execute("""INSERT INTO byte_obs WITH chosen AS (
-        SELECT c.* FROM calibration c WHERE eligible AND EXISTS(SELECT 1 FROM obs o WHERE o.point=c.point AND o.frame=c.frame AND o.proto='TCP' AND o.flow IN (SELECT flow FROM byte_flows))
-        QUALIFY row_number() OVER(PARTITION BY point,frame ORDER BY
-            CASE WHEN EXISTS(SELECT 1 FROM byte_calibration b WHERE b.point=c.point AND b.frame=c.frame AND b.packet_key=c.packet_key) THEN 0 ELSE 1 END)=1)
-        SELECT o.point,o.frame,o.frame,o.packet_key,o.flow,o.direction,o.ts,o.corrected,o.stream,
-            NULL,NULL,0,'',c.packet_key,c.packet_key,NULL,o.eligible,o.excluded_reason,false,'clock'
-        FROM chosen c JOIN obs o ON o.point=c.point AND o.frame=c.frame
-        QUALIFY row_number() OVER(PARTITION BY o.point,o.direction ORDER BY hash(c.packet_key))<=256""")
-    match_occurrences(db, topology, table="byte_obs")
+    db.execute("CREATE OR REPLACE TABLE byte_work_units(flow VARCHAR, atoms BIGINT)")
+    db.execute("DROP TABLE IF EXISTS all_byte_obs")
+    for (flow,) in db.execute("SELECT DISTINCT flow FROM byte_flows ORDER BY flow").fetchall():
+        _match_byte_flow(db, topology, flow)
+        db.execute("INSERT INTO byte_work_units SELECT ?,count(*) FROM byte_obs", [flow])
+        if db.execute("SELECT count(*) FROM byte_work_units").fetchone()[0] == 1:
+            db.execute("CREATE TABLE all_byte_obs AS SELECT * FROM byte_obs")
+        else:
+            db.execute("INSERT INTO all_byte_obs SELECT * FROM byte_obs")
+    db.execute("DROP TABLE byte_obs")
+    db.execute("ALTER TABLE all_byte_obs RENAME TO byte_obs")
     # Never turn positively contradictory captured bytes into a network-loss conclusion.
     bad = db.execute("""SELECT DISTINCT a.flow FROM byte_obs a JOIN byte_obs b USING(base_key)
         WHERE a.is_atom AND b.is_atom AND a.eligible AND b.eligible AND a.point<>b.point
@@ -133,6 +115,45 @@ def prepare_byte_ranges(db, topology):
         GROUP BY m.point_a,m.point_b,m.source_packet_key HAVING count(r.frame)=count(*)""")
     make_matches_view(db, True)
     return True
+
+
+def _match_byte_flow(db, topology, flow):
+    """One flow at a time; native operators retain the project spill/memory budget."""
+    _, largest = db.execute(
+        """SELECT coalesce(sum(n),0),coalesce(max(n),0) FROM (
+        SELECT r.point,r.frame,count(*) AS n FROM range_intervals r JOIN range_atoms a
+        ON r.flow=a.flow AND r.direction=a.direction AND a.lo>=r.lo AND a.hi<=r.hi AND a.hi>a.lo
+        WHERE r.flow=? GROUP BY r.point,r.frame)""",
+        [flow],
+    ).fetchone()
+    if largest > 65535:
+        raise ValueError("A single frame exceeds 65535 byte boundaries; narrow the overlapping TCP ranges")
+    db.execute(
+        f"""CREATE OR REPLACE TABLE byte_obs AS
+        SELECT o.point,-(o.frame*65536+row_number() OVER(PARTITION BY o.point,o.frame ORDER BY a.lo)) AS frame,
+            o.frame AS source_frame,o.packet_key AS source_packet_key,o.flow,o.direction,o.ts,o.corrected,o.stream,
+            a.lo,a.hi,CASE WHEN r.kind='data' THEN a.hi-a.lo ELSE 0 END AS range_length,
+            CASE WHEN r.kind='data' THEN substr(coalesce(o.prefix,''),2*((a.lo-o.seq-CASE WHEN (o.flags&2)>0 THEN 1 ELSE 0 END+{MOD})%{MOD})+1,2*(a.hi-a.lo)) ELSE '' END AS prefix,
+            md5(o.flow||o.direction||':'||a.lo||':'||a.hi||':'||r.kind) AS base_key,
+            md5(o.flow||o.direction||':'||a.lo||':'||a.hi||':'||r.kind) AS packet_key,
+            NULL::BIGINT AS occurrence,true AS eligible,NULL::VARCHAR AS excluded_reason,true AS is_atom,r.kind
+        FROM range_intervals r JOIN range_atoms a ON r.flow=a.flow AND r.direction=a.direction
+            AND a.lo>=r.lo AND a.hi<=r.hi AND a.hi>a.lo
+        JOIN obs o ON o.point=r.point AND o.frame=r.frame WHERE r.flow=?""",
+        [flow],
+    )
+    db.execute(
+        """INSERT INTO byte_obs WITH chosen AS (
+        SELECT c.* FROM calibration c WHERE eligible AND EXISTS(SELECT 1 FROM obs o WHERE o.point=c.point AND o.frame=c.frame AND o.proto='TCP' AND o.flow=?)
+        QUALIFY row_number() OVER(PARTITION BY point,frame ORDER BY
+            CASE WHEN EXISTS(SELECT 1 FROM byte_calibration b WHERE b.point=c.point AND b.frame=c.frame AND b.packet_key=c.packet_key) THEN 0 ELSE 1 END)=1)
+        SELECT o.point,o.frame,o.frame,o.packet_key,o.flow,o.direction,o.ts,o.corrected,o.stream,
+            NULL,NULL,0,'',c.packet_key,c.packet_key,NULL,o.eligible,o.excluded_reason,false,'clock'
+        FROM chosen c JOIN obs o ON o.point=c.point AND o.frame=c.frame
+        QUALIFY row_number() OVER(PARTITION BY o.point,o.direction ORDER BY hash(c.packet_key))<=256""",
+        [flow],
+    )
+    match_occurrences(db, topology, table="byte_obs")
 
 
 def make_matches_view(db, active):
