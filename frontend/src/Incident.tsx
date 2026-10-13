@@ -335,6 +335,34 @@ export function Incident({
             </article>
           );
         })}
+      <h3>Delay versus drop</h3>
+      <p>
+        Same original identity seen later → delayed. Original missing, retry
+        delivered → dropped.
+      </p>
+      <p>
+        Seq-only matching can pair the retry with the original and falsely
+        display RTO recovery as transit delay.
+      </p>
+      {boundaries.map((key) => {
+        const rows = data.delivery.filter(
+          (r) => `${r.direction}: ${r.point_a} → ${r.point_b}` === key,
+        );
+        return (
+          <article key={key}>
+            <h4>{key}</h4>
+            <Chart
+              option={{
+                ...base,
+                yAxis: { type: "value", name: "Observed units" },
+                series: series(rows, ["delayed", "dropped"], "delivery"),
+              }}
+              onClick={click}
+              onBrush={brush}
+            />
+          </article>
+        );
+      })}
     </section>
   );
 }
