@@ -1436,3 +1436,11 @@ available; the new parallel runner defaults to four locally and applies CPU/RAM 
 The prior 157.62 s serial run contained 572 tests and ran alongside a scale benchmark, so
 these figures are not claimed as a controlled same-workload speedup. No real-case capture
 was read or committed; the user's local re-run remains the incident verification.
+
+The final frame-evidence audit found that a wire-side packet key could resolve to the first
+four wire observations and omit the host. Peak and aggregate-finding evidence now selects
+the actual matched keys at both boundary endpoints. The new guard and existing pilot check
+passed (**2 passed, 3.90 s**); the same assertions passed against the cached 50-flow projection
+without repeating ingest. Final collection is **594 fast + 186 slow** (22 new fast tests).
+Runner partition guards passed (**7 passed, 0.03 s**); subsequent runs reuse per-file timings
+from the same platform to balance shards instead of using only hosted Windows estimates.

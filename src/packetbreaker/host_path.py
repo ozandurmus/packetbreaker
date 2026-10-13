@@ -101,12 +101,19 @@ def host_path(db, topology, segments):
         """SELECT hop,direction,flow,count(*) AS matched_ranges,sum(bytes) AS bytes,quantile_cont(delay_ms,.95) AS p95_ms,
         max(delay_ms) AS max_ms,max(uncertainty_ms) AS uncertainty_ms,min(reason) AS reason,
         sum(bytes) FILTER(WHERE delay_ms>greatest(1,2*uncertainty_ms)) AS delayed_bytes,
-        sum(greatest(0,delay_ms-uncertainty_ms)*bytes) AS delay_byte_ms,arg_max(key_a,delay_ms) AS evidence_key
+        sum(greatest(0,delay_ms-uncertainty_ms)*bytes) AS delay_byte_ms,arg_max(key_a,delay_ms) AS evidence_key,arg_max(key_b,delay_ms) AS evidence_key_b
         FROM host_transit GROUP BY hop,direction,flow""",
     )
     items = []
     for stream in streams:
-        stream["evidence"] = evidence(db, "o.packet_key=?", [stream["evidence_key"]], 4, _expand_ranges=False)
+        segment = next(s for s in selected if s["id"] == stream["hop"])
+        stream["evidence"] = evidence(
+            db,
+            "(o.point=? AND o.packet_key=?) OR(o.point=? AND o.packet_key=?)",
+            [segment["point_a"], stream["evidence_key"], segment["point_b"], stream["evidence_key_b"]],
+            2,
+            _expand_ranges=False,
+        )
         stream["tooltip"] = NOTE
         stream["local_service"] = next((r for r in service if r["flow"] == stream["flow"]), None)
         stream["transport_turnaround"] = next((r for r in turnaround if r["flow"] == stream["flow"]), None)
@@ -162,12 +169,20 @@ def aggregate_host(db, topology, segments, report):
             db,
             """SELECT floor(time) AS start,floor(time)+1 AS "end",
             quantile_cont(delay_ms,.95) AS p95_ms,max(delay_ms) AS max_ms,
-            arg_max(key_a,delay_ms) AS evidence_key FROM host_transit
+            arg_max(key_a,delay_ms) AS evidence_key,arg_max(key_b,delay_ms) AS evidence_key_b,arg_max(hop,delay_ms) AS evidence_hop FROM host_transit
             WHERE direction=? AND reason IS NULL GROUP BY ALL ORDER BY start""",
             [direction],
         )
         for r in series:
-            r["evidence"] = evidence(db, "o.packet_key=?", [r.pop("evidence_key")], 2, _expand_ranges=False)
+            hop = r.pop("evidence_hop")
+            edge = next(s for s in segments if s["id"] == hop)
+            r["evidence"] = evidence(
+                db,
+                "(o.point=? AND o.packet_key=?) OR(o.point=? AND o.packet_key=?)",
+                [edge["point_a"], r.pop("evidence_key"), edge["point_b"], r.pop("evidence_key_b")],
+                2,
+                _expand_ranges=False,
+            )
         current = window
         if current is None:
             # Preserve a short-capture observation, with explicitly unknown onset.

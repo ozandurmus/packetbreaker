@@ -101,6 +101,11 @@ def main():
         raise RuntimeError("No fast tests collected; cannot certify an empty suite")
     cost_file = Path(__file__).with_name("windows_test_costs.json")
     costs = json.loads(cost_file.read_text()) if cost_file.exists() else {}
+    previous = Path("fast-suite-summary.json")
+    if previous.exists():
+        measured = json.loads(previous.read_text())
+        if measured.get("platform") == sys.platform:
+            costs = measured.get("file_seconds", costs)
     cores = os.cpu_count() or 1
     available = psutil.virtual_memory().available
     # Three-way execution was slower on hosted four-core runners; retain the measured two-process cap.
@@ -146,6 +151,7 @@ def main():
     counts = junit_counts([f"fast-suite-{i}.xml" for i in range(len(groups))])
     result = dict(
         wall_seconds=elapsed,
+        platform=sys.platform,
         shards=len(groups),
         collected=len(ids),
         file_seconds=file_timings([f"fast-suite-{i}.xml" for i in range(len(groups))]),

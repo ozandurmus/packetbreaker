@@ -75,6 +75,15 @@ def test_visualisations_and_existing_exports_have_evidence(incident_replica):
     assert "https://cdn" not in html
 
 
+def test_host_chart_evidence_contains_both_boundary_points(scenarios):
+    _, _, _, report = scenarios("pilot", ip_id="zero")
+    for item in report["host_path"]["items"]:
+        segment = next(s for s in report["segments"] if s["id"] == item["hop"])
+        expected = {segment["point_a"], segment["point_b"]}
+        assert {e["point"] for e in item["evidence"]} == expected
+        assert all({e["point"] for e in r["evidence"]} == expected for r in item["series"])
+
+
 def test_mixed_host_losses_keep_subtypes_under_one_heading():
     from packetbreaker.host_path import group_host_losses
     from packetbreaker.topology import Topology
