@@ -885,3 +885,9 @@ would disappear in adjacent-sample differences. A crossing envelope is accepted 
 twice that bounded jitter; uncertainty includes both the crossing and jitter. One-way data
 and genuinely incompatible bidirectional timing remain unknown. The host fallback still
 uses the nearest aligned capture point and requires no manual override.
+
+The byte-range ACK guard now materializes missing atoms, ACK times and retry candidates for
+one flow before an uncorrelated delete. This removes the whole-capture correlated join that
+could require a single allocation larger than the 512 MB DuckDB budget. Native spill and
+existing per-flow range preparation remain enabled; tuple-identical ranges from another
+flow cannot supply retry evidence.

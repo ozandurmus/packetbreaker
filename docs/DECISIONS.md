@@ -674,3 +674,11 @@ samples because repeated/correlated errors can make per-bin and adjacent-differe
 estimates vanish. Long positive transit delays do not define those healthy-facing tails.
 Accept envelope infeasibility only within two jitter radii and widen uncertainty. Missing
 directions and a 40 ms incompatible envelope remain unknown.
+
+### Bounded ACK guard
+
+Keep the existing ACK/retry semantics, but materialize each candidate flow before joining
+its missing atoms to ACKs and retries. Do not increase the DuckDB memory budget to hide the
+allocation failure. Flow equality is explicit even when synthetic base keys collide. The
+requested scale reproduction uses 50 concurrent flows, 750 request/response rounds, GRO,
+stage/shared clocks, timestamp jitter, capture misses, RX holds and TX retry delivery.

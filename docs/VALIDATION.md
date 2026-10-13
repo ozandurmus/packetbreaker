@@ -1373,3 +1373,23 @@ five new regressions passed (6.40 s). The wire replicas remove the adjacent mirr
 exercise IPv4/IP ID zero and IPv6/constant IDs: clock error <0.1 ms, RX/TX present, event
 bounds within one second, host-local response p95 <1 ms, and a host-path verdict without
 overrides. A truly infeasible clock and one-way timing remain unknown.
+
+One full fast-suite run: **572 passed, 186 deselected in 157.62 s** (concurrent with the
+requested large ingest measurement). No full-suite rerun. Ruff and whitespace checks pass.
+The ACK guard fixture preserves ACK-before-retry and no-retry originals, removes a proven
+retry-delivered original, and deliberately collides base keys between different flows.
+The scale script is `tools/real_case_2_scale.py`; it retains the default 512 MB DuckDB limit
+and generates 2,016,088 frames across six captures (50 flows, 750 rounds, unrelated host
+traffic). Generation took 23.88 s and ingest took 148.52 s in this run.
+
+Scale acceptance **passed**: 2,016,088 input frames, 50 byte-range work units and 1,942,424
+atoms; analysis **359.27 s**, complete generation+ingest+analysis command **532.09 s**.
+`/usr/bin/time -l` maximum resident set size **2,641,215,488 bytes (2.460 GiB)**; this includes
+generation and ingest, not just the DuckDB working set. Peak memory footprint was
+1,923,303,416 bytes; no swaps. DuckDB retained its 512 MB budget and spilled to disk.
+The host model used **20,000 samples**, offset **39.998317 ms** versus 40 ms truth (error
+**0.001683 ms**), uncertainty **0.878656 ms**. RX event bounds were BASE+19 through BASE+46,
+within one second of BASE+20..45 truth. The host-path verdict appeared. In this replica TX
+is original loss plus retry delivery, rather than a falsely reported TX delay; the compact
+jitter replicas separately verify both genuine RX and TX holds. The large case completes
+without the ACK-guard allocation failure. No claim is made about the user's untested capture.
