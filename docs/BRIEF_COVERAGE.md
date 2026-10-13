@@ -80,7 +80,7 @@ macOS/Python 3.12 job; they are not omitted from this assessment. This part adds
 |---|---|---|
 | Bidirectional min-delay envelope, robust linear drift fit | done | `clock.py`; `test_analysis.py::test_healthy_five_file_e2e_and_reopen`, `test_clock_drift_over_hour_long_window`. Asymmetry remains uncertainty; one-way timing needs explicit evidence/override. |
 | Offset/drift/confidence, calibration frames and overrides | done | `analysis.py`, Settings UI; `test_timeseries.py::test_unaligned_clock_coverage_is_unknown_not_not_capturing`, `test_proxy_clocks.py`. User corrections do not manufacture verified uncertainty. |
-| Reject unreliable negative transit / cross-domain timing | done | `clock.py`, `analysis.py`, waterfall guards; `test_waterfall.py::test_handshake_http_and_uncertainty`, `test_proxy_clocks.py::test_independent_leg_clocks_never_imply_cross_proxy_timing`. |
+| Reject systematic negative transit / cross-domain timing | done | `clock.py`, `analysis.py`, waterfall guards; pilot stage ordering, declared/inferred shared clocks and bounded timestamp jitter preserve sparse positive host delay; `test_waterfall.py::test_handshake_http_and_uncertainty`, `test_proxy_clocks.py::test_independent_leg_clocks_never_imply_cross_proxy_timing`. |
 
 ## 4. Classification and location
 
@@ -190,3 +190,11 @@ implementations as described above. Remaining partial rows
 include application/protocol breadth, encrypted visibility and topology/path ambiguity. Tunnel,
 fragment and microburst support is bounded as described above; it does not turn capture timing
 into proof of queue overflow or identify unseen devices. The owner chooses the next part.
+
+
+## Pilot incident hardening
+
+- **Done:** device stage order rx→tx in both directions and shared appliance-clock declarations/inference (`topology.py`, `clock.py`, `analysis.py`, `test_pilot.py`). Stage semantics cannot masquerade as TTL hops or asymmetric wire routing.
+- **Done:** separately observed host RX/TX boundary delay, per-second byte-range series, local HTTP service time, three-period event/recovery window, evidence and schema-8 exports (`host_path.py`, `HostPath.tsx`, `onset.py`, `test_pilot.py`). Opaque traffic has observed data turnaround, not guessed application boundaries.
+- **Done, bounded:** unfiltered host scope is narrowed before wide matching, while the source/index stay intact; 512 MB DuckDB budget plus spill and clear allocation errors (`analysis.py`, `store.py`, million-frame synthetic acceptance).
+- **Limits:** inferred clock sharing is not physical proof; host boundary delay cannot distinguish capture buffering from NIC/driver/offload delay. Local application timing requires visible, uniquely decoded boundaries. The host view states its saved-window scope; it is not additionally filtered by the heatmap brush.

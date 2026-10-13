@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.3.3-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.3.5-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -143,7 +143,7 @@ packetbreaker --project demo/project
 6. **Export HTML / Export JSON:** use the header buttons. HTML opens locally as a
    single file; its metric-selectable heatmap, onset markers and evidence filters
    work without the running app or Internet. JSON follows
-   [findings schema v7](docs/findings-v7.schema.json). Both export the complete
+   [findings schema v8](docs/findings-v8.schema.json). Both export the complete
    saved analysis window, independent of the current brush. Neither embeds packet
    payloads; addresses and filters are still sensitive investigation metadata.
 7. **Settings:** inspect clock estimates/calibration frames, then stop with Ctrl+C.
@@ -667,3 +667,48 @@ minutes after the initial offer/answer. Re-INVITE/media renegotiation, BUNDLE/IC
 SRTP, encrypted SIP and mixed/coalesced SDP sections are not inferred. Vendor-split,
 tunnel and fragment auxiliary dissection currently remains unknown; tshark is the
 only dissector. Packet/transaction tables stay in DuckDB; UI examples are bounded.
+
+
+## Stage appliances and an unfiltered host capture
+
+For an appliance exporting two firewall stage pairs plus a switch mirror:
+
+1. Give each device's rx and tx points the same **Device** name. Set their sides to
+   **ingress** (rx) and **egress** (tx), then enable **Device stage captures**.
+   Both directions run rx → tx within that device. Physical wire captures keep
+   their ordinary interface semantics. The saved return path is normalized accordingly.
+2. Enter the same **Shared clock domain** name on all files from the common
+   appliance clock, including the mirror. Leave the separate server clock outside
+   that domain. Clear obsolete per-file clock overrides; conflicting corrections in
+   one shared domain are rejected. Near-zero consistent two-direction transit can infer a shared clock,
+   but it is explicitly an estimate; a small clock offset is indistinguishable from transit.
+3. Mark the server tcpdump point **Host capture**. Host-only background conversations
+   are excluded before wide analysis; Overview shows retained/excluded frame counts.
+   The source file and its full ingest index remain intact.
+4. Analyze. **Host receive / transmit path** separates switch→host RX and host→switch
+   TX delay from same-host service time. It shows per-second curves, uncertainty,
+   maxima, byte-weighted RX/TX delay shares and **before / event / recovery** tables.
+   Every point opens frame evidence. Empty seconds are gaps, not invented zeros.
+5. Local HTTP service time uses tshark request completion / first response boundaries.
+   For opaque traffic, ACK-consistent local data-burst turnaround is shown separately;
+   application request boundaries remain unknown. GRO/TSO uses matched TCP byte ranges.
+   Boundary delay may include capture, NIC, driver and offload timing; it does not
+   identify a driver defect or prove CPU processing time.
+
+Create the original synthetic replica, with two flows, shared-clock stage files,
+SPAN jitter, capture misses and selective host delay:
+
+```sh
+packetbreaker demo demo/pilot --scenario pilot --ip-id zero
+packetbreaker --project demo/pilot/project
+```
+
+Use `--ipv6` for the IPv6 replica. `pilot_healthy` retains capture misses/jitter
+without the host incident. The large test streams one million unrelated synthetic
+frames into the host capture. No real capture is included in the repository.
+
+The SQL budget remains 512 MB with project-local spill storage. Keep enough free
+disk space for the database and spill directory. Remaining allocation failures
+show an actionable error and preserve the ingested files/checkpoints. Host HTTP
+secondary decoding is bounded to 128 selected directional tuples; larger cohorts
+retain path timing but application timing is unknown until the incident scope is narrowed.

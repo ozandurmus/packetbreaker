@@ -134,6 +134,14 @@ class Topology(BaseModel):
                 if p.capture_id in domains and domains[p.capture_id] != p.clock_domain:
                     raise ValueError("One capture file cannot belong to conflicting clock domains")
                 domains[p.capture_id] = p.clock_domain
+        for domain in set(domains.values()):
+            corrections = {
+                (self.clock_overrides[cid].offset_ms, self.clock_overrides[cid].drift_ppm)
+                for cid, name in domains.items()
+                if name == domain and cid in self.clock_overrides
+            }
+            if len(corrections) > 1:
+                raise ValueError("Shared clock domain has conflicting clock corrections")
         stage_devices = {p.device for p in self.points if p.stage_capture}
         if stage_devices:
             from itertools import groupby

@@ -1,4 +1,4 @@
-"""Run every fast test in two isolated Windows processes; budget is actual elapsed wall time."""
+"""Run every fast test in resource-bounded isolated Windows processes; budget is actual elapsed wall time."""
 
 import json
 import os
@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+import psutil
 
 
 def partition(nodeids, count, costs=None):
@@ -69,6 +70,11 @@ def file_timings(paths):
     return result
 
 
+def shard_count(cores, available_bytes):
+    # One fixture producer per shard; leave a CPU free and budget 1.5 GiB per parent/producer pair.
+    return min(3, max(1, cores - 1), max(1, available_bytes // (3 * 1024**3 // 2)))
+
+
 def main():
     start = time.perf_counter()
     collected = subprocess.run(
@@ -82,7 +88,11 @@ def main():
         raise RuntimeError("No fast tests collected; cannot certify an empty suite")
     cost_file = Path(__file__).with_name("windows_test_costs.json")
     costs = json.loads(cost_file.read_text()) if cost_file.exists() else {}
-    groups = partition(ids, 2 if (os.cpu_count() or 1) >= 4 else 1, costs)
+    cores = os.cpu_count() or 1
+    available = psutil.virtual_memory().available
+    # Three-way execution was slower on hosted four-core runners; retain the measured two-process cap.
+    groups = [g for g in partition(ids, min(2, shard_count(cores, available)), costs) if g]
+    print(json.dumps(dict(cpu_cores=cores, available_ram_bytes=available, shards=len(groups))), flush=True)
     workers = []
     outputs = []
     try:

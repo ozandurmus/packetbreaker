@@ -32,7 +32,12 @@ def host_path(db, topology, segments):
                 s["direction"],
                 "rx" if s["direction"] == "forward" else "tx",
                 s["latency_uncertainty_ms"],
-                s["reason"],
+                s["reason"]
+                or (
+                    "Host boundary clock uncertainty unverified"
+                    if s.get("offset_uncertainty_ms") is None
+                    else None
+                ),
             )
             for s in selected
         ],

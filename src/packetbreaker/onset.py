@@ -430,7 +430,7 @@ def latency_window(values, floor, metric="latency_p95_ms"):
     if any(
         v.get("coverage", "capturing") != "capturing" or v.get("reason")
         for v in values
-        if valid[0]["start"] <= v["start"] <= (recovery["start"] if recovery else valid[-1]["end"])
+        if valid[0]["start"] <= v["start"] < (recovery["start"] if recovery else valid[-1]["end"])
     ):
         return None, "unknown: capture/quality gap interrupts baseline or event chronology"
     return dict(

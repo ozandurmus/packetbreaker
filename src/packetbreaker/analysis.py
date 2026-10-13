@@ -297,7 +297,12 @@ def align(db, topology):
     def inherit_domains():
         for name, members in groups.items():
             known = next(
-                (models[cid] for cid in members if cid in models and models[cid].offset is not None), None
+                (
+                    models[cid]
+                    for cid in sorted(members, key=lambda c: (c not in topology.clock_overrides, c != ref, c))
+                    if cid in models and models[cid].offset is not None
+                ),
+                None,
             )
             if known is not None:
                 for cid in members:
@@ -342,9 +347,12 @@ def align(db, topology):
                     ORDER BY hash(a.packet_key) LIMIT 20000""",
                     [a, b],
                 ).fetchall()
+                forward_before = topology.precedes(a, b, "forward")
+                reverse_before = topology.precedes(a, b, "reverse")
                 shared_bound = None
                 if (
-                    not points[a].host_capture
+                    any(abs(y - x) <= 0.0005 for x, y, _, _, _ in data)
+                    and not points[a].host_capture
                     and not points[b].host_capture
                     and not points[a].clock_domain
                     and not points[b].clock_domain
@@ -353,9 +361,7 @@ def align(db, topology):
                         [
                             (
                                 x,
-                                x
-                                + (y - x)
-                                * (1 if topology.precedes(a, b, "forward" if f else "reverse") == f else -1),
+                                x + (y - x) * (1 if (forward_before if f else reverse_before) == f else -1),
                                 f,
                             )
                             for x, y, f, _, _ in data
@@ -365,16 +371,31 @@ def align(db, topology):
                     models[cid] = replace(
                         models[aid],
                         source_domain=models[aid].source_domain or aid,
-                        uncertainty=max(models[aid].uncertainty or 0, shared_bound),
+                        uncertainty=max(models[aid].uncertainty, shared_bound)
+                        if models[aid].uncertainty is not None
+                        else None,
                         confidence="inferred_shared",
                         reason="Consistent near-zero positive transit in both directions; shared clock inferred, small offset remains indistinguishable from transit",
                     )
+                    models[cid].samples = len(data)
+                    models[cid].evidence = []
+                    for forward in (True, False):
+                        sample = next((r for r in data if r[2] == forward), None)
+                        if sample:
+                            models[cid].evidence.extend(
+                                evidence(
+                                    db,
+                                    "(o.point=? AND o.frame=?) OR(o.point=? AND o.frame=?)",
+                                    [a, sample[3], b, sample[4]],
+                                    2,
+                                )
+                            )
                     changed = True
                     inherit_domains()
                     break
                 model = fit_clock(
                     [
-                        (models[aid].correct(x), y, topology.precedes(a, b, "forward" if f else "reverse"))
+                        (models[aid].correct(x), y, (forward_before if f else reverse_before))
                         for x, y, f, _, _ in data
                     ]
                 )
@@ -1104,7 +1125,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             or any(s["reason"] for s in segments)
             or any(f["severity"] == "unknown" for f in findings)
             else "No supported network loss in the selected window",
-            scope="Phase 4 / Part 4; observed lifecycle and conservative security heuristics",
+            scope="Pilot diagnostics; stage clocks, host boundary delay and evidence-led path analysis",
             window=dict(start=start, end=end, common_start=common_start, common_end=common_end),
             clocks={cid: model.json() for cid, model in models.items()},
             coverage=coverage,

@@ -148,6 +148,8 @@ def waterfall(project, flow, start=None, end=None, request_index=0):
                         if a["capture_id"] == b["capture_id"]
                         else 1000 * (ma["uncertainty"] + mb["uncertainty"])
                     )
+                if uncertainty is not None:
+                    uncertainty += 1000 * (ma.get("timestamp_jitter", 0) + mb.get("timestamp_jitter", 0))
                 if (
                     uncertainty is None
                     or ma.get("confidence") == "unknown"
@@ -155,8 +157,14 @@ def waterfall(project, flow, start=None, end=None, request_index=0):
                 ):
                     reason = reason or "Clock alignment unreliable or uncertainty unverified"
                 duration = (b["corrected"] - a["corrected"]) * 1000
-                if duration < 0:
-                    reason = reason or "Clock/order inconsistency: negative elapsed time"
+                if duration < -max(0.001, uncertainty or 0):
+                    reason = (
+                        reason
+                        or "Clock/order inconsistency: negative elapsed time beyond timestamp uncertainty"
+                    )
+                elif duration < 0:
+                    duration = 0
+                    label += " (within timestamp noise)"
             else:
                 duration = None
                 reason = reason or "Clock alignment unreliable"
@@ -383,7 +391,9 @@ def service_times(project, flow):
         if not report or not raw:
             return dict(items=[], reason="Run analysis first")
         server = raw["forward"][-1]
-        if report.get("proxies", {}).get("transactions"):
+        if report.get("proxies", {}).get("transactions") or report.get("host_path", {}).get(
+            "local_service", {}
+        ).get("samples"):
             pairs = rows(
                 db,
                 """SELECT last_frame,response_frame,complete,response,point FROM proxy_requests

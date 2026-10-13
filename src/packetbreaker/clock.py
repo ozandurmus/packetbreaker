@@ -64,11 +64,13 @@ def fit_clock(samples):
     fw = [b - a - drift * (a - epoch) for a, b, f in samples if f]
     rv = [b - a - drift * (a - epoch) for a, b, f in samples if not f]
     upper, lower = min(fw), max(rv)
-    noise = []
-    for direction in (True, False):
-        ordered = sorted((a, b - a - drift * (a - epoch)) for a, b, f in samples if f == direction)
-        noise.extend(abs(b[1] - a[1]) for a, b in zip(ordered, ordered[1:]))
-    jitter = min(0.002, median(noise) * 4) if noise else 0
+    jitter = 0.0
+    if lower > upper:
+        noise = []
+        for direction in (True, False):
+            ordered = sorted((a, b - a - drift * (a - epoch)) for a, b, f in samples if f == direction)
+            noise.extend(abs(b[1] - a[1]) for a, b in zip(ordered, ordered[1:]))
+        jitter = min(0.002, median(noise) * 4) if noise else 0
     if lower > upper and lower - upper <= max(2 * jitter, 0.000001):
         upper, lower = median(fw), median(rv)
     if lower > upper + max(2 * jitter, 1e-6):
