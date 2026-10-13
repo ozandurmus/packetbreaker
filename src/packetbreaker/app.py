@@ -184,6 +184,7 @@ def create_app(project_path):
         except ValueError as exc:
             tshark = dict(path=None, error=str(exc))
         from .case_setup import inventory_overview
+
         captures = project.inventory()
         return dict(
             version=__version__,
@@ -333,6 +334,39 @@ def create_app(project_path):
             headers={"Content-Disposition": f'attachment; filename="packetbreaker-report.{format}"'},
         )
 
+    @app.post("/api/anonymize")
+    def anonymized_export(mode: str = Query("zero", pattern="^(zero|headers-only)$"), map_ips: bool = False):
+        import tempfile
+        import shutil
+        from starlette.background import BackgroundTask
+        from .anonymize import anonymize_files, local_key
+
+        idle()
+        with project.connect() as db:
+            paths = [
+                r[0]
+                for r in db.execute("SELECT path FROM captures WHERE state='ready' ORDER BY id").fetchall()
+            ]
+            tshark = project.get(db, "preferences", {}).get("tshark")
+        if not paths:
+            raise HTTPException(400, "No ready captures to export")
+        directory = Path(tempfile.mkdtemp(prefix="packetbreaker-anonymize-"))
+        try:
+            key = local_key(project.path / ".anonymize.key") if map_ips else None
+            anonymize_files(paths, directory / "captures", mode=mode, key=key, map_ips=map_ips, tshark=tshark)
+            archive = shutil.make_archive(
+                str(directory / "anonymized-captures"), "zip", directory / "captures"
+            )
+            return FileResponse(
+                archive,
+                filename="anonymized-captures.zip",
+                media_type="application/zip",
+                background=BackgroundTask(shutil.rmtree, directory),
+            )
+        except BaseException:
+            shutil.rmtree(directory)
+            raise
+
     @app.get("/api/findings")
     def findings(
         start: float | None = Query(None, allow_inf_nan=False),
@@ -341,28 +375,38 @@ def create_app(project_path):
         return findings_page(project, start, end)
 
     @app.get("/api/sessions/evidence")
-    def lifecycle_evidence(point: str,start: float=Query(allow_inf_nan=False),end: float=Query(allow_inf_nan=False)):
+    def lifecycle_evidence(
+        point: str, start: float = Query(allow_inf_nan=False), end: float = Query(allow_inf_nan=False)
+    ):
         from .security import session_evidence
+
         try:
-            return session_evidence(project,point,start,end)
+            return session_evidence(project, point, start, end)
         except ValueError as exc:
-            raise HTTPException(422,str(exc)) from exc
+            raise HTTPException(422, str(exc)) from exc
 
     @app.get("/api/timeseries")
     def timeseries():
         return timeseries_page(project)
 
     @app.get("/api/topology/overlay")
-    def overlay(start: float | None = Query(None, allow_inf_nan=False),
-                end: float | None = Query(None, allow_inf_nan=False)):
+    def overlay(
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
+    ):
         from .pilot import topology_overlay
+
         return topology_overlay(project, start, end)
 
     @app.get("/api/topology/inspect")
-    def inspect(point: str | None = None, segment: str | None = None,
-                start: float | None = Query(None, allow_inf_nan=False),
-                end: float | None = Query(None, allow_inf_nan=False)):
+    def inspect(
+        point: str | None = None,
+        segment: str | None = None,
+        start: float | None = Query(None, allow_inf_nan=False),
+        end: float | None = Query(None, allow_inf_nan=False),
+    ):
         from .pilot import topology_inspect
+
         if bool(point) == bool(segment):
             raise HTTPException(422, "Choose exactly one point or segment")
         try:

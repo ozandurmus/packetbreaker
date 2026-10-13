@@ -1266,3 +1266,10 @@ A new equivalence/negative guard verifies **1 batched tshark call versus 16 isol
 A supported host boundary event window with the largest added delay leads the ranked findings and executive summary at high severity. An isolated earlier packet loss cannot displace it by timestamp alone. Positive retransmission delivery at a host/wire boundary gets a host receive/transmit-path loss label; recovery class remains in metrics and internal event counters, preserving loss-rate accounting. Capture misses, absent recovery, uncertain coverage and ordinary device/link losses retain their classifications. Findings export schema 9 adds both boundary classes. The boundary does not prove a particular driver/NIC cause.
 
 Focused pilot checks: 21 passed, 13 slow cases deselected in 4.57 s. Tests include two devices and a link as negative attribution candidates and an executed naive severity/time ranking that incorrectly prioritizes an isolated loss. Full suite/CI are the final close-out gate.
+
+Anonymizer implementation checkpoint: generated planted-secret fixtures exposed an
+ERSPAN leak when tshark's enclosing protocol size was mistaken for its header size.
+Bounding it at the next decoded protocol fixed the failure. CLI, UI ZIP, IPv4/IPv6,
+little/big-endian pcapng, both payload modes, all five tunnel formats and ICMP quotes
+pass; exact TCP transport report/onset comparison passes in zero-ID and constant-ID
+IPv6 modes. Initial 10-test run: 14.18 s. Final proof and complete gates follow below.

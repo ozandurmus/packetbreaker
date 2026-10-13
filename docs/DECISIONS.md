@@ -605,3 +605,18 @@ Measured follow-up: three-way hosted execution increased contention, so the acti
 A supported host boundary event window with the largest added delay leads the ranked findings and executive summary at high severity. An isolated earlier packet loss cannot displace it by timestamp alone. Positive retransmission delivery at a host/wire boundary gets a host receive/transmit-path loss label; recovery class remains in metrics and internal event counters, preserving loss-rate accounting. Capture misses, absent recovery, uncertain coverage and ordinary device/link losses retain their classifications. Findings export schema 9 adds both boundary classes. The boundary does not prove a particular driver/NIC cause.
 
 Focused pilot checks: 21 passed, 13 slow cases deselected in 4.57 s. Tests include two devices and a link as negative attribution candidates and an executed naive severity/time ranking that incorrectly prioritizes an isolated loss. Full suite/CI are the final close-out gate.
+
+## Anonymizer boundaries
+
+Use tshark field positions rather than introduce another dissector. A keyed HMAC-SHA256
+binary-prefix-tree permutation supplies consistent IPv4/IPv6 prefix mapping (not a
+claim to implement Crypto-PAn). MAC pseudonyms use a separate HMAC domain; default MAC
+masking uses a fixed public seed, so it conceals literal bytes rather than resisting
+dictionary recovery. Optional private key mapping also keys MACs. A 65,536-entry cache
+bounds mapping memory. The key is local, excluded from UI archives; filenames are
+neutral. Differential checksum updates preserve the original checksum error syndrome.
+
+The user clarified that equivalence means transport analysis; payload-dependent
+results are unknown. Preserve header options as requested: sensitive custom options
+remain the operator's review responsibility. Reject unsupported/fragmented/incomplete
+headers and SPB rather than claim safe sanitization. No network calls or new dependency.

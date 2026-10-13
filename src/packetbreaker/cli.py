@@ -21,6 +21,18 @@ def main():
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
     commands = parser.add_subparsers(dest="command")
+    anon = commands.add_parser(
+        "anonymize", help="Remove payload and metadata from a capture or capture folder"
+    )
+    anon.add_argument("input", type=Path)
+    anon.add_argument("output", type=Path)
+    anon.add_argument("--payload", choices=["zero", "headers-only"], default="zero")
+    anon.add_argument(
+        "--map-ips", action="store_true", help="Keyed prefix-preserving address mapping; default keeps IPs"
+    )
+    anon.add_argument(
+        "--key", type=Path, help="Local 32-byte key, created if absent; reuse across the project; never share"
+    )
     case = commands.add_parser("case", help="Ingest a capture folder into a sibling project and open Path")
     case.add_argument("folder", type=Path)
     case.add_argument("--no-browser", action="store_true", default=argparse.SUPPRESS)
@@ -93,6 +105,26 @@ def main():
     forti.add_argument("--device", default="FortiGate")
     args = parser.parse_args()
     try:
+        if args.command == "anonymize":
+            from .anonymize import anonymize, anonymize_files, local_key
+
+            if args.map_ips and not args.key:
+                parser.error("--map-ips requires --key pointing to a local key file")
+            key = local_key(args.key) if args.key else None
+            kwargs = dict(mode=args.payload, key=key, map_ips=args.map_ips)
+            if args.input.is_dir():
+                files = sorted(
+                    p
+                    for p in args.input.iterdir()
+                    if p.suffix.lower() in (".pcap", ".pcapng", ".cap") and p.is_file()
+                )
+                if not files:
+                    raise ValueError("No capture files found in input folder")
+                result = anonymize_files(files, args.output, **kwargs)
+            else:
+                result = anonymize(args.input, args.output, **kwargs)
+            print(json.dumps(result, indent=2))
+            return
         if args.command == "case":
             if not 1024 <= args.port <= 65535:
                 parser.error("Port must be between 1024 and 65535")

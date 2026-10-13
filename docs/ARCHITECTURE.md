@@ -827,3 +827,15 @@ Pilot CI performance: shared UDP header tables are temporary and scoped to one a
 A supported host boundary event window with the largest added delay leads the ranked findings and executive summary at high severity. An isolated earlier packet loss cannot displace it by timestamp alone. Positive retransmission delivery at a host/wire boundary gets a host receive/transmit-path loss label; recovery class remains in metrics and internal event counters, preserving loss-rate accounting. Capture misses, absent recovery, uncertain coverage and ordinary device/link losses retain their classifications. Findings export schema 9 adds both boundary classes. The boundary does not prove a particular driver/NIC cause.
 
 Focused pilot checks: 21 passed, 13 slow cases deselected in 4.57 s. Tests include two devices and a link as negative attribution candidates and an executed naive severity/time ranking that incorrectly prioritizes an isolated loss. Full suite/CI are the final close-out gate.
+
+## Anonymizer
+
+`anonymize.py` streams tshark PDML and original container records together, validating
+frame lengths/counts. Only tshark-defined contiguous header spans are retained; the
+ERSPAN enclosing protocol extent is bounded by the next decoded header. The local
+container walker preserves packet order, timestamp words, interface IDs and original
+wire lengths. It strips pcapng text options and drops NRB, DSB and unknown/custom
+blocks; timestamp resolution/offset and numeric drop statistics survive. Per-frame
+memory is bounded to 64 MiB; unknown encapsulations fail before output publication.
+CLI single/folder exports and the local POST UI ZIP use the same implementation.
+No source file, original filename or key is included in a project ZIP.
