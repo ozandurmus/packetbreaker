@@ -1095,11 +1095,14 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
 
         host_report, host_findings = host_path(db, topology, segments)
         findings.extend(host_findings)
-        primary_host = polish_findings(findings, segments, topology, onsets)
         from .cycles import build_cycles, cycle_findings
 
         engine_topology = topology.model_copy(update={"start": start, "end": end})
         cycle_report = build_cycles(db, engine_topology, segments, host_report, onsets)
+        from .host_path import finish_host_summary, group_host_losses
+
+        findings.extend(finish_host_summary(db, topology, segments, host_report))
+        primary_host = polish_findings(findings, segments, topology, onsets)
         findings.extend(cycle_findings(db, topology, segments))
         from .delivery import delivery_report
 
@@ -1108,6 +1111,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         from .hold_release import hold_release
 
         findings.extend(hold_release(db, segments))
+        host_report["loss_groups"] = group_host_losses(findings, segments, topology)
         from .pilot import flow_columns
 
         flow_columns(db, findings, topology)

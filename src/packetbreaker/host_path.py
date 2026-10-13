@@ -104,92 +104,13 @@ def host_path(db, topology, segments):
         sum(greatest(0,delay_ms-uncertainty_ms)*bytes) AS delay_byte_ms,arg_max(key_a,delay_ms) AS evidence_key
         FROM host_transit GROUP BY hop,direction,flow""",
     )
-    findings = []
     items = []
     for stream in streams:
-        refs = evidence(db, "o.packet_key=?", [stream["evidence_key"]], 16)
-        stream["evidence"] = refs
+        stream["evidence"] = evidence(db, "o.packet_key=?", [stream["evidence_key"]], 4, _expand_ranges=False)
         stream["tooltip"] = NOTE
-        local = next((r for r in service if r["flow"] == stream["flow"]), None)
+        stream["local_service"] = next((r for r in service if r["flow"] == stream["flow"]), None)
         stream["transport_turnaround"] = next((r for r in turnaround if r["flow"] == stream["flow"]), None)
-        stream["local_service"] = local or dict(
-            samples=0, p95_ms=None, reason="No uniquely decoded complete request/response boundaries"
-        )
-        if stream["reason"] or not stream["delayed_bytes"]:
-            continue
-        total = sum(s["delay_byte_ms"] or 0 for s in streams if s["flow"] == stream["flow"])
-        stream["delay_share_percent"] = 100 * stream["delay_byte_ms"] / total if total else None
-        segment = next(s for s in selected if s["id"] == stream["hop"])
-        series = rows(
-            db,
-            "SELECT * FROM host_path_series WHERE hop=? AND flow=? ORDER BY start",
-            [stream["hop"], stream["flow"]],
-        )
-        for bucket in series:
-            bucket["evidence"] = evidence(db, "o.packet_key=?", [bucket["evidence_key"]], 8)
-        stream["series"] = series
-        combined = rows(
-            db,
-            'SELECT start,max("end") AS "end",max(p95_ms) AS latency_p95_ms FROM host_path_series WHERE flow=? AND reason IS NULL GROUP BY start ORDER BY start',
-            [stream["flow"]],
-        )
-        window, why = latency_window(combined, max(1, 2 * stream["uncertainty_ms"]))
-        stream["window"] = window
-        stream["window_reason"] = why
-        if not window:
-            if (
-                len(series) >= 8
-                or stream["matched_ranges"] < 3
-                or stream["p95_ms"] <= max(1, 2 * stream["uncertainty_ms"])
-            ):
-                continue
-            window = dict(
-                time=series[0]["start"],
-                end=series[-1]["end"],
-                recovery_confirmed=False,
-                status="unknown",
-                reason=why,
-            )
-            stream["window"] = window
-        stream["periods"] = rows(
-            db,
-            """SELECT CASE WHEN time<? THEN 'before' WHEN time<? THEN 'event' ELSE 'recovery' END AS period,
-            count(*) AS matched_ranges,sum(bytes) AS bytes,quantile_cont(delay_ms,.95) AS p95_ms,max(delay_ms) AS max_ms
-            FROM host_transit WHERE hop=? AND flow=? GROUP BY period ORDER BY min(time)""",
-            [window["time"], window["end"], stream["hop"], stream["flow"]],
-        )
-        if window.get("status") == "unknown":
-            for period in stream["periods"]:
-                period["period"] = "observed; onset/recovery unknown"
-        stream["window"]["start"] = window["time"]
-        label = "receive" if stream["direction"] == "rx" else "transmit"
-        local_text = (
-            f"the application responds in {local['p95_ms']:.3f} ms locally (HTTP p95)"
-            if local
-            else f"host-local data turnaround is {stream['transport_turnaround']['p95_ms']:.3f} ms (p95); application boundaries unknown"
-            if stream["transport_turnaround"]
-            else "host-local application response time is unknown"
-        )
-        headline = f"Delay occurs between {points[segment['point_a']].label} and {points[segment['point_b']].label}; {local_text}."
-        headline += f" Observed event window {time_labels(window['time'], topology.report_timezone)['local']} / {time_labels(window['time'], topology.report_timezone)['utc']} through {time_labels(window['end'], topology.report_timezone)['utc']}; recovery {'confirmed' if window['recovery_confirmed'] else 'unknown'}, boundary uncertainty ±{stream['uncertainty_ms']:.3f} ms."
-        if window.get("status") == "unknown":
-            headline = f"Delay occurs between {points[segment['point_a']].label} and {points[segment['point_b']].label}; {local_text}. Onset/recovery unknown: {why}; boundary uncertainty ±{stream['uncertainty_ms']:.3f} ms."
-        stream["headline"] = headline
-        f = media_finding(
-            db,
-            f"host_{label}_delay",
-            segment,
-            window["time"],
-            headline,
-            {k: v for k, v in stream.items() if k not in ("evidence", "series", "tooltip")},
-            refs,
-        )
-        f["time_range"] = [window["time"], window["end"]]
-        f["tooltip"] = NOTE
-        f["cause"] = "host_capture_boundary"
-        findings.append(f)
-        items.append(stream)
-    return dict(
+    report = dict(
         items=items,
         streams=streams,
         series=rows(db, "SELECT * FROM host_path_series ORDER BY start,hop,flow LIMIT 20000"),
@@ -201,8 +122,180 @@ def host_path(db, topology, segments):
             reason=None if aggregate[0] else "No uniquely decoded application boundaries",
         ),
         note=NOTE,
-        scope="Saved selected window; per-second series; RX/TX shares are byte-weighted excess delay, not CPU time",
-    ), findings
+        scope="Saved selected window; RX/TX shares are byte-weighted excess boundary delay",
+    )
+    return aggregate_host(db, topology, selected, report), []
+
+
+def aggregate_host(db, topology, segments, report):
+    """Keep flow details, but compute direction metrics from observations, not averages of p95s."""
+    global_series = rows(
+        db,
+        'SELECT start,max("end") AS "end",max(p95_ms) AS latency_p95_ms FROM host_path_series WHERE reason IS NULL GROUP BY start ORDER BY start',
+    )
+    uncertainty = max((s.get("uncertainty_ms") or 0 for s in report["streams"]), default=0)
+    window, why = latency_window(global_series, max(1, 2 * uncertainty))
+    if window:
+        window["start"] = window["time"]
+    report["window"] = window
+    report["window_reason"] = why
+    items = []
+    total = sum(s["delay_byte_ms"] or 0 for s in report["streams"] if not s["reason"])
+    for direction in ("rx", "tx"):
+        details = [s for s in report["streams"] if s["direction"] == direction]
+        affected = [s for s in details if not s["reason"] and s["delayed_bytes"]]
+        if not affected:
+            continue
+        # The worst boundary names the observed localisation; all flows remain in detail.
+        dominant = max(affected, key=lambda s: s["max_ms"])
+        segment = next(s for s in segments if s["id"] == dominant["hop"])
+        item = rows(
+            db,
+            """SELECT count(*) AS matched_ranges,sum(bytes) AS bytes,
+            quantile_cont(delay_ms,.95) AS p95_ms,max(delay_ms) AS max_ms,
+            max(uncertainty_ms) AS uncertainty_ms,sum(bytes) FILTER(WHERE delay_ms>greatest(1,2*uncertainty_ms)) AS delayed_bytes,
+            sum(greatest(0,delay_ms-uncertainty_ms)*bytes) AS delay_byte_ms
+            FROM host_transit WHERE direction=? AND reason IS NULL""",
+            [direction],
+        )[0]
+        series = rows(
+            db,
+            """SELECT floor(time) AS start,floor(time)+1 AS "end",
+            quantile_cont(delay_ms,.95) AS p95_ms,max(delay_ms) AS max_ms,
+            arg_max(key_a,delay_ms) AS evidence_key FROM host_transit
+            WHERE direction=? AND reason IS NULL GROUP BY ALL ORDER BY start""",
+            [direction],
+        )
+        for r in series:
+            r["evidence"] = evidence(db, "o.packet_key=?", [r.pop("evidence_key")], 2, _expand_ranges=False)
+        current = window
+        if current is None:
+            # Preserve a short-capture observation, with explicitly unknown onset.
+            if len(series) >= 8 or item["p95_ms"] <= max(1, 2 * item["uncertainty_ms"]):
+                continue
+            current = dict(
+                start=series[0]["start"],
+                time=series[0]["start"],
+                end=series[-1]["end"],
+                status="unknown",
+                reason=why,
+                recovery_confirmed=False,
+            )
+        periods = rows(
+            db,
+            """SELECT CASE WHEN time<? THEN 'before' WHEN time<? THEN 'event' ELSE 'recovery' END AS period,
+            count(*) AS matched_ranges,sum(bytes) AS bytes,quantile_cont(delay_ms,.95) AS p95_ms,max(delay_ms) AS max_ms
+            FROM host_transit WHERE direction=? AND reason IS NULL GROUP BY period ORDER BY min(time)""",
+            [current["start"], current["end"], direction],
+        )
+        for detail in details:
+            detail["window"] = current
+        item.update(
+            hop=dominant["hop"],
+            hops=sorted({s["hop"] for s in affected}),
+            direction=direction,
+            flow=None,
+            affected_flow_count=len({s["flow"] for s in affected}),
+            flow_details=details,
+            series=series,
+            window=current,
+            window_reason=why,
+            periods=periods,
+            delay_share_percent=100 * item["delay_byte_ms"] / total if total else None,
+            evidence=dominant["evidence"],
+            tooltip=NOTE,
+            segment_label=segment["label"],
+        )
+        items.append(item)
+    report["items"] = items
+    return report
+
+
+def finish_host_summary(db, topology, segments, report):
+    hosts = [p.id for p in topology.points if p.host_capture]
+    aggregate = rows(
+        db,
+        """SELECT count(*) AS samples,quantile_cont(turnaround_ms,.95) AS p95_ms
+        FROM cycle_points WHERE point IN(SELECT unnest(?::VARCHAR[])) AND reason IS NULL""",
+        [hosts],
+    )[0]
+    report["local_service"]["cycle_aggregate"] = aggregate
+    findings = []
+    for item in report["items"]:
+        local = report["local_service"]
+        text = (
+            f"the application responds in {aggregate['p95_ms']:.3f} ms locally (HTTP cycle p95 over {aggregate['samples']} cycles)"
+            if local["samples"] == aggregate["samples"] and aggregate["samples"]
+            else f"host-local data turnaround p95 {aggregate['p95_ms']:.3f} ms over {aggregate['samples']} cycles; application boundaries unknown"
+            if aggregate["samples"]
+            else "host-local turnaround unknown"
+        )
+        w = item["window"]
+        headline = f"Delay occurs between {item['segment_label'].replace(' → ', ' and ')}; {text}. {item['affected_flow_count']} affected flow(s)."
+        if w.get("status") == "unknown":
+            headline += f" Onset/recovery unknown: {w.get('reason')}."
+        else:
+            headline += f" Global event window {time_labels(w['start'], topology.report_timezone)['local']} / {time_labels(w['start'], topology.report_timezone)['utc']} through {time_labels(w['end'], topology.report_timezone)['utc']}; recovery {'confirmed' if w['recovery_confirmed'] else 'unknown'}."
+        headline += f" Clock uncertainty ±{item['uncertainty_ms']:.3f} ms."
+        item["local_service"] = report["local_service"]
+        item["headline"] = headline
+        segment = next(s for s in segments if s["id"] == item["hop"])
+        kind = "host_receive_delay" if item["direction"] == "rx" else "host_transmit_delay"
+        f = media_finding(
+            db,
+            kind,
+            segment,
+            w["start"],
+            headline,
+            {k: v for k, v in item.items() if k not in ("evidence", "series", "flow_details", "tooltip")},
+            item["evidence"],
+        )
+        f.update(time_range=[w["start"], w["end"]], tooltip=NOTE, cause="host_capture_boundary")
+        f["metrics"]["flows"] = [
+            s["flow"] for s in item["flow_details"] if s.get("delayed_bytes") and not s.get("reason")
+        ]
+        findings.append(f)
+    return findings
+
+
+def group_host_losses(findings, segments, topology):
+    points = {p.id: p for p in topology.points}
+    groups = []
+    for s in segments:
+        if not (points[s["point_a"]].host_capture or points[s["point_b"]].host_capture):
+            continue
+        members = [
+            f
+            for f in findings
+            if f["hop"] == s["id"]
+            and f["type"]
+            in (
+                "impactful_loss",
+                "recovered_loss",
+                "unrecovered_loss",
+                "host_transmit_path_loss",
+                "host_receive_path_loss",
+            )
+        ]
+        if not members:
+            continue
+        counts = {}
+        for f in members:
+            counts[f["type"]] = counts.get(f["type"], 0) + f["metrics"].get("count", 0)
+        role = "TX" if points[s["point_a"]].host_capture else "RX"
+        text = f"Loss between {points[s['point_a']].label} and {points[s['point_b']].label} (host {role} path or network; no mirror point in between)"
+        groups.append(
+            dict(
+                hop=s["id"],
+                headline=text,
+                counts=counts,
+                finding_ids=[f["id"] for f in members],
+                evidence=members[0]["evidence"],
+            )
+        )
+        for f in members:
+            f["metrics"]["boundary_loss_heading"] = text
+    return groups
 
 
 def host_loss_type(points, a, b, kind, recovered):
@@ -263,7 +356,10 @@ def polish_findings(findings, segments, topology, onsets):
             dominant["severity"] = "high"
             dominant["metrics"]["primary_degradation"] = True
             hops[dominant["hop"]]["severity"] = "high"
-            onsets["summary"] = dominant["headline"] + " " + onsets["summary"]
+            onsets["summary"] = dominant["headline"]
+            if candidate["metrics"]["window"].get("status") != "unknown":
+                onsets["status"] = "detected"
+                onsets["global_event_window"] = candidate["metrics"]["window"]
     rank = {"high": 0, "low": 1, "quality": 2, "unknown": 3}
     findings.sort(key=lambda f: (f is not dominant, rank[f["severity"]], f["time_range"][0]))
     return dominant

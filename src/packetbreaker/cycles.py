@@ -36,7 +36,7 @@ def build_cycles(db, topology, segments, host_report, onsets):
     )
     windows = {
         s["flow"]: (s["window"]["time"], s["window"]["end"], s["window"].get("reason"))
-        for s in host_report.get("items", [])
+        for s in host_report.get("streams", [])
         if s.get("window")
     }
     if windows:
