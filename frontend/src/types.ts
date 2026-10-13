@@ -165,6 +165,8 @@ export type Segment = {
   excluded_counts: Record<string, number>;
   classes: Record<string, number>;
   offset_uncertainty_ms: number | null;
+  latency_uncertainty_ms?: number;
+  quality_notes?: string[];
 };
 export type Report = {
   udp?: import("./UdpMedia").UdpReport;

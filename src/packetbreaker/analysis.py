@@ -416,6 +416,18 @@ def align(db, topology):
                 models[cid].confidence = "low"
                 models[cid].uncertainty = None
                 models[cid].reason = "Relative Fortinet timestamps anchored by a user-supplied start time"
+    # Relative adjacent timestamp differences bound jitter without absorbing sparse host-delay events.
+    for cid, model in models.items():
+        if model.offset is None or cid == ref:
+            continue
+        noise = db.execute(
+            """WITH pairs AS(SELECT b.ts-a.ts AS delta,a.ts,
+            lag(b.ts-a.ts) OVER(PARTITION BY a.point,b.point,a.direction ORDER BY a.ts) AS previous
+            FROM calibration a JOIN calibration b USING(packet_key) WHERE a.capture_id=? AND b.capture_id=? AND a.eligible AND b.eligible)
+            SELECT least(.002,coalesce(quantile_cont(abs(delta-previous),.5),0)*4) FROM pairs""",
+            [ref, cid],
+        ).fetchone()[0]
+        model.timestamp_jitter = max(model.timestamp_jitter, noise)
     db.execute(
         "CREATE OR REPLACE TEMP TABLE clock_values(capture_id VARCHAR,epoch DOUBLE,offset_s DOUBLE,drift DOUBLE)"
     )
@@ -532,18 +544,25 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     pending_nat = pending_nat or unresolved > 0
                 ma, mb = models[pa.capture_id], models[pb.capture_id]
                 clocks_ok = ma.offset is not None and mb.offset is not None and ma.domain == mb.domain
+                from .clock import transit_quality
+
+                tolerance_ms = (
+                    (ma.uncertainty or 0) + (mb.uncertainty or 0) + ma.timestamp_jitter + mb.timestamp_jitter
+                ) * 1000
                 matched = rows(
                     db,
                     """SELECT count(*) AS matched,min(time_b-time_a)*1000 AS min_ms,
                     quantile_cont((time_b-time_a)*1000,.5) AS p50_ms,
+                    quantile_cont((time_b-time_a)*1000,.05) AS p05_ms,
+                    count(*) FILTER(WHERE (time_b-time_a)*1000 < -?) AS negative_outliers,
                     quantile_cont((time_b-time_a)*1000,.95) AS p95_ms,
                     max((time_b-time_a)*1000) AS max_ms
                     FROM observation_matches WHERE point_a=? AND point_b=? AND direction=?
                     AND (? IS NULL OR time_a>=?) AND (? IS NULL OR time_a<=?)""",
-                    [a, b, direction, start, start, end, end],
+                    [max(0.001, tolerance_ms), a, b, direction, start, start, end, end],
                 )[0]
-                negative = matched["min_ms"] is not None and matched["min_ms"] < -0.001
-                clocks_ok = clocks_ok and not negative
+                timing_quality = transit_quality(matched, tolerance_ms)
+                clocks_ok = clocks_ok and not timing_quality["systematic_negative"]
                 reason = (
                     "Unsupported translation boundary"
                     if unsupported
@@ -641,6 +660,7 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
                     if ma.uncertainty is not None and mb.uncertainty is not None
                     else None,
                     **matched,
+                    **timing_quality,
                 )
                 if reason:
                     for key in ("min_ms", "p50_ms", "p95_ms", "max_ms"):

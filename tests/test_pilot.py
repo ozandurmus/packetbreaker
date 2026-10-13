@@ -55,3 +55,23 @@ def test_declared_clock_domain_cannot_conflict_for_one_file():
     t["points"][1].update(capture_id="a_rx", clock_domain="y")
     with pytest.raises(ValueError, match="clock domain"):
         Topology.model_validate(t)
+
+
+def test_span_jitter_and_isolated_outliers_do_not_invalidate_transit():
+    from packetbreaker.clock import fit_clock, transit_quality
+
+    samples = [
+        (i * 0.1, i * 0.1 + 0.03 + (1 if f else -1) * 0.00004 + ((i % 7) - 3) * 0.00005, f)
+        for i in range(200)
+        for f in (True, False)
+    ]
+    model = fit_clock(samples)
+    assert model.offset is not None and abs(model.offset - 0.03) < 0.0003
+    normal = transit_quality(
+        dict(matched=1000, min_ms=-20, p50_ms=0.04, p05_ms=-0.1, negative_outliers=1), 0.3
+    )
+    assert not normal["systematic_negative"] and normal["quality_notes"]
+    biased = transit_quality(
+        dict(matched=1000, min_ms=-20, p50_ms=-10, p05_ms=-11, negative_outliers=900), 0.3
+    )
+    assert biased["systematic_negative"]

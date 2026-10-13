@@ -1176,7 +1176,7 @@ function App() {
                               </td>
                               <td>
                                 {s.reason ||
-                                  `Estimated · offset uncertainty ±${num(s.offset_uncertainty_ms, " ms", 3)}`}
+                                  `Estimated · offset uncertainty ±${num(s.latency_uncertainty_ms ?? s.offset_uncertainty_ms, " ms", 3)}`}
                               </td>
                             </tr>
                           ))}

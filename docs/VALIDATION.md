@@ -1219,3 +1219,6 @@ Stage capture mode is declared per device through capture points. rx/ingress pre
 
 
 Pilot shared clocks: points may name one source clock domain across files. Its fitted/reference parameters are inherited without relative fitting. Automatic inference requires both directional populations, temporal span and stable near-zero positive transit; it is labelled inferred, with the observed bound as uncertainty, because small offset and physical transit cannot be distinguished. Host captures are excluded from automatic grouping. Clock-domain and existing clock regression checks: 7 passed.
+
+
+Pilot timestamp jitter: robust adjacent calibration-delta variation estimates a per-capture timestamp-noise bound, capped at 2 ms so selective 100 ms+ host events cannot be trained away. Small crossing clock envelopes may use robust centers; gross inconsistent envelopes remain unknown. Transit is invalidated only by a systematic negative median beyond jitter plus offset uncertainty. Isolated negative outliers remain explicit quality notes; latency shows its combined uncertainty. Nine stage/clock/jitter/invalid-override checks pass.
