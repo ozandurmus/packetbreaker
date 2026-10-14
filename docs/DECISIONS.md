@@ -773,3 +773,17 @@ and typical wire/compressed spacing, then lets the user choose every original oc
 It retains capture-local clocks and the existing signature caveat. No new matching or cause
 inference is introduced. The existing controller and all non-Overview handlers are moved
 verbatim into bounded files; protocol, capture and export behaviour is preserved.
+
+### Materiality before colour, additions before elapsed time
+
+A few quickly recovered losses must not obscure a dominant host-path delay. Use the requested
+1 ms p95 / 10 ms max / 0.1% supported-loss boundaries and event-window impact evidence for
+Overview colours. Unknown clocks/coverage and unlocated impactful events remain unknown;
+clean observed is not a claim that an unobserved fault is impossible. Proven small loss only
+outside the event is amber. Exactly-at-threshold latency/loss is material, subject to uncertainty.
+
+Do not stack application-local elapsed time or client wait as network/host addition. Preserve
+those values separately in tooltips and preserve unknown parts. Include the measured aggregate
+maximum when top-N selection by elapsed cycle time omits it. The aggregate describes the host
+boundary, while the chart can additionally contain sub-millisecond network transit; the replica
+comparison therefore permits 1 ms rounding, without scaling or rewriting reported values.

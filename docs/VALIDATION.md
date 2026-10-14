@@ -1535,3 +1535,25 @@ The display p99 uses available per-bucket maximum samples, not the full engine p
 partial components remain unknown. Summary/path metrics remain full-window while brushed
 charts and the existing flow/finding/ladder requests use the selected interval. The real
 incident is not opened. CI is checked once after the single push, without polling.
+
+## UI correctness fixes after real-case review
+
+`ui-fixes` branches from main after PR #23 merge. Synthetic-only frontend checks reuse the
+saved 50-flow report; no engine source or real capture changes. Against the preceding model,
+a 0.01% recovered-loss segment with 0.1 ms maximum was `degraded`; it is now `clean`. Tests
+also retain unknown clock/coverage and distinguish impactful event loss, outside-event minor
+loss, and material delay/loss at the thresholds.
+
+Before correction, maximum event-window stack was 16,188.054 ms versus the aggregate added
+maximum 1,300.176 ms (server-local time was stacked). RX/TX-only complete stacks now agree
+with that aggregate within 1 ms; the test also inserts the aggregate maximum with its own
+frames when absent from the elapsed-time top-N list. A separate 1,223 ms addition / 4,000 ms
+local / 2,000 ms wait distractor asserts that the stack remains exactly 1,223 ms. Unknown
+components remain unknown. No values are rescaled to force the comparison.
+
+**Frontend: 14/14 passed in 0.643 s**, including the replica checks; TypeScript/Vite production
+build and whitespace pass. One `pytest -n auto`: **604 passed in 141.76 s**. No tests weakened,
+moved to slow or repeated for wall-clock timing. At an actual 800 px browser viewport, all
+point labels used nowrap/ellipsis with full-title tooltips; the ten RX/TX legend entries were
+one row without pagination, and the browser console had no errors. CI is inspected once
+following the single branch push. Existing bundle-size advisory remains unchanged.

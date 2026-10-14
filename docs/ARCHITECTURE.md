@@ -984,3 +984,19 @@ this is a display cap, not a new engine percentile. Clipped markers retain real 
 and tooltips; unknown components stay null. Hold/release groups identical spacing signatures
 in one selector and renders one selected occurrence, retaining all frame evidence. Existing
 engine/export schemas and offline HTML analysis are unchanged.
+
+### UI materiality and added-time correction
+
+Path health and the clean-hop result chips share the existing report projection: usable
+coverage/clocks, p95 <1 ms, max <10 ms, supported loss <0.1%, and no impactful event-window
+loss. Timestamp uncertainty must fit inside those latency bounds. Small losses proven outside
+the event are minor/amber; material degradation is red, insufficient evidence remains unknown.
+Clean chips include worst observed maximum and loss percentage across their direction pairs.
+
+Cycle stacks include RX/TX adjacent-pair added time only; local turnaround and the residual
+client wait/request serialization are tooltip values, not additions. Small negative components
+inside the engine's uncertainty allowance render at zero, retaining their signed measurement
+in tooltips. If the existing aggregate maximum cycle is absent from top-N, its reported RX/TX
+values and frame evidence are included. The p99 display cap uses displayed complete additions.
+Short RX/TX path indices form a plain, single-row legend at 800 px; point labels ellipsize with
+full names in native tooltips. No engine fields, exports or matching change.

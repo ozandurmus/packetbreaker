@@ -31,7 +31,7 @@ export function PathHealth() {
                   setInspectQuery(`point=${encodeURIComponent(id)}`);
                   setTab("Path");
                 }}
-                title="Open this capture point's findings and flows"
+                title={`${point?.label || id} — ${point?.device || "capture point"}. Open findings and flows.`}
               >
                 <strong>{point?.label || id}</strong>
                 <small>{point?.device}</small>
