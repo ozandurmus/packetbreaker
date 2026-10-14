@@ -13,7 +13,7 @@ dependencies = ["duckdb>=1.2,<2", "psutil>=7,<8", "tzdata>=2025.2", "fastapi>=0.
 [project.optional-dependencies]
 packaging = ["pyinstaller==6.22.3"]
 benchmark = ["dpkt==1.9.8"]
-test = ["pytest>=8,<10", "httpx2>=2.13,<3", "starlette>=1.7,<2", "build>=1.2,<2", "ruff>=0.11,<1"]
+test = ["pytest>=8,<10", "pytest-xdist>=3.6,<4", "filelock>=3.16,<4", "httpx2>=2.13,<3", "starlette>=1.7,<2", "build>=1.2,<2", "ruff>=0.11,<1"]
 
 [project.scripts]
 packetbreaker = "packetbreaker.cli:main"
@@ -26,7 +26,7 @@ packetbreaker = ["static/**/*", "static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-m 'not slow'"
+addopts = "--dist loadfile -m 'not slow'"
 markers = ["slow: exhaustive real-tshark matrices and large repeated-analysis fixtures; run explicitly with -m slow"]
 filterwarnings = ["error::starlette.exceptions.StarletteDeprecationWarning"]
 

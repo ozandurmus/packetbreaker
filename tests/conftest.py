@@ -209,7 +209,12 @@ def scenarios(tmp_path_factory, tshark, request):
             directory = tmp_path_factory.mktemp(kind + "_wire")
             args = (mode, directory, tshark) if kind in ("proxy", "anonymized") else (mode, directory)
             work.append((pos, kind, mode, builder, args))
-    pool = ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn")) if work else None
+    xdist = hasattr(request.config, "workerinput")
+    pool = (
+        ProcessPoolExecutor(max_workers=workers, mp_context=get_context("spawn"))
+        if work and not xdist
+        else None
+    )
     # First consumer first: a late heavy matrix must not starve an earlier diagnostic fixture.
     destinations = {
         "anonymized": _anonymized_futures,
@@ -218,6 +223,12 @@ def scenarios(tmp_path_factory, tshark, request):
         "burst": _burst_futures,
         "proxy": _proxy_futures,
     }
+    if xdist:
+        shared = tmp_path_factory.getbasetemp().parent / "shared-fixtures"
+        for pos, kind, key, builder, args in work:
+            destinations[kind][key] = SharedFixture(
+                builder, args, (kind, key), shared, tmp_path_factory.getbasetemp()
+            )
     if pool:
         for pos, kind, key, builder, args in sorted(work, key=lambda task: task[0]):
             destinations[kind][key] = pool.submit(builder, *args)
@@ -319,3 +330,53 @@ _anonymized_futures = {}
 @pytest.fixture(scope="session")
 def anonymized_capture(request, scenarios):
     return _anonymized_futures[request.param].result()[1]
+
+
+def pytest_xdist_auto_num_workers(config):
+    import os
+    import psutil
+
+    return min(
+        4, max(1, (os.cpu_count() or 1) - 1), max(1, psutil.virtual_memory().available // (1536 * 1024**2))
+    )
+
+
+class SharedFixture:
+    """Lazy, run-local fixture generation; each worker receives its own writable DB."""
+
+    def __init__(self, builder, args, key, shared, local):
+        self.builder, self.args, self.key, self.shared, self.local = builder, args, key, shared, local
+        self.value = None
+
+    def result(self):
+        if self.value is not None:
+            return self.value
+        import hashlib
+        import pickle
+        from filelock import FileLock
+        from shutil import copyfile
+
+        name = hashlib.sha256(repr((self.builder.__name__, self.key)).encode()).hexdigest()
+        root = self.shared / name
+        root.mkdir(parents=True, exist_ok=True)
+        result = root / "result.pickle"
+        with FileLock(str(root / "build.lock")):
+            if not result.exists():
+                args = tuple(root / "wire" if isinstance(a, Path) else a for a in self.args)
+                value = self.builder(*args)
+                result.write_bytes(pickle.dumps(value))
+            value = pickle.loads(result.read_bytes())
+
+        def localize(v):
+            if isinstance(v, str) and (Path(v) / "project.duckdb").is_file():
+                destination = self.local / "shared-copies" / hashlib.sha256(v.encode()).hexdigest()
+                destination.mkdir(parents=True, exist_ok=True)
+                if not (destination / "project.duckdb").exists():
+                    copyfile(Path(v) / "project.duckdb", destination / "project.duckdb")
+                return str(destination)
+            if isinstance(v, tuple):
+                return tuple(localize(x) for x in v)
+            return v
+
+        self.value = localize(value)
+        return self.value
