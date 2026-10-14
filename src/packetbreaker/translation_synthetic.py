@@ -86,6 +86,6 @@ def generate_translation(directory, inconsistent=False, ip_id="zero", ipv6=False
     truth["scenario"] = "sequence_inconsistent" if inconsistent else "sequence_randomization"
     truth["sequence_offsets"] = {str(port): dict(forward=f, reverse=r) for port, (f, r) in offsets.items()}
     truth["events"] = [dict(e, client_port=port) for e in truth["events"] for port in offsets]
-    Path(directory, "ground-truth.json").write_text(json.dumps(truth, indent=2))
-    Path(directory, "topology.json").write_text(json.dumps(topology, indent=2))
+    Path(directory, "ground-truth.json").write_text(json.dumps(truth, indent=2), encoding="utf-8")
+    Path(directory, "topology.json").write_text(json.dumps(topology, indent=2), encoding="utf-8")
     return truth, topology

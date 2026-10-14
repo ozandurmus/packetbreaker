@@ -117,6 +117,6 @@ def generate_offload(directory):
         mss=mss,
         reference_epoch=base,
     )
-    (root / "ground-truth.json").write_text(json.dumps(truth, indent=2))
-    (root / "topology.json").write_text(json.dumps(topology, indent=2))
+    (root / "ground-truth.json").write_text(json.dumps(truth, indent=2), encoding="utf-8")
+    (root / "topology.json").write_text(json.dumps(topology, indent=2), encoding="utf-8")
     return truth, topology

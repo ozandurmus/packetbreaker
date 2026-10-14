@@ -922,3 +922,16 @@ and evidence are inside the file, with outbound connections blocked by CSP.
 JSONPath subset, and returns pass/fail/not-computed. The same implementation serves CLI and
 UI/API checks, template exports and semantic report diffs. No eval, assistant call or remote
 service is used. The reference schema and units are in REFERENCE_FORMAT.md.
+
+### Stable aggregate reference metrics
+
+`aggregates.py` projects existing cycle, byte-range, host-transit and observation tables into
+whole-analysis and global-event aggregates. Distinct cycle/range identities prevent counting
+one observation once per hop; RX+TX added-time maxima require both components of one cycle.
+Host silence reads all valid `packets` at declared host capture IDs through the learned clock,
+not the flow-filtered `obs` table. It clips inter-packet gaps to a bracketed scope and attaches
+endpoint frames. Reference templates expose the documented stable paths without reparsing.
+
+All Python text I/O in `src/packetbreaker` declares UTF-8 (Fortinet retains UTF-8-sig).
+Binary captures/archives remain byte I/O. The offline assets and compare CLI are independent
+of the Windows cp1252 default.

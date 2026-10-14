@@ -357,8 +357,8 @@ def generate(
         onset=base + onset if events else None,
         files=files,
     )
-    (directory / "topology.json").write_text(json.dumps(topology, indent=2))
-    (directory / "ground-truth.json").write_text(json.dumps(truth, indent=2))
+    (directory / "topology.json").write_text(json.dumps(topology, indent=2), encoding="utf-8")
+    (directory / "ground-truth.json").write_text(json.dumps(truth, indent=2), encoding="utf-8")
     return truth, topology
 
 
