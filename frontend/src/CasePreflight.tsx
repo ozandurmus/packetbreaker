@@ -6,6 +6,14 @@ export function CasePreflight({ state }: { state: State }) {
     <section>
       <h2>Capture inventory — review before analysis</h2>
       {state.case_context && <p>{state.case_context.note}</p>}
+      {state.preflight.files.length > 0 && (
+        <p className="hint">
+          Case summary (pre-filter excluded per file):{" "}
+          {state.preflight.files
+            .map((f) => `${f.name}: ${f.prefilter_excluded ?? 0} excluded`)
+            .join(" · ")}
+        </p>
+      )}
       {state.case_context?.warning && (
         <p role="alert">{state.case_context.warning}</p>
       )}
@@ -35,7 +43,8 @@ export function CasePreflight({ state }: { state: State }) {
                 <td>
                   {f.name}
                   <small>
-                    {f.state} · {f.packet_count ?? "?"} usable packets
+                    {f.state} · {f.packet_count ?? "?"} usable packets ·{" "}
+                    {f.prefilter_excluded ?? 0} pre-filter excluded
                   </small>
                   <small>
                     Header{" "}

@@ -70,6 +70,7 @@ def inventory_overview(captures):
                 prefilter_total=info.get("prefilter_total"),
                 prefilter_retained=info.get("prefilter_retained"),
                 prefilter_excluded=info.get("prefilter_excluded", 0),
+                prefilter_skipped=bool(info.get("prefilter_skipped")),
                 header_snaplen=snaplens[0] if len(snaplens) == 1 else info.get("snaplen"),
                 header_snaplens=snaplens,
                 observed_max_caplen=info.get("observed_max_caplen"),
@@ -95,10 +96,27 @@ def inventory_overview(captures):
             if start < end
             else "Capture time ranges have no positive-duration overlap. Clock offsets may explain this; verify capture windows and clock settings before analysis.",
         )
+    prefilter_by_file = {f["name"]: f["prefilter_excluded"] for f in files}
     return dict(
         files=files,
         overlap=overlap,
         prefilter_excluded={f["name"]: f["prefilter_excluded"] for f in files if f.get("prefilter_excluded")},
+        prefilter_excluded_by_file=prefilter_by_file,
+        summary=dict(
+            file_count=len(files),
+            prefilter_excluded=prefilter_by_file,
+            files=[
+                dict(
+                    file=f["name"],
+                    packet_count=f["packet_count"],
+                    prefilter_total=f["prefilter_total"],
+                    prefilter_retained=f["prefilter_retained"],
+                    prefilter_excluded=f["prefilter_excluded"],
+                    prefilter_skipped=f["prefilter_skipped"],
+                )
+                for f in files
+            ],
+        ),
     )
 
 
@@ -122,11 +140,22 @@ def create_case(
         warning = str(exc)
     inventory = project.inventory()
     labels = {str(p.resolve()): p.relative_to(root).as_posix() for p in paths}
-    prefilter_excluded = {
-        c["name"]: c["inventory"].get("prefilter_excluded", 0)
-        for c in inventory
-        if c["inventory"].get("prefilter_excluded")
-    }
+    prefilter_by_file = {c["name"]: c["inventory"].get("prefilter_excluded", 0) for c in inventory}
+    summary = dict(
+        file_count=len(paths),
+        prefilter_excluded=prefilter_by_file,
+        files=[
+            dict(
+                file=c["name"],
+                packet_count=c["inventory"].get("packet_count", 0),
+                prefilter_total=c["inventory"].get("prefilter_total"),
+                prefilter_retained=c["inventory"].get("prefilter_retained"),
+                prefilter_excluded=c["inventory"].get("prefilter_excluded", 0),
+                prefilter_skipped=bool(c["inventory"].get("prefilter_skipped")),
+            )
+            for c in inventory
+        ],
+    )
     with project.connect() as db:
         saved = project.get(db, "topology")
         topology = Topology.model_validate(saved) if saved else Topology()
@@ -165,7 +194,8 @@ def create_case(
                 files=len(paths),
                 warning=warning,
                 prefilter=prefilter,
-                prefilter_excluded=prefilter_excluded,
+                prefilter_excluded=prefilter_by_file,
+                summary=summary,
                 suggested_topology=suggested_topology,
                 issues=[
                     dict(file=f["file"], error=f.get("error"))

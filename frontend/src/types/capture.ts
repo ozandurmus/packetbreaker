@@ -100,6 +100,10 @@ export type Capture = {
     end?: number;
     duration?: number;
     packet_count?: number;
+    prefilter_total?: number | null;
+    prefilter_retained?: number | null;
+    prefilter_excluded?: number;
+    prefilter_skipped?: boolean;
     observed_max_caplen?: number | null;
     truncated_caplen_min?: number | null;
     truncated_caplen_max?: number | null;

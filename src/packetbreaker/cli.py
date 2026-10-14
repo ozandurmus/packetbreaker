@@ -178,7 +178,13 @@ def main():
                 prefilter=args.prefilter,
                 progress=lambda **s: print(f"\rIngest: {s.get('frames', 0):,} frames", end="", flush=True),
             )
-            print("\n" + json.dumps(inventory_overview(project.inventory()), indent=2))
+            overview = inventory_overview(project.inventory())
+            print("\n" + json.dumps(overview, indent=2))
+            if overview.get("files"):
+                by_file = ", ".join(
+                    f"{f['name']}: {f.get('prefilter_excluded', 0)} excluded" for f in overview["files"]
+                )
+                print(f"Case summary (pre-filter excluded per file): {by_file}")
             print(f"Project: {project.path}")
             args.project = str(project.path)
 

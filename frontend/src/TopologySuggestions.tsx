@@ -47,6 +47,17 @@ export function SuggestedTopologyBanner({
           <button onClick={onConfirm}>Confirm suggested topology</button>
         )}
       </div>
+      {captures.length > 0 && (
+        <p className="hint">
+          Case summary (pre-filter excluded per file):{" "}
+          {captures
+            .map(
+              (c) =>
+                `${c.name}: ${c.inventory?.prefilter_excluded ?? 0} excluded`,
+            )
+            .join(" · ")}
+        </p>
+      )}
       {suggested.warnings?.map((w, idx) => (
         <p key={idx} role="status">
           {w}

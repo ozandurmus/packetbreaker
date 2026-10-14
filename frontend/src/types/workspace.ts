@@ -30,6 +30,10 @@ export type State = {
       start: number | null;
       end: number | null;
       packet_count: number | null;
+      prefilter_total?: number | null;
+      prefilter_retained?: number | null;
+      prefilter_excluded?: number;
+      prefilter_skipped?: boolean;
       header_snaplen: number | null;
       header_snaplens: number[];
       observed_max_caplen: number | null;
@@ -38,10 +42,14 @@ export type State = {
       warnings: string[];
     }[];
     overlap: { status: string; reason: string };
+    prefilter_excluded?: Record<string, number>;
+    prefilter_excluded_by_file?: Record<string, number>;
   };
   case_context?: {
     note: string;
     warning: string | null;
+    prefilter?: boolean;
+    prefilter_excluded?: Record<string, number>;
     issues: { file: string; error: string }[];
   } | null;
   suggested_topology?: import("./report").SuggestedTopology | null;

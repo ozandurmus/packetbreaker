@@ -33,6 +33,11 @@ export function CaptureQualityCards() {
             <span title="Frames excluded because their fingerprint repeats, conflicts, or is unsupported.">
               {num(q.excluded, " excluded", 0)}
             </span>
+            {q.prefilter_excluded !== undefined && (
+              <span title="Frames excluded at ingest by the >5x shared IP-pair pre-filter.">
+                {num(q.prefilter_excluded, " pre-filter excluded", 0)}
+              </span>
+            )}
             <span title="Captured length is smaller than wire length; only common payload prefixes are compared.">
               {num(q.truncated, " truncated", 0)}
             </span>

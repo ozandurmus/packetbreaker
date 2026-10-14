@@ -281,6 +281,10 @@ export type Report = {
       excluded_frames: number;
       excluded_flows: number;
     };
+    file?: string;
+    prefilter_excluded?: number;
+    prefilter_total?: number | null;
+    prefilter_skipped?: boolean;
     ifdrop: number | null;
     osdrop: number | null;
     point: string;
@@ -291,6 +295,7 @@ export type Report = {
     unknown_direction: number;
     evidence: Ref[];
   }[];
+  prefilter_excluded?: Record<string, number>;
   nat_suggestions: Mapping[];
   segments: Segment[];
   findings: Finding[];

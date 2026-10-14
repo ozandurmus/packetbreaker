@@ -205,6 +205,95 @@ def test_ingest_prefilter_excludes_unshared_ip_pairs_only_above_5x_threshold(tmp
     assert by_name_unfiltered["host_noisy.pcap"]["packet_count"] == 15
 
 
+def test_prefilter_union_all_other_captures_10_percent_guard_and_case_summary(tmp_path, tshark):
+    from packetbreaker.synthetic import tcp_packet, write_pcap
+
+    # 1. Negative case: never filter a capture below 10% of its frames; skip the filter and warn instead
+    skip_folder = tmp_path / "below_10_pct"
+    skip_folder.mkdir()
+    client_y = [
+        (1700000000.0, tcp_packet("198.51.100.10", "203.0.113.20", 41000, 443, 1, 0, 2, b"", 10, ttl=63)),
+        (1700000000.001, tcp_packet("203.0.113.20", "198.51.100.10", 443, 41000, 500, 2, 18, b"", 11, ttl=63)),
+    ]
+    heavy_noise = [
+        (
+            1700000000.01 + i * 0.001,
+            tcp_packet(f"192.0.2.{(i % 20) + 1}", "198.51.100.250", 50000 + i, 80, 100 + i, 1, 16, b"x" * 20, 300 + i),
+        )
+        for i in range(20)
+    ]
+    write_pcap(skip_folder / "small_1.pcap", client_y)
+    write_pcap(skip_folder / "small_2.pcap", client_y)
+    # 1 matching frame out of 21 (<10%) -> filter must be skipped with a warning
+    write_pcap(skip_folder / "mostly_unshared.pcap", client_y[:1] + heavy_noise)
+
+    skip_proj = create_case(skip_folder, tshark=tshark, auto_assemble=False)
+    skip_ov = inventory_overview(skip_proj.inventory())
+    skip_by_name = {f["name"]: f for f in skip_ov["files"]}
+    assert skip_by_name["mostly_unshared.pcap"]["packet_count"] == 21
+    assert skip_by_name["mostly_unshared.pcap"]["prefilter_excluded"] == 0
+    assert skip_by_name["mostly_unshared.pcap"]["prefilter_skipped"] is True
+    assert any("skipped" in w.lower() and "<10%" in w for w in skip_by_name["mostly_unshared.pcap"]["warnings"])
+
+    # 2. A capture whose IP pairs appear only in a same-size peer (>5x of smaller captures) is untouched,
+    #    and a two-path folder keeps every point's flows while filtering only unrelated host noise.
+    two_path = tmp_path / "folder_b_prefilter"
+    two_path.mkdir()
+    client_x = [
+        (
+            1700000000.0 + i * 0.002,
+            tcp_packet("10.1.0.10", "203.0.113.20", 42000 + (i % 2), 443, 1 + i * 50, 1, 24, b"a" * 30, 400 + i, ttl=61),
+        )
+        for i in range(14)
+    ]
+    host_noise = [
+        (
+            1700000000.1 + i * 0.002,
+            tcp_packet(f"192.0.2.{(i % 25) + 1}", "198.51.100.250", 52000 + i, 80, 1 + i * 20, 1, 16, b"z" * 20, 700 + i),
+        )
+        for i in range(16)
+    ]
+    write_pcap(two_path / "LB.pcap", client_y)
+    write_pcap(two_path / "Segin.pcap", client_y)
+    write_pcap(two_path / "Segout.pcap", client_y)
+    write_pcap(two_path / "GenisSegment1.pcap", client_x)  # 14 frames (>5 * 2), IP pairs in GenisSegment2 & host
+    write_pcap(two_path / "GenisSegment2.pcap", client_x)  # 14 frames (same size as GenisSegment1)
+    write_pcap(two_path / "host.pcap", client_x[:4] + client_y + host_noise)  # 22 frames: 6 shared (27.3%), 16 noise
+
+    tp_proj = create_case(two_path, tshark=tshark, auto_assemble=False)
+    tp_ov = inventory_overview(tp_proj.inventory())
+    tp_by_name = {f["name"]: f for f in tp_ov["files"]}
+    # GenisSegment1 & GenisSegment2 are untouched (14 frames kept, 0 excluded)
+    assert tp_by_name["GenisSegment1.pcap"]["packet_count"] == 14
+    assert tp_by_name["GenisSegment1.pcap"]["prefilter_excluded"] == 0
+    assert not any("excluded" in w for w in tp_by_name["GenisSegment1.pcap"]["warnings"])
+    assert tp_by_name["GenisSegment2.pcap"]["packet_count"] == 14
+    assert tp_by_name["GenisSegment2.pcap"]["prefilter_excluded"] == 0
+    # Host keeps both client X (4 frames) and client Y (2 frames) = 6 frames, excludes 16 noise frames
+    assert tp_by_name["host.pcap"]["packet_count"] == 6
+    assert tp_by_name["host.pcap"]["prefilter_excluded"] == 16
+    with tp_proj.connect() as db:
+        host_cid = tp_by_name["host.pcap"]["id"]
+        host_srcs = {
+            r[0] for r in db.execute("SELECT DISTINCT src FROM packets WHERE capture_id=?", [host_cid]).fetchall()
+        }
+        assert {"10.1.0.10", "198.51.100.10"} <= host_srcs
+        ctx = tp_proj.get(db, "case_context")
+    # Case summary includes excluded count per file for every file
+    expected_per_file = {
+        "GenisSegment1.pcap": 0,
+        "GenisSegment2.pcap": 0,
+        "LB.pcap": 0,
+        "Segin.pcap": 0,
+        "Segout.pcap": 0,
+        "host.pcap": 16,
+    }
+    assert ctx["prefilter_excluded"] == expected_per_file
+    assert ctx["summary"]["prefilter_excluded"] == expected_per_file
+    assert tp_ov["summary"]["prefilter_excluded"] == expected_per_file
+
+
+
 def test_auto_assemble_stops_on_ambiguous_order_or_direction(tmp_path, tshark):
     from packetbreaker.synthetic import tcp_packet, write_pcap
     from packetbreaker.topology_suggest import assemble_topology
