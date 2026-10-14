@@ -935,3 +935,31 @@ endpoint frames. Reference templates expose the documented stable paths without 
 All Python text I/O in `src/packetbreaker` declares UTF-8 (Fortinet retains UTF-8-sig).
 Binary captures/archives remain byte I/O. The offline assets and compare CLI are independent
 of the Windows cp1252 default.
+
+### Real-case 3 memory, indexing scope and capture-start incidents
+
+`Project.connect` chooses 25% of physical RAM, clamped to 1–8 GiB, and
+`min(max(cores-1,1),8)` native threads. `memory_limit_mb` in project preferences overrides the
+memory default; the CLI/constructor override takes precedence. Units are MiB, with explicit
+values down to 64 MiB allowed for constrained validation. Spill remains enabled. Settings
+changes apply on subsequent connections; captures and reports are not reparsed by opening
+settings. The UI and CLI expose the same override.
+
+Per-point TCP state is applied with CTAS: untouched points stream through and the selected
+point joins a scoped state table, avoiding wide UPDATE undo buffers. Two related integrity
+queries now retain narrow header/frame rows and process one adjacent pair at a time, loading
+full evidence only for the selected changed frame. Matching/uniqueness rules are preserved.
+
+Flow scope is resolved from canonical tuples before per-point UDP/TCP/application indexing.
+Shared flows or explicit client CIDRs qualify; a CIDR matching either endpoint qualifies even
+when direction is ambiguous. Declared full-proxy and vendor-stage evidence remains available
+for its existing independent-leg/positive-drop handling. Host preloading also honors explicit
+client selection. Every point's index cache identity includes retained frame/tuple scope, and
+its tshark extraction uses the scoped tuples. Quality reports include excluded flow/frame
+counts, including early host-background exclusions and points with no retained traffic.
+
+When a latency baseline cannot establish onset, measured host-boundary delay at or above
+`stall_ms` is still reported with its frame evidence and uncertainty. A capture beginning
+with elevated delay is labelled `Onset unknown: no pre-event coverage`; observed periods are
+not presented as a proven event/recovery window. A dominant measured host delay still leads
+the verdict. Unknown clocks and capture-miss-only data do not gain supported delay findings.

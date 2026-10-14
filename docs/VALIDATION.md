@@ -1477,3 +1477,37 @@ positive repeat groups in both directions and verifies peak count against the se
 point, without multiplying by capture hops. Missing host/event metrics are not-computed.
 No real captures or new large benchmark were used. Windows jobs are read once after PR
 creation, with pending/failure status reported without a monitoring loop.
+
+## Real-case 3: resource budget, scope and no-baseline host delay (0.3.10)
+
+Synthetic fixtures only, starting from merged PR #21 on `real-case-3-fix`.
+New guards verify the 25%-RAM/1–8 GiB defaults, persistent 512 MiB setting, explicit override
+precedence, selected-point TCP field reset/merge with untouched peer points, shared/CIDR
+flow selection, and capture-start incidents in IPv4/zero-ID and IPv6/constant-ID modes.
+The capture-start replica has both stage devices, a healthy flow, jitter, capture misses,
+GRO and 2,000 unrelated host frames / 1,000 unrelated tuples. Both RX/TX delays are reported,
+the dominant finding is high severity, and onset is explicitly unknown for no pre-event
+coverage. The unrelated traffic is absent from the per-point TCP index and counted in quality.
+
+Targeted integration: 66 passed in 16.68 s; new guards: 5 passed in 7.67 s; API/integrity/new
+checks: 12 passed in 9.56 s. One complete `pytest -n auto` run: **604 passed in 153.43 s**.
+Ruff, whitespace and the TypeScript/Vite build pass. No full-suite repeat or slow-test moves.
+
+`tools/real_case_3_replica.py` generates **604,303 frames / 56 shared flows / six points**.
+The initial constrained run exposed two further wide integrity-query allocations after TCP
+indexing: unique payload-header pairing and changed-packet aggregation. Both now use narrow
+rows/one adjacent pair and fetch full evidence only after choosing frame IDs. Existing
+integrity assertions remain unchanged. An HTTP version of the corpus reached the existing
+10,000-event application cap, so final acceptance uses opaque TCP and explicitly asserts
+successful decoding plus a nonempty TCP state index; it does not count a skipped index as a
+pass. The final opaque corpus generated and ingested in **40.37 s ingest time**, then:
+
+| Budget | Native threads | TCP frames re-indexed | Analysis completion |
+|---|---:|---:|---:|
+| Explicit 512 MiB | 8 | 44,924 | 110.48 s, success |
+| Adaptive 8,192 MiB (this host) | 8 | 44,924 | 51.29 s, success |
+
+Both retain 56 flows and the supported host degradation. The default run reuses the point
+index cache but still reapplies point TCP metadata; these times are not a controlled budget
+speed comparison. Spill stays enabled in both. The corpus is generated from scratch, not
+copied from the user's incident. The real incident remains for the user's local re-run.

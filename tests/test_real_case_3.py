@@ -55,6 +55,36 @@ def test_state_ctas_resets_only_selected_point_and_preserves_metadata(tmp_path):
         assert db.execute("SELECT retrans,rtt FROM obs WHERE point='b'").fetchone() == (True, 9)
 
 
+@pytest.mark.parametrize("ip_id,ipv6", [("zero", False), ("constant", True)])
+def test_incident_start_still_reports_absolute_host_delay(tmp_path, tshark, ip_id, ipv6):
+    from packetbreaker.pilot_synthetic import make_pilot
+    from packetbreaker.synthetic import bind_capture_ids
+    from packetbreaker.batch_ingest import ingest_many
+    from packetbreaker.analysis import analyze
+
+    truth, t = make_pilot(tmp_path / "wire", start_at_event=True, host_jitter_us=150, ip_id=ip_id, ipv6=ipv6)
+    p = Project(tmp_path / "p", memory_limit_mb=512)
+    ids = ingest_many(p, truth["files"], tshark=tshark, workers=4)
+    bind_capture_ids(t, {Path(f).name: c for f, c in zip(truth["files"], ids)})
+    r = analyze(p, t)
+    assert r["verdict"].startswith("Delay occurs between")
+    assert "no pre-event coverage" in r["verdict"]
+    assert {i["direction"] for i in r["host_path"]["items"]} == {"rx", "tx"}
+    assert max(i["max_ms"] for i in r["host_path"]["items"]) > 1200
+    assert all(i["window"]["status"] == "unknown" for i in r["host_path"]["items"])
+    assert r["findings"][0]["severity"] == "high"
+    quality = next(q for q in r["quality"] if q["point"] == "host")["index_scope"]
+    assert quality["excluded_frames"] == 2000 and quality["excluded_flows"] == 1000
+    with p.connect() as db:
+        assert (
+            db.execute(
+                "SELECT count(*) FROM tcp_point_analysis a JOIN packets p ON p.frame=a.frame AND p.capture_id=? WHERE a.point='host' AND p.src='10.99.0.1'",
+                [ids[-1]],
+            ).fetchone()[0]
+            == 0
+        )
+
+
 def test_scope_keeps_shared_and_explicit_clients_but_drops_unrelated(tmp_path):
     from packetbreaker.analysis import restrict_index_scope
     from packetbreaker.topology import Topology

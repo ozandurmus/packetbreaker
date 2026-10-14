@@ -27,6 +27,7 @@ def make_pilot(
     rounds=27,
     affected_flows=1,
     slow_local_flow=False,
+    start_at_event=False,
     opaque=False,
 ):
     directory = Path(directory)
@@ -181,7 +182,10 @@ def make_pilot(
                 emit(point, t + 1.7, False, port, sq, rq, 16)
                 emit(point, t + 1.701, True, port, rq, sq, 16)
     for point in PATH:
-        write_pcap(directory / (point + ".pcap"), captures[point])
+        records = captures[point]
+        if start_at_event:
+            records = [r for r in records if r[0] >= truth["start"] + (0.04 if point == "host" else 0)]
+        write_pcap(directory / (point + ".pcap"), records)
     # Stream unrelated traffic into the host file with bounded generator memory.
     noise_packets = [
         tcp_packet("10.99.0.1", "198.18.0.1", 45000 + i, 443, 1, 1, 24, b"n" * 400, i) for i in range(1000)
@@ -189,7 +193,7 @@ def make_pilot(
     with (directory / "host.pcap").open("ab") as f:
         for i in range(noise):
             packet = noise_packets[i % 1000]
-            t = BASE + 1 + (i % 600000) * 0.0001
+            t = BASE + (21 if start_at_event else 1) + (i % 600000) * 0.0001
             f.write(struct.pack("<IIII", int(t), round((t - int(t)) * 1e6), len(packet), len(packet)))
             f.write(packet)
     points = []
