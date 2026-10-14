@@ -1143,6 +1143,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         fragment_events, fragment_quality = fragment_findings(db, topology, segments)
         findings.extend(fragment_events)
         findings.extend(integrity_findings)
+        from .integrity import group_downstream_findings
+
+        group_downstream_findings(findings, topology)
         proxy_findings, proxy_leg_report = reset_checks(db, topology, segments, models, coverage)
         proxies.update(proxy_leg_report)
         findings.extend(proxy_findings)

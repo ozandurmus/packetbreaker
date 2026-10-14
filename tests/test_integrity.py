@@ -82,3 +82,104 @@ def test_long_repeat_stream_uses_adjacent_evidence():
         assert not duplicate_pairs(db, "p", 500, "identical")
     finally:
         db.close()
+
+
+def test_group_downstream_findings_under_upstream_capture_miss():
+    from packetbreaker.integrity import group_downstream_findings
+    from packetbreaker.topology import Topology
+
+    topology = Topology.model_validate(
+        dict(
+            points=[
+                dict(id="p1", label="Hop 1", device="D1", capture_id="c1"),
+                dict(id="p2", label="Hop 2", device="D2", capture_id="c2"),
+                dict(id="p3", label="Hop 3", device="D3", capture_id="c3"),
+                dict(id="p4", label="Hop 4", device="D4", capture_id="c4"),
+            ],
+            forward=["p1", "p2", "p3", "p4"],
+            reverse=["p4", "p3", "p2", "p1"],
+        )
+    )
+
+    # Negative case: downstream_packet upstream of a capture_miss or before it in time stays separate
+    neg_findings = [
+        dict(
+            id="forward:p2:p3:capture_miss",
+            type="capture_miss",
+            hop="forward:p2:p3",
+            direction="forward",
+            time_range=[20.0, 25.0],
+            metrics={"count": 2},
+            summary="2 capture miss event(s) between Hop 2 and Hop 3.",
+            headline="2 capture miss event(s) between Hop 2 and Hop 3.",
+            evidence=[{"point": "p2", "frame": 10}],
+        ),
+        dict(
+            id="integrity:forward:p1:p2:downstream_packet:5:0",
+            type="downstream_packet",
+            hop="forward:p1:p2",
+            direction="forward",
+            time_range=[21.0, 21.0],
+            metrics={"count": 1},
+            summary="Downstream-only packet at Hop 2; origin unknown",
+            evidence=[{"point": "p2", "frame": 5}],
+        ),
+        dict(
+            id="integrity:forward:p3:p4:downstream_packet:6:1",
+            type="downstream_packet",
+            hop="forward:p3:p4",
+            direction="forward",
+            time_range=[10.0, 10.0],
+            metrics={"count": 1},
+            summary="Downstream-only packet at Hop 4; origin unknown",
+            evidence=[{"point": "p4", "frame": 6}],
+        ),
+    ]
+    group_downstream_findings(neg_findings, topology)
+    assert len([f for f in neg_findings if f["type"] == "downstream_packet"]) == 2
+    assert "downstream_summary" not in neg_findings[0]
+
+    # Positive case: multiple downstream_packet findings following an upstream capture_miss
+    # are grouped into one summary line under that capture_miss finding
+    pos_findings = [
+        dict(
+            id="forward:p1:p2:capture_miss",
+            type="capture_miss",
+            hop="forward:p1:p2",
+            direction="forward",
+            time_range=[10.0, 15.0],
+            metrics={"count": 3},
+            summary="3 capture miss event(s) between Hop 1 and Hop 2.",
+            headline="3 capture miss event(s) between Hop 1 and Hop 2.",
+            evidence=[{"point": "p1", "frame": 1}],
+        ),
+        dict(
+            id="integrity:forward:p2:p3:downstream_packet:11:0",
+            type="downstream_packet",
+            hop="forward:p2:p3",
+            direction="forward",
+            time_range=[11.0, 11.0],
+            metrics={"count": 1},
+            summary="Downstream-only packet at Hop 3; origin unknown",
+            evidence=[{"point": "p3", "frame": 11}],
+        ),
+        dict(
+            id="integrity:forward:p3:p4:downstream_packet:12:1",
+            type="downstream_packet",
+            hop="forward:p3:p4",
+            direction="forward",
+            time_range=[12.0, 12.0],
+            metrics={"count": 1},
+            summary="Downstream-only packet at Hop 4; origin unknown",
+            evidence=[{"point": "p4", "frame": 12}],
+        ),
+    ]
+    group_downstream_findings(pos_findings, topology)
+    assert not [f for f in pos_findings if f["type"] == "downstream_packet"]
+    miss = pos_findings[0]
+    assert miss["downstream_count"] == 2
+    assert miss["metrics"]["downstream_packet_count"] == 2
+    assert "2 downstream-only packet observation(s) at Hop 3, Hop 4 follow this capture miss" in miss["downstream_summary"]
+    assert miss["downstream_summary"] in miss["summary"]
+    assert len(miss["evidence"]) == 3
+
