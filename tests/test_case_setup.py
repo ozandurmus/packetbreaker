@@ -412,13 +412,6 @@ def test_auto_assemble_stops_on_ambiguous_order_or_direction(tmp_path, tshark):
         1700000000.5,
         tcp_packet("192.0.2.55", "198.51.100.99", 51000, 80, 10, 1, 16, b"", 90, ttl=60),
     )
-    unshared_noise = [
-        (
-            1700000001.0 + i * 0.001,
-            tcp_packet(f"192.0.2.{(i % 20) + 1}", "198.51.100.250", 52000 + i, 80, 100 + i, 1, 16, b"n" * 20, 900 + i, ttl=60),
-        )
-        for i in range(14)
-    ]
     write_pcap(excl_dir / "hop_1.pcap", hop1 + [noise_pair_pkt])  # 9 frames
     write_pcap(excl_dir / "hop_2.pcap", hop2)  # 8 frames
     # hop_mostly_excluded has 2 frames matching noise_pair_pkt (12.5% >= 10%) + 14 excluded frames = 16 frames total (<5x, so test via unsupported/prefilter)
@@ -527,3 +520,152 @@ def test_name_order_mismatch_warning_and_stage_pair_shared_clock_host_auto_assem
         "mirror",
         "host",
     ]
+
+
+def test_multi_path_folder_b_replica_assembles_both_paths_and_stops_when_group_ambiguous(tmp_path, tshark):
+    from fastapi.testclient import TestClient
+    from packetbreaker.app import create_app
+    from packetbreaker.synthetic import tcp_packet, write_pcap
+    from packetbreaker.topology_suggest import assemble_topology
+
+    def build_folder_b(folder, *, ambiguous_group_x: bool = False):
+        folder.mkdir()
+        gen1, gen2, lb, segin, segout, host = [], [], [], [], [], []
+        # Group X: GenisSegment1 -> GenisSegment2 -> host (Client X: 10.1.0.10/32, Server: 203.0.113.20:443)
+        # Uses 12 rounds (24 frames per GenisSegment capture, >5x of Group Y's 4 frames -> exercises pre-filter too)
+        for i in range(12):
+            t = 1700000100.0 + i * 0.01
+            flags_fwd = 2 if i == 0 else 24
+            flags_rev = 18 if i == 0 else 24
+            pay_fwd = b"" if i == 0 else f"req_x_{i:02d}_".encode() + b"x" * 60
+            pay_rev = b"" if i == 0 else f"rsp_x_{i:02d}_".encode() + b"y" * 60
+            ttl_g1_f = 62
+            ttl_g2_f = 62 if ambiguous_group_x else 61
+            ttl_g1_r = 61 if ambiguous_group_x else 60
+            ttl_g2_r = 61
+            dt_g2 = 1.5 if ambiguous_group_x else 0.000025
+            gen1.append(
+                (t, tcp_packet("10.1.0.10", "203.0.113.20", 42100, 443, 1 + i * 100, 1 + i * 100, flags_fwd, pay_fwd, 100 + i, ttl=ttl_g1_f))
+            )
+            gen2.append(
+                (t + dt_g2, tcp_packet("10.1.0.10", "203.0.113.20", 42100, 443, 1 + i * 100, 1 + i * 100, flags_fwd, pay_fwd, 100 + i, ttl=ttl_g2_f))
+            )
+            host.append(
+                (t + 0.00005, tcp_packet("10.1.0.10", "203.0.113.20", 42100, 443, 1 + i * 100, 1 + i * 100, flags_fwd, pay_fwd, 100 + i, ttl=60))
+            )
+            # Server reply (with TSO superframe on host for i == 1)
+            t_rev = t + 0.002
+            host_pay_rev = b"S" * 2400 if i == 1 else pay_rev
+            host.append(
+                (t_rev, tcp_packet("203.0.113.20", "10.1.0.10", 443, 42100, 500 + i * 100, 50 + i * 100, flags_rev, host_pay_rev, 300 + i, ttl=64))
+            )
+            gen2.append(
+                (t_rev + 0.00002, tcp_packet("203.0.113.20", "10.1.0.10", 443, 42100, 500 + i * 100, 50 + i * 100, flags_rev, pay_rev, 300 + i, ttl=ttl_g2_r))
+            )
+            gen1.append(
+                (t_rev + dt_g2 + 0.00002, tcp_packet("203.0.113.20", "10.1.0.10", 443, 42100, 500 + i * 100, 50 + i * 100, flags_rev, pay_rev, 300 + i, ttl=ttl_g1_r))
+            )
+
+        # Group Y: LB -> Segin -> Segout -> host (Client Y: 198.51.100.10/32, Server: 203.0.113.20:443)
+        for i in range(4):
+            t = 1700000100.005 + i * 0.015
+            flags_fwd = 2 if i == 0 else 24
+            flags_rev = 18 if i == 0 else 24
+            pay_fwd = b"" if i == 0 else f"req_y_{i:02d}_".encode() + b"a" * 50
+            pay_rev = b"" if i == 0 else f"rsp_y_{i:02d}_".encode() + b"b" * 50
+            lb.append(
+                (t, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=63))
+            )
+            segin.append(
+                (t + 0.00002, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=62))
+            )
+            segout.append(
+                (t + 0.00004, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=61))
+            )
+            host.append(
+                (t + 0.00006, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=60))
+            )
+            t_rev = t + 0.002
+            host_pay_rev = b"T" * 2200 if i == 1 else pay_rev
+            host.append(
+                (t_rev, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, host_pay_rev, 700 + i, ttl=64))
+            )
+            segout.append(
+                (t_rev + 0.00002, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, pay_rev, 700 + i, ttl=63))
+            )
+            segin.append(
+                (t_rev + 0.00004, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, pay_rev, 700 + i, ttl=62))
+            )
+            lb.append(
+                (t_rev + 0.00006, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, pay_rev, 700 + i, ttl=61))
+            )
+
+        # Unrelated host noise (filtered out by pre-filter without losing either client X or client Y)
+        for i in range(15):
+            host.append(
+                (
+                    1700000100.2 + i * 0.001,
+                    tcp_packet(f"192.0.2.{(i % 20) + 1}", "198.51.100.250", 54000 + i, 80, 10 + i, 1, 16, b"n" * 20, 900 + i, ttl=60),
+                )
+            )
+
+        write_pcap(folder / "GenisSegment1.pcap", gen1)
+        write_pcap(folder / "GenisSegment2.pcap", gen2)
+        write_pcap(folder / "LB.pcap", lb)
+        write_pcap(folder / "Segin.pcap", segin)
+        write_pcap(folder / "Segout.pcap", segout)
+        write_pcap(folder / "host.pcap", host)
+
+    # 1. Negative case: when one group itself is ambiguous, stop as ambiguous
+    amb_folder = tmp_path / "folder_b_ambiguous"
+    build_folder_b(amb_folder, ambiguous_group_x=True)
+    amb_proj = create_case(amb_folder, tshark=tshark)
+    amb_res = assemble_topology(amb_proj)
+    assert amb_res["ambiguous"] is True
+    assert "Ambiguous path order" in amb_res["reason"]
+
+    # 2. Acceptance case: Folder B 2-path replica assembles both paths with zero input
+    ok_folder = tmp_path / "folder_b_ok"
+    build_folder_b(ok_folder, ambiguous_group_x=False)
+    ok_proj = create_case(ok_folder, tshark=tshark)
+    with ok_proj.connect() as db:
+        suggested = ok_proj.get(db, "suggested_topology")
+        report = ok_proj.get(db, "report")
+
+    assert not suggested["ambiguous"]
+    assert suggested["multi_path"] is True
+    assert len(suggested["groups"]) == 2
+    groups_by_name = {g["name"]: g for g in suggested["groups"]}
+    assert set(groups_by_name) == {"10.1.0.10/32", "198.51.100.10/32"}
+
+    gx = groups_by_name["10.1.0.10/32"]
+    gy = groups_by_name["198.51.100.10/32"]
+    assert gx["topology"]["forward"] == ["GenisSegment1", "GenisSegment2", "host"]
+    assert gx["topology"]["reverse"] == ["host", "GenisSegment2", "GenisSegment1"]
+    assert gy["topology"]["forward"] == ["LB", "Segin", "Segout", "host"]
+    assert gy["topology"]["reverse"] == ["host", "Segout", "Segin", "LB"]
+    # Both groups include the shared host capture and have separate analyses and review & confirm states
+    assert gx["report"] is not None and gy["report"] is not None
+    assert set(report["group_reports"]) == {"10.1.0.10/32", "198.51.100.10/32"}
+    assert gx["confirmed"] is False and gy["confirmed"] is False
+    assert gx["badge"] == "Suggested topology — review & confirm"
+    assert gy["badge"] == "Suggested topology — review & confirm"
+
+    # Confirming one group leaves the other unconfirmed until confirmed independently
+    client = TestClient(create_app(ok_proj.path))
+    headers = {"host": "127.0.0.1:8765", "x-packetbreaker": "local"}
+    c1 = client.post("/api/topology/confirm", json={"group": "10.1.0.10/32"}, headers=headers)
+    assert c1.status_code == 200
+    c1_data = c1.json()
+    assert c1_data["group_confirmed"] is True
+    assert c1_data["confirmed"] is False
+    g_after_1 = {g["name"]: g for g in c1_data["suggested_topology"]["groups"]}
+    assert g_after_1["10.1.0.10/32"]["confirmed"] is True
+    assert g_after_1["198.51.100.10/32"]["confirmed"] is False
+
+    c2 = client.post("/api/topology/confirm", json={"group": "198.51.100.10/32"}, headers=headers)
+    assert c2.status_code == 200
+    c2_data = c2.json()
+    assert c2_data["confirmed"] is True
+    assert c2_data["topology"]["forward"] == ["LB", "Segin", "Segout", "host"]
+

@@ -457,12 +457,27 @@ def create_app(project_path, *, memory_limit_mb=None):
         )
 
     @app.post("/api/topology/confirm")
-    def topology_confirm():
+    async def topology_confirm(request: Request):
         from .topology_suggest import confirm_suggested_topology
+        import json
 
         idle()
-        suggested = confirm_suggested_topology(project)
-        return dict(confirmed=True, suggested_topology=suggested, topology=suggested["topology"])
+        raw = await request.body()
+        group = None
+        if raw:
+            payload = json.loads(raw)
+            if isinstance(payload, dict):
+                group = payload.get("group")
+        suggested = confirm_suggested_topology(project, group=group)
+        with project.connect() as db:
+            rep = project.get(db, "report")
+        return dict(
+            confirmed=bool(suggested.get("confirmed")),
+            group_confirmed=True if group else bool(suggested.get("confirmed")),
+            suggested_topology=suggested,
+            topology=suggested["topology"],
+            report=rep,
+        )
 
     @app.get("/api/findings")
     def findings(

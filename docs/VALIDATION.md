@@ -1577,8 +1577,15 @@ acceptance for every item:
   drops during event) while labelling uniform low-rate loss (`fw_rx -> fw_tx`, 26 drops across
   before/during/after, `~205 ms RTO each`) as `chronic low-rate loss (not event-correlated)` and
   rendering `transit clean; chronic loss 0.013%` in `ResultCard`.
-- **Ingest pre-filter:** Does not filter captures `<=5x` peer size; filters `>5x` captures by
-  peer IP pairs via `tshark -Y` and reports excluded counts.
+- **Ingest pre-filter & `<10%` retention guard:** Does not filter captures `<=5x` peer size,
+  computes the reference set from the union of IP pairs of all other captures so same-size peers
+  (`GenisSegment1/2`) and both client paths on a shared host capture remain intact, skips the
+  filter with a warning when `<10%` of frames would remain, and exposes per-file excluded counts
+  in the case summary and inventory.
+- **Truthful exclusion ambiguity & multi-path Folder B replica:** Reports empty or mostly-excluded
+  captures with exact excluded/usable counts instead of `"share no directional TCP traffic"`.
+  Builds one suggested topology per client CIDR (`10.1.0.10/32` and `198.51.100.10/32`) sharing
+  `host.pcap`, runs both analyses separately, confirms each group independently via
+  `POST /api/topology/confirm`, and stops as `ambiguous` when a group itself has ambiguous order.
 
-Full fast suite (`pytest -n auto -q`): **609 passed in 117.41 s**, frontend build and unit tests
-pass.
+Full fast suite (`pytest -n auto -q`): **611 passed**, frontend build and unit tests pass.

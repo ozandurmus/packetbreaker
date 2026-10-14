@@ -7,15 +7,31 @@ export type SuggestedInference = {
   evidence: Ref[];
   warning?: string;
 };
-export type SuggestedTopology = {
+export type SuggestedTopologyGroup = {
+  name: string;
+  client_cidrs: string[];
+  capture_ids: string[];
   status: string;
   ambiguous: boolean;
   confirmed: boolean;
   badge?: string;
   reason?: string | null;
+  topology: import("../types").Topology;
+  inferences: SuggestedInference[];
+  warnings: string[];
+  report?: Report | null;
+};
+export type SuggestedTopology = {
+  status: string;
+  ambiguous: boolean;
+  confirmed: boolean;
+  multi_path?: boolean;
+  badge?: string;
+  reason?: string | null;
   topology?: import("../types").Topology;
   inferences: SuggestedInference[];
   warnings: string[];
+  groups?: SuggestedTopologyGroup[];
 };
 export type Finding = {
   headline?: string;

@@ -279,22 +279,40 @@ export function useWorkspaceController() {
       setNotice(res.suggested_topology.badge || "Suggested topology — review & confirm");
     }
   }
-  async function confirmSuggestedTopology() {
+  async function confirmSuggestedTopology(group?: string) {
     const res = await api<{
       confirmed: boolean;
       suggested_topology: NonNullable<State["suggested_topology"]>;
       topology: Topology;
-    }>("/topology/confirm", "POST", {});
+      report?: State["report"];
+    }>("/topology/confirm", "POST", group ? { group } : {});
+    if (res.topology) setTopology(res.topology);
     setState((s) =>
       s
         ? {
             ...s,
+            topology: res.topology || s.topology,
             suggested_topology: res.suggested_topology,
-            report: s.report ? { ...s.report, suggested_topology: res.suggested_topology } : null,
+            report: res.report ?? (s.report ? { ...s.report, suggested_topology: res.suggested_topology } : null),
           }
         : s,
     );
-    setNotice("Suggested topology confirmed.");
+    setNotice(group ? `Suggested topology confirmed for ${group}.` : "Suggested topology confirmed.");
+  }
+  function selectSuggestedGroup(g: import("./types").SuggestedTopologyGroup) {
+    setTopology(g.topology);
+    if (g.report) {
+      setState((s) =>
+        s
+          ? {
+              ...s,
+              topology: g.topology,
+              report: { ...g.report!, suggested_topology: s.suggested_topology || g.report!.suggested_topology },
+            }
+          : s,
+      );
+    }
+    setNotice(`Showing analysis for client path ${g.name}.`);
   }
   async function upload(files: FileList | null) {
     if (!files?.length) return;
@@ -352,7 +370,7 @@ export function useWorkspaceController() {
     checkpointUuid, setCheckpointUuid, f5Trailer, setF5Trailer, assistantEnabled, setAssistantEnabled,
     fortiPath, setFortiPath, fortiStart, setFortiStart, fortiDevice, setFortiDevice,
     tsharkPath, setTsharkPath, prefix, setPrefix, refresh, fail, action, downloadReport,
-    saveTopology, editTopology, assembleSuggestedTopology, confirmSuggestedTopology,
+    saveTopology, editTopology, assembleSuggestedTopology, confirmSuggestedTopology, selectSuggestedGroup,
     analyze, upload, showEvents, report, visibleFindings, ready, kinds, busy,
   };
 }

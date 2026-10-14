@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { api } from "./api";
 import { Badge } from "./UI";
-import type { Topology, Capture, Ref, SuggestedTopology } from "./types";
+import type {
+  Topology,
+  Capture,
+  Ref,
+  SuggestedTopology,
+  SuggestedTopologyGroup,
+} from "./types";
 type Suggestion = {
   kind: string;
   capture_ids: string[];
@@ -14,11 +20,13 @@ export function SuggestedTopologyBanner({
   suggested,
   captures,
   onConfirm,
+  onSelectGroup,
   onEvidence,
 }: {
   suggested?: SuggestedTopology | null;
   captures: Capture[];
-  onConfirm: () => void;
+  onConfirm: (group?: string) => void;
+  onSelectGroup?: (group: SuggestedTopologyGroup) => void;
   onEvidence: (e: Ref[]) => void;
 }) {
   if (!suggested) return null;
@@ -35,6 +43,79 @@ export function SuggestedTopologyBanner({
       </section>
     );
   }
+  const summaryLine = captures.length > 0 && (
+    <p className="hint">
+      Case summary (pre-filter excluded per file):{" "}
+      {captures
+        .map((c) => `${c.name}: ${c.inventory?.prefilter_excluded ?? 0} excluded`)
+        .join(" · ")}
+    </p>
+  );
+  if (suggested.groups && suggested.groups.length > 1) {
+    return (
+      <section>
+        {summaryLine}
+        {suggested.warnings?.map((w, idx) => (
+          <p key={idx} role="status">
+            {w}
+          </p>
+        ))}
+        {suggested.groups.map((g) => (
+          <article key={g.name}>
+            <div className="section-head">
+              <h3>Client path: {g.name}</h3>
+              <Badge kind={g.confirmed ? "good" : "warn"}>
+                {g.confirmed
+                  ? "Suggested topology — confirmed"
+                  : g.badge || "Suggested topology — review & confirm"}
+              </Badge>
+              {!g.confirmed && (
+                <button onClick={() => onConfirm(g.name)}>
+                  Confirm {g.name} topology
+                </button>
+              )}
+              {onSelectGroup && (
+                <button className="secondary" onClick={() => onSelectGroup(g)}>
+                  Show {g.name} analysis
+                </button>
+              )}
+            </div>
+            {g.report?.verdict && (
+              <p>
+                <strong>Analysis ({g.name}):</strong> {g.report.verdict}
+              </p>
+            )}
+            <details open={!g.confirmed}>
+              <summary>
+                Inferred topology roles, client direction and path order (
+                {g.inferences.length})
+              </summary>
+              {g.inferences.map((inf, idx) => (
+                <article key={idx}>
+                  <strong>
+                    {inf.kind.replaceAll("_", " ")}:{" "}
+                    {inf.capture_ids
+                      .map((id) => captures.find((c) => c.id === id)?.name || id)
+                      .join(" → ")}
+                  </strong>
+                  <p>{inf.reason}</p>
+                  {inf.warning && <p>{inf.warning}</p>}
+                  {inf.evidence?.length ? (
+                    <button
+                      className="secondary"
+                      onClick={() => onEvidence(inf.evidence)}
+                    >
+                      Evidence frames
+                    </button>
+                  ) : null}
+                </article>
+              ))}
+            </details>
+          </article>
+        ))}
+      </section>
+    );
+  }
   return (
     <section>
       <div className="section-head">
@@ -44,20 +125,10 @@ export function SuggestedTopologyBanner({
             : suggested.badge || "Suggested topology — review & confirm"}
         </Badge>
         {!suggested.confirmed && (
-          <button onClick={onConfirm}>Confirm suggested topology</button>
+          <button onClick={() => onConfirm()}>Confirm suggested topology</button>
         )}
       </div>
-      {captures.length > 0 && (
-        <p className="hint">
-          Case summary (pre-filter excluded per file):{" "}
-          {captures
-            .map(
-              (c) =>
-                `${c.name}: ${c.inventory?.prefilter_excluded ?? 0} excluded`,
-            )
-            .join(" · ")}
-        </p>
-      )}
+      {summaryLine}
       {suggested.warnings?.map((w, idx) => (
         <p key={idx} role="status">
           {w}
@@ -98,6 +169,7 @@ export function TopologySuggestions({
   suggested,
   onAssemble,
   onConfirmSuggested,
+  onSelectGroup,
   onChange,
   onEvidence,
 }: {
@@ -105,7 +177,8 @@ export function TopologySuggestions({
   captures: Capture[];
   suggested?: SuggestedTopology | null;
   onAssemble?: () => void;
-  onConfirmSuggested?: () => void;
+  onConfirmSuggested?: (group?: string) => void;
+  onSelectGroup?: (group: SuggestedTopologyGroup) => void;
   onChange: (t: Topology) => void;
   onEvidence: (e: Ref[]) => void;
 }) {
@@ -177,6 +250,7 @@ export function TopologySuggestions({
           suggested={suggested}
           captures={captures}
           onConfirm={onConfirmSuggested}
+          onSelectGroup={onSelectGroup}
           onEvidence={onEvidence}
         />
       )}

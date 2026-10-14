@@ -27,6 +27,7 @@ export function OverviewView() {
     setEvidence,
     action,
     confirmSuggestedTopology,
+    selectSuggestedGroup,
   } = useWorkspace();
   const [open, setOpen] = useState<Record<string, boolean>>({
     timeline: true,
@@ -82,7 +83,8 @@ export function OverviewView() {
       <SuggestedTopologyBanner
         suggested={suggested}
         captures={state?.captures || []}
-        onConfirm={() => action(confirmSuggestedTopology)}
+        onConfirm={(g) => action(() => confirmSuggestedTopology(g))}
+        onSelectGroup={selectSuggestedGroup}
         onEvidence={setEvidence}
       />
       <ResultCard />

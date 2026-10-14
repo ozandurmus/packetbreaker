@@ -805,6 +805,15 @@ comparison therefore permits 1 ms rounding, without scaling or rewriting reporte
   before/during/after event window exists, all three periods contain low-rate (`<1%`) drops at
   comparable rates without an event-window spike, and transit latency remains clean. Event-burst
   losses and high-rate losses remain degraded.
-- Default ingest pre-filtering in `case` triggers only when a capture exceeds `5x` the frame
-  count of the largest peer capture, using `tshark -Y` over the IP pairs observed in peer
-  captures and reporting excluded frame counts in inventory and quality outputs.
+- Default ingest pre-filtering in `case` compares each capture with `>5x` the frames of the
+  smallest capture against the union of IP pairs of **all** other captures so same-size peer
+  paths (`GenisSegment1/2`) are never stripped, and skips the filter with a warning whenever it
+  would retain `<10%` of frames. Excluded counts per file are surfaced in the case summary as
+  well as per-file inventory.
+- When a capture is empty or mostly excluded (by pre-filtering, invalid timestamps or
+  unsupported encapsulation), report the concrete exclusion counts in the ambiguity reason
+  instead of stating that captures share no directional TCP traffic.
+- When captures form disjoint client-CIDR groups that share a host capture, assemble and analyze
+  each client-CIDR path separately with its own `Suggested topology — review & confirm` state
+  while reusing the shared host capture in each group; stop as ambiguous only when an individual
+  group's path order or client direction is ambiguous.

@@ -1028,7 +1028,16 @@ and `ResultCard` renders a transit-clean device as `transit clean; chronic loss 
 withholding clean-segment attribution.
 
 `ingest_many(..., prefilter=True)` (default on in `case`, toggleable via `--prefilter` /
-`--no-prefilter`) pre-scans peer captures when any input has `>5x` the frames of the largest
-other capture, restricts the oversized capture with a `tshark -Y` IP-pair read filter, and
-records `prefilter_total`, `prefilter_retained` and `prefilter_excluded` in the capture inventory
-and quality report.
+`--no-prefilter`) evaluates each capture whose frame count exceeds `5x` the smallest capture
+against the union of IP pairs observed across **all** other captures (`j != i`). If the filter
+would retain `<10%` of the capture's frames, the filter is skipped and a warning is recorded;
+captures whose IP pairs appear in a same-size peer retain `100%` and are never filtered.
+Excluded counts per file are reported in `case_context.summary.prefilter_excluded`,
+`inventory_overview.summary.prefilter_excluded`, CLI output, and UI summaries.
+
+When non-host captures form disjoint client-CIDR flow components that share a host capture,
+`assemble_topology` builds one suggested topology per group (named by client CIDR, including the
+shared host capture in each), runs and stores each analysis separately with its own
+`review & confirm` state (`POST /api/topology/confirm` accepts `{"group": "<cidr>"}`), and stops
+as `ambiguous` only if a group itself is ambiguous. Empty or mostly-excluded captures report the
+exact exclusion counts in the ambiguity reason rather than claiming no shared directional traffic.

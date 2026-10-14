@@ -50,6 +50,7 @@ export function PathView() {
     editTopology,
     assembleSuggestedTopology,
     confirmSuggestedTopology,
+    selectSuggestedGroup,
     report,
     busy,
   } = useWorkspace();
@@ -99,7 +100,8 @@ export function PathView() {
         captures={state.captures}
         suggested={suggested}
         onAssemble={() => action(assembleSuggestedTopology)}
-        onConfirmSuggested={() => action(confirmSuggestedTopology)}
+        onConfirmSuggested={(g) => action(() => confirmSuggestedTopology(g))}
+        onSelectGroup={selectSuggestedGroup}
         onChange={(t) => void editTopology(t)}
         onEvidence={setEvidence}
       />

@@ -342,14 +342,8 @@ def _capture_exclusion_reason(db, captures, candidate_ids=None) -> str | None:
         inv = c.get("inventory") or {}
         prefilter_excluded = int(inv.get("prefilter_excluded") or 0)
         ts_excluded = sum(int(v) for v in (inv.get("timestamp_excluded_counts") or {}).values())
-        row = db.execute(
-            """SELECT count(*) AS total,
-                      count(*) FILTER (WHERE proto='TCP' AND (unsupported IS NULL OR unsupported='')) AS tcp_usable
-               FROM packets WHERE capture_id=?""",
-            [cid],
-        ).fetchone()
+        row = db.execute("SELECT count(*) FROM packets WHERE capture_id=?", [cid]).fetchone()
         total_packets = int(row[0] or 0)
-        tcp_usable = int(row[1] or 0)
         uniq_row = db.execute(
             """SELECT count(*) FROM (
                    SELECT 1 FROM packets
@@ -381,147 +375,207 @@ def _capture_exclusion_reason(db, captures, candidate_ids=None) -> str | None:
     return None
 
 
-def assemble_topology(project, base_topology: Topology | dict | None = None):
-    raw_suggestions = suggest_topology(project)
-    warnings = list(raw_suggestions.get("warnings", []))
+def _partition_client_groups(db, captures, raw_suggestions) -> list[list[str]] | None:
+    ready_ids = [c["id"] for c in captures]
+    host_cids = {
+        s["capture_ids"][0]
+        for s in raw_suggestions.get("items", [])
+        if s["kind"] == "host_capture" and s["capture_ids"][0] in ready_ids
+    }
+    non_host_cids = [cid for cid in ready_ids if cid not in host_cids]
+    if not host_cids or len(non_host_cids) < 2:
+        return None
+
+    placeholders = ",".join("?" for _ in ready_ids)
+    flow_rows = rows(
+        db,
+        f"""WITH shared_flows AS (
+            SELECT least(tuple_key, reverse_tuple) AS canon
+            FROM packets
+            WHERE capture_id IN ({placeholders}) AND proto='TCP' AND (unsupported IS NULL OR unsupported='')
+            GROUP BY 1 HAVING count(DISTINCT capture_id) >= 2
+        )
+        SELECT DISTINCT p.capture_id, sf.canon
+        FROM packets p
+        JOIN shared_flows sf ON least(p.tuple_key, p.reverse_tuple) = sf.canon
+        WHERE p.capture_id IN ({placeholders}) AND p.proto='TCP'
+          AND (p.unsupported IS NULL OR p.unsupported='')""",
+        [*ready_ids, *ready_ids],
+    )
+    flows_by_cid: dict[str, set[str]] = {cid: set() for cid in ready_ids}
+    for r in flow_rows:
+        flows_by_cid[r["capture_id"]].add(r["canon"])
+
+    if any(not flows_by_cid[cid] for cid in non_host_cids):
+        return None
+
+    adj: dict[str, set[str]] = {cid: set() for cid in non_host_cids}
+    for i, a in enumerate(non_host_cids):
+        for b in non_host_cids[i + 1 :]:
+            if flows_by_cid[a] & flows_by_cid[b]:
+                adj[a].add(b)
+                adj[b].add(a)
+
+    visited: set[str] = set()
+    components: list[list[str]] = []
+    for cid in non_host_cids:
+        if cid in visited:
+            continue
+        comp_set: set[str] = set()
+        stack = [cid]
+        while stack:
+            cur = stack.pop()
+            if cur in visited:
+                continue
+            visited.add(cur)
+            comp_set.add(cur)
+            stack.extend(adj[cur] - visited)
+        components.append([c for c in non_host_cids if c in comp_set])
+
+    if len(components) < 2:
+        return None
+
+    group_cid_lists: list[list[str]] = []
+    for comp in components:
+        comp_flows = set().union(*(flows_by_cid[c] for c in comp))
+        shared_hosts = [h for h in ready_ids if h in host_cids and (comp_flows & flows_by_cid[h])]
+        if not shared_hosts:
+            return None
+        comp_ids = set(comp) | set(shared_hosts)
+        group_cid_lists.append([cid for cid in ready_ids if cid in comp_ids])
+
+    return group_cid_lists
+
+
+def _assemble_single_topology(
+    db,
+    base_model: Topology,
+    captures: list[dict],
+    raw_suggestions: dict,
+    all_captures: list[dict] | None = None,
+):
+    ready_ids = [c["id"] for c in captures]
+    ready_set = set(ready_ids)
+    names = {c["id"]: c["name"] for c in captures}
+    warnings = [
+        s["warning"]
+        for s in raw_suggestions.get("items", [])
+        if s.get("warning") and set(s.get("capture_ids", ())) <= ready_set
+    ]
     inferences = []
 
-    all_captures = project.inventory()
-    captures = [c for c in all_captures if c["state"] == "ready"]
-    with project.connect() as db:
-        if base_topology is None:
-            saved = project.get(db, "topology")
-            base_model = Topology.model_validate(saved) if saved else Topology()
-        elif isinstance(base_topology, Topology):
-            base_model = base_topology.model_copy(deep=True)
-        else:
-            base_model = Topology.model_validate(base_topology)
-
-        early_exclusion = _capture_exclusion_reason(db, all_captures)
-        if early_exclusion:
-            return dict(
-                status="ambiguous",
-                ambiguous=True,
-                confirmed=False,
-                reason=early_exclusion,
-                topology=base_model.model_dump(),
-                inferences=[],
-                warnings=warnings,
-            )
-
-        if len(captures) < 2:
-            return dict(
-                status="ambiguous",
-                ambiguous=True,
-                confirmed=False,
-                reason="At least two ready captures are required to assemble a path.",
-                topology=base_model.model_dump(),
-                inferences=[],
-                warnings=warnings,
-            )
-
-        names = {c["id"]: c["name"] for c in captures}
-        ready_ids = [c["id"] for c in captures]
-        points_by_cid = _default_points(captures, base_model.points)
-
-        client_cidrs, cidr_inference, cidr_err = _infer_client_cidrs(db, names, ready_ids)
-        if cidr_err or not client_cidrs:
-            excl_reason = _capture_exclusion_reason(db, captures, ready_ids)
-            return dict(
-                status="ambiguous",
-                ambiguous=True,
-                confirmed=False,
-                reason=excl_reason or cidr_err or "Client direction could not be inferred unambiguously.",
-                topology=base_model.model_dump(),
-                inferences=[],
-                warnings=warnings,
-            )
-        inferences.append(cidr_inference)
-        client_ips = [cidr.split("/")[0] for cidr in client_cidrs]
-
-        placeholders = ",".join("?" for _ in ready_ids)
-        ip_placeholders = ",".join("?" for _ in client_ips)
-        ttl_rows = rows(
-            db,
-            f"""WITH shared_flows AS (
-                SELECT least(tuple_key, reverse_tuple) AS canon
-                FROM packets
-                WHERE capture_id IN ({placeholders}) AND proto='TCP' AND (unsupported IS NULL OR unsupported='')
-                GROUP BY 1 HAVING count(DISTINCT capture_id) >= 2
-            )
-            SELECT p.capture_id,
-                   median(p.ttl) FILTER (WHERE p.src IN ({ip_placeholders})) AS fwd_ttl,
-                   median(p.ttl) FILTER (WHERE p.dst IN ({ip_placeholders})) AS rev_ttl,
-                   count(*) FILTER (WHERE p.src IN ({ip_placeholders})) AS fwd_n,
-                   count(*) FILTER (WHERE p.dst IN ({ip_placeholders})) AS rev_n,
-                   min(p.frame) FILTER (WHERE p.src IN ({ip_placeholders})) AS fwd_frame,
-                   min(p.frame) FILTER (WHERE p.dst IN ({ip_placeholders})) AS rev_frame,
-                   count(*) FILTER (WHERE p.length > 1500 AND p.ttl IN (64, 128) AND p.src IN ({ip_placeholders})) AS fwd_super,
-                   count(*) FILTER (WHERE p.length > 1500 AND p.ttl IN (64, 128) AND p.dst IN ({ip_placeholders})) AS rev_super
-            FROM packets p
-            JOIN shared_flows sf ON least(p.tuple_key, p.reverse_tuple) = sf.canon
-            WHERE p.capture_id IN ({placeholders}) AND p.proto='TCP'
-              AND (p.unsupported IS NULL OR p.unsupported='')
-            GROUP BY p.capture_id""",
-            [
-                *ready_ids,
-                *client_ips,
-                *client_ips,
-                *client_ips,
-                *client_ips,
-                *client_ips,
-                *client_ips,
-                *client_ips,
-                *client_ips,
-                *ready_ids,
-            ],
+    if len(captures) < 2:
+        return dict(
+            status="ambiguous",
+            ambiguous=True,
+            confirmed=False,
+            reason="At least two ready captures are required to assemble a path.",
+            topology=base_model.model_dump(),
+            inferences=[],
+            warnings=warnings,
         )
-        ttl_by_cid = {r["capture_id"]: r for r in ttl_rows}
-        missing_cid_ids = [
-            cid
-            for cid in ready_ids
-            if cid not in ttl_by_cid
-            or ((ttl_by_cid[cid]["fwd_n"] or 0) == 0 and (ttl_by_cid[cid]["rev_n"] or 0) == 0)
-        ]
-        if missing_cid_ids:
-            excl_reason = _capture_exclusion_reason(db, captures, missing_cid_ids)
-            missing_names = [names[cid] for cid in missing_cid_ids]
-            return dict(
-                status="ambiguous",
-                ambiguous=True,
-                confirmed=False,
-                reason=excl_reason
-                or f"Capture(s) {', '.join(missing_names)} share no directional TCP traffic with the rest of the folder.",
-                topology=base_model.model_dump(),
-                inferences=inferences,
-                warnings=warnings,
-            )
 
-        dir_pairs = rows(
-            db,
-            f"""WITH unique_packets AS (
-                SELECT capture_id, tuple_key, signature, ts, ttl, frame,
-                       CASE WHEN src IN ({ip_placeholders}) THEN 'forward'
-                            WHEN dst IN ({ip_placeholders}) THEN 'reverse'
-                            ELSE 'unknown' END AS dir
-                FROM packets
-                WHERE capture_id IN ({placeholders}) AND proto='TCP' AND (unsupported IS NULL OR unsupported='')
-                QUALIFY count(*) OVER (PARTITION BY capture_id, tuple_key, signature) = 1
-            )
-            SELECT a.capture_id AS a, b.capture_id AS b, a.dir,
-                   count(*) AS n,
-                   median((b.ts - a.ts) * 1e6) AS delta_us,
-                   quantile_cont((b.ts - a.ts) * 1e6, 0.95) - quantile_cont((b.ts - a.ts) * 1e6, 0.05) AS spread_us,
-                   median(a.ttl - b.ttl) AS ttl_step,
-                   arg_min(a.frame, abs((b.ts - a.ts) * 1e6)) AS frame_a,
-                   arg_min(b.frame, abs((b.ts - a.ts) * 1e6)) AS frame_b
-            FROM unique_packets a
-            JOIN unique_packets b USING (tuple_key, signature, dir)
-            WHERE a.capture_id <> b.capture_id AND a.dir IN ('forward', 'reverse')
-            GROUP BY a.capture_id, b.capture_id, a.dir""",
-            [*client_ips, *client_ips, *ready_ids],
+    all_points_by_cid = _default_points(all_captures or captures, base_model.points)
+    points_by_cid = {cid: all_points_by_cid[cid].model_copy(deep=True) for cid in ready_ids}
+
+    client_cidrs, cidr_inference, cidr_err = _infer_client_cidrs(db, names, ready_ids)
+    if cidr_err or not client_cidrs:
+        excl_reason = _capture_exclusion_reason(db, captures, ready_ids)
+        return dict(
+            status="ambiguous",
+            ambiguous=True,
+            confirmed=False,
+            reason=excl_reason or cidr_err or "Client direction could not be inferred unambiguously.",
+            topology=base_model.model_dump(),
+            inferences=[],
+            warnings=warnings,
         )
-        pair_stats = {(r["a"], r["b"], r["dir"]): r for r in dir_pairs}
+    inferences.append(cidr_inference)
+    client_ips = [cidr.split("/")[0] for cidr in client_cidrs]
+
+    placeholders = ",".join("?" for _ in ready_ids)
+    ip_placeholders = ",".join("?" for _ in client_ips)
+    ttl_rows = rows(
+        db,
+        f"""WITH shared_flows AS (
+            SELECT least(tuple_key, reverse_tuple) AS canon
+            FROM packets
+            WHERE capture_id IN ({placeholders}) AND proto='TCP' AND (unsupported IS NULL OR unsupported='')
+            GROUP BY 1 HAVING count(DISTINCT capture_id) >= 2
+        )
+        SELECT p.capture_id,
+               median(p.ttl) FILTER (WHERE p.src IN ({ip_placeholders})) AS fwd_ttl,
+               median(p.ttl) FILTER (WHERE p.dst IN ({ip_placeholders})) AS rev_ttl,
+               count(*) FILTER (WHERE p.src IN ({ip_placeholders})) AS fwd_n,
+               count(*) FILTER (WHERE p.dst IN ({ip_placeholders})) AS rev_n,
+               min(p.frame) FILTER (WHERE p.src IN ({ip_placeholders})) AS fwd_frame,
+               min(p.frame) FILTER (WHERE p.dst IN ({ip_placeholders})) AS rev_frame,
+               count(*) FILTER (WHERE p.length > 1500 AND p.ttl IN (64, 128) AND p.src IN ({ip_placeholders})) AS fwd_super,
+               count(*) FILTER (WHERE p.length > 1500 AND p.ttl IN (64, 128) AND p.dst IN ({ip_placeholders})) AS rev_super
+        FROM packets p
+        JOIN shared_flows sf ON least(p.tuple_key, p.reverse_tuple) = sf.canon
+        WHERE p.capture_id IN ({placeholders}) AND p.proto='TCP'
+          AND (p.unsupported IS NULL OR p.unsupported='')
+        GROUP BY p.capture_id""",
+        [
+            *ready_ids,
+            *client_ips,
+            *client_ips,
+            *client_ips,
+            *client_ips,
+            *client_ips,
+            *client_ips,
+            *client_ips,
+            *client_ips,
+            *ready_ids,
+        ],
+    )
+    ttl_by_cid = {r["capture_id"]: r for r in ttl_rows}
+    missing_cid_ids = [
+        cid
+        for cid in ready_ids
+        if cid not in ttl_by_cid
+        or ((ttl_by_cid[cid]["fwd_n"] or 0) == 0 and (ttl_by_cid[cid]["rev_n"] or 0) == 0)
+    ]
+    if missing_cid_ids:
+        excl_reason = _capture_exclusion_reason(db, captures, missing_cid_ids)
+        missing_names = [names[cid] for cid in missing_cid_ids]
+        return dict(
+            status="ambiguous",
+            ambiguous=True,
+            confirmed=False,
+            reason=excl_reason
+            or f"Capture(s) {', '.join(missing_names)} share no directional TCP traffic with the rest of the folder.",
+            topology=base_model.model_dump(),
+            inferences=inferences,
+            warnings=warnings,
+        )
+
+    dir_pairs = rows(
+        db,
+        f"""WITH unique_packets AS (
+            SELECT capture_id, tuple_key, signature, ts, ttl, frame,
+                   CASE WHEN src IN ({ip_placeholders}) THEN 'forward'
+                        WHEN dst IN ({ip_placeholders}) THEN 'reverse'
+                        ELSE 'unknown' END AS dir
+            FROM packets
+            WHERE capture_id IN ({placeholders}) AND proto='TCP' AND (unsupported IS NULL OR unsupported='')
+            QUALIFY count(*) OVER (PARTITION BY capture_id, tuple_key, signature) = 1
+        )
+        SELECT a.capture_id AS a, b.capture_id AS b, a.dir,
+               count(*) AS n,
+               median((b.ts - a.ts) * 1e6) AS delta_us,
+               quantile_cont((b.ts - a.ts) * 1e6, 0.95) - quantile_cont((b.ts - a.ts) * 1e6, 0.05) AS spread_us,
+               median(a.ttl - b.ttl) AS ttl_step,
+               arg_min(a.frame, abs((b.ts - a.ts) * 1e6)) AS frame_a,
+               arg_min(b.frame, abs((b.ts - a.ts) * 1e6)) AS frame_b
+        FROM unique_packets a
+        JOIN unique_packets b USING (tuple_key, signature, dir)
+        WHERE a.capture_id <> b.capture_id AND a.dir IN ('forward', 'reverse')
+        GROUP BY a.capture_id, b.capture_id, a.dir""",
+        [*client_ips, *client_ips, *ready_ids],
+    )
+    pair_stats = {(r["a"], r["b"], r["dir"]): r for r in dir_pairs}
 
     # 1a. Host captures
     host_items = [
@@ -836,9 +890,9 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
         pt.x = pos * 220
         pt.y = 120
         ordered_points.append(pt)
-    for cid, pt in points_by_cid.items():
+    for cid, pt in all_points_by_cid.items():
         if cid not in forward_cids:
-            ordered_points.append(pt)
+            ordered_points.append(pt.model_copy(deep=True))
 
     inferences.append(
         dict(
@@ -877,6 +931,106 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
     )
 
 
+def assemble_topology(project, base_topology: Topology | dict | None = None):
+    raw_suggestions = suggest_topology(project)
+    warnings = list(raw_suggestions.get("warnings", []))
+
+    all_captures = project.inventory()
+    captures = [c for c in all_captures if c["state"] == "ready"]
+    with project.connect() as db:
+        if base_topology is None:
+            saved = project.get(db, "topology")
+            base_model = Topology.model_validate(saved) if saved else Topology()
+        elif isinstance(base_topology, Topology):
+            base_model = base_topology.model_copy(deep=True)
+        else:
+            base_model = Topology.model_validate(base_topology)
+
+        early_exclusion = _capture_exclusion_reason(db, all_captures)
+        if early_exclusion:
+            return dict(
+                status="ambiguous",
+                ambiguous=True,
+                confirmed=False,
+                reason=early_exclusion,
+                topology=base_model.model_dump(),
+                inferences=[],
+                warnings=warnings,
+            )
+
+        group_cid_lists = _partition_client_groups(db, captures, raw_suggestions)
+        if group_cid_lists and len(group_cid_lists) >= 2:
+            by_cid = {c["id"]: c for c in captures}
+            groups = []
+            seen_cidrs: set[str] = set()
+            combined_warnings = list(warnings)
+            for g_cids in group_cid_lists:
+                g_captures = [by_cid[cid] for cid in g_cids]
+                g_res = _assemble_single_topology(
+                    db, base_model, g_captures, raw_suggestions, all_captures=captures
+                )
+                for w in g_res.get("warnings", []):
+                    if w not in combined_warnings:
+                        combined_warnings.append(w)
+                if g_res["ambiguous"]:
+                    return dict(
+                        status="ambiguous",
+                        ambiguous=True,
+                        confirmed=False,
+                        reason=g_res["reason"],
+                        topology=base_model.model_dump(),
+                        inferences=g_res.get("inferences", []),
+                        warnings=combined_warnings,
+                    )
+                g_cidrs = g_res["topology"]["client_cidrs"]
+                if seen_cidrs & set(g_cidrs):
+                    return dict(
+                        status="ambiguous",
+                        ambiguous=True,
+                        confirmed=False,
+                        reason=f"Disconnected capture groups share client CIDR(s) {sorted(seen_cidrs & set(g_cidrs))}; path order between them is ambiguous.",
+                        topology=base_model.model_dump(),
+                        inferences=g_res.get("inferences", []),
+                        warnings=combined_warnings,
+                    )
+                seen_cidrs.update(g_cidrs)
+                group_name = ", ".join(g_cidrs)
+                groups.append(
+                    dict(
+                        name=group_name,
+                        client_cidrs=g_cidrs,
+                        capture_ids=g_cids,
+                        status="ready",
+                        ambiguous=False,
+                        confirmed=False,
+                        badge="Suggested topology — review & confirm",
+                        reason=g_res["reason"],
+                        topology=g_res["topology"],
+                        inferences=g_res["inferences"],
+                        warnings=g_res["warnings"],
+                    )
+                )
+            groups.sort(key=lambda g: g["name"])
+            return dict(
+                status="ready",
+                ambiguous=False,
+                confirmed=False,
+                multi_path=True,
+                badge="Suggested topology — review & confirm",
+                reason=f"Assembled {len(groups)} independent client paths ({', '.join(g['name'] for g in groups)}) sharing host capture.",
+                topology=groups[0]["topology"],
+                inferences=groups[0]["inferences"],
+                warnings=combined_warnings,
+                groups=groups,
+            )
+
+        res = _assemble_single_topology(db, base_model, captures, raw_suggestions, all_captures=captures)
+        for w in warnings:
+            if w not in res["warnings"]:
+                res["warnings"].insert(0, w)
+        return res
+
+
 def assemble_and_analyze(project, base_topology=None, progress=None, cancel=None):
     from .analysis import analyze
 
@@ -889,6 +1043,23 @@ def assemble_and_analyze(project, base_topology=None, progress=None, cancel=None
         project.set(db, "suggested_topology", assembly)
     if assembly["ambiguous"]:
         return dict(suggested_topology=assembly, report=None)
+    if assembly.get("groups") and len(assembly["groups"]) >= 2:
+        for g in reversed(assembly["groups"]):
+            g_report = analyze(project, g["topology"], progress=progress, cancel=cancel)
+            g_meta = {k: v for k, v in g.items() if k != "report"}
+            g_report["suggested_topology"] = g_meta
+            g["report"] = g_report
+        group_reports = {g["name"]: dict(g["report"]) for g in assembly["groups"]}
+        primary_report = {
+            **assembly["groups"][0]["report"],
+            "suggested_topology": assembly,
+            "group_reports": group_reports,
+        }
+        with project.connect() as db:
+            project.set(db, "topology", assembly["groups"][0]["topology"])
+            project.set(db, "report", primary_report)
+            project.set(db, "suggested_topology", assembly)
+        return dict(suggested_topology=assembly, report=primary_report, groups=assembly["groups"])
     report = analyze(project, assembly["topology"], progress=progress, cancel=cancel)
     report["suggested_topology"] = assembly
     with project.connect() as db:
@@ -897,16 +1068,53 @@ def assemble_and_analyze(project, base_topology=None, progress=None, cancel=None
     return dict(suggested_topology=assembly, report=report)
 
 
-def confirm_suggested_topology(project):
+def confirm_suggested_topology(project, group: str | None = None):
     with project.connect() as db:
         suggested = project.get(db, "suggested_topology")
         if not suggested or suggested.get("ambiguous"):
             raise ValueError("No assembled suggested topology is pending confirmation")
-        suggested = {**suggested, "confirmed": True}
+        if suggested.get("groups"):
+            groups = [dict(g) for g in suggested["groups"]]
+            if group is not None:
+                matched = [g for g in groups if g["name"] == group]
+                if not matched:
+                    raise ValueError(f"Unknown suggested topology group: {group}")
+                target_names = {group}
+            else:
+                target_names = {g["name"] for g in groups}
+            for g in groups:
+                if g["name"] in target_names:
+                    g["confirmed"] = True
+                    if g.get("report") and isinstance(g["report"].get("suggested_topology"), dict):
+                        g["report"] = {
+                            **g["report"],
+                            "suggested_topology": {**g["report"]["suggested_topology"], "confirmed": True},
+                        }
+            all_confirmed = all(g.get("confirmed") for g in groups)
+            suggested = {**suggested, "groups": groups, "confirmed": all_confirmed}
+            if group is not None:
+                chosen = next(g for g in groups if g["name"] == group)
+                suggested["topology"] = chosen["topology"]
+                suggested["inferences"] = chosen["inferences"]
+                project.set(db, "topology", chosen["topology"])
+                if chosen.get("report"):
+                    rep = {
+                        **chosen["report"],
+                        "suggested_topology": suggested,
+                        "group_reports": {g["name"]: dict(g["report"]) for g in groups if g.get("report")},
+                    }
+                    project.set(db, "report", rep)
+        else:
+            suggested = {**suggested, "confirmed": True}
         project.set(db, "suggested_topology", suggested)
-        project.set(db, "unconfirmed_topology", None)
+        if suggested.get("confirmed"):
+            project.set(db, "unconfirmed_topology", None)
         report = project.get(db, "report")
         if report:
-            report["suggested_topology"] = suggested
+            report = {**report, "suggested_topology": suggested}
+            if suggested.get("groups"):
+                report["group_reports"] = {
+                    g["name"]: dict(g["report"]) for g in suggested["groups"] if g.get("report")
+                }
             project.set(db, "report", report)
         return suggested
