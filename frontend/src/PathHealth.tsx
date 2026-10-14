@@ -21,7 +21,7 @@ export function PathHealth() {
             (s) => s.point_a === id && s.direction === "forward",
           );
           const health = segment
-            ? segmentHealth(segment, topology)
+            ? segmentHealth(segment, topology, report)
             : "endpoint";
           return (
             <div key={id} className="path-health-step">
@@ -70,9 +70,10 @@ export function PathHealth() {
         })}
       </div>
       <p className="hint">
-        Green: clean observed · red: supported loss or high transit · grey:
-        unknown. Capture order is the saved topology; return-path details remain
-        in the segment table. Full-window strip.
+        Green: immaterial transit/loss · amber: minor loss outside event · red:
+        material degradation · grey: unknown. Capture order is the saved
+        topology; return-path details remain in the segment table. Full-window
+        strip.
       </p>
     </div>
   );

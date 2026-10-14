@@ -220,3 +220,4 @@
 .path-arrow small {
   font-size: 9px;
 }
+.path-point.minor, .path-arrow.minor { color: #8c650f; background: #fff8de; border-color: #d9bd65; }
