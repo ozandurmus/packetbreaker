@@ -158,6 +158,6 @@ def generate(directory, location="FW2", ip_id="zero", ipv6=False, rounds=100, re
         )
     truth = dict(files=files, location=location, populations=populations, base=base, ipv6=ipv6, ip_id=ip_id)
     truth["half_open_bucket16"] = 48 if compact else 260
-    (directory / "topology.json").write_text(json.dumps(topology, indent=2))
-    (directory / "ground-truth.json").write_text(json.dumps(truth, indent=2))
+    (directory / "topology.json").write_text(json.dumps(topology, indent=2), encoding="utf-8")
+    (directory / "ground-truth.json").write_text(json.dumps(truth, indent=2), encoding="utf-8")
     return truth, topology

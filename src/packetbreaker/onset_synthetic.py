@@ -187,6 +187,6 @@ def generate_onset(directory, scenario, ip_id="increment", ipv6=False, loss_hop=
         loss_probability=0.02 if scenario == "onset_random_loss" else None,
         loss_seed=9 if scenario == "onset_random_loss" else None,
     )
-    (root / "ground-truth.json").write_text(json.dumps(truth, indent=2))
-    (root / "topology.json").write_text(json.dumps(topology, indent=2))
+    (root / "ground-truth.json").write_text(json.dumps(truth, indent=2), encoding="utf-8")
+    (root / "topology.json").write_text(json.dumps(topology, indent=2), encoding="utf-8")
     return truth, topology

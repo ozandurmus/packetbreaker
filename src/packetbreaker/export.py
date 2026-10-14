@@ -234,12 +234,12 @@ def html_report(data):
         .replace("&", r"\u0026")
     )
     incident_library = (
-        (Path(__file__).parent / "static" / "echarts-offline.js").read_text()
+        (Path(__file__).parent / "static" / "echarts-offline.js").read_text(encoding="utf-8")
         if report.get("incident")
         else ""
     )
     incident_script = (
-        (Path(__file__).parent / "static" / "incident-offline.js").read_text()
+        (Path(__file__).parent / "static" / "incident-offline.js").read_text(encoding="utf-8")
         if report.get("incident")
         else ""
     )

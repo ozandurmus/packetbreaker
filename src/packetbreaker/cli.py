@@ -117,7 +117,7 @@ def main():
             if not (args.reference or args.against or args.template):
                 parser.error("Choose --reference, --against or --template")
             if args.report:
-                saved = json.loads(args.report.read_text())
+                saved = json.loads(args.report.read_text(encoding="utf-8"))
             else:
                 project = Project(args.project)
                 with project.connect() as db:
@@ -126,13 +126,15 @@ def main():
                 raise ValueError("Run analysis first")
             saved = unwrap(saved)
             if args.template:
-                with args.template.open("x") as target:
+                with args.template.open("x", encoding="utf-8") as target:
                     json.dump(reference_template(saved), target, indent=2)
             result = {}
             if args.reference:
-                result.update(compare_reference(saved, json.loads(args.reference.read_text())))
+                result.update(
+                    compare_reference(saved, json.loads(args.reference.read_text(encoding="utf-8")))
+                )
             if args.against:
-                result["diff"] = compare_runs(json.loads(args.against.read_text()), saved)
+                result["diff"] = compare_runs(json.loads(args.against.read_text(encoding="utf-8")), saved)
             print(json.dumps(result, indent=2))
             return
         if args.command == "anonymize":

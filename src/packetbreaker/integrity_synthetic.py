@@ -138,5 +138,5 @@ def generate_integrity(directory, scenario="integrity_all", ipv6=False, ip_id="i
             )
         )
     truth = dict(scenario=scenario, files=files, findings=expected)
-    (directory / "ground_truth.json").write_text(json.dumps(truth, indent=2))
+    (directory / "ground_truth.json").write_text(json.dumps(truth, indent=2), encoding="utf-8")
     return truth, topology

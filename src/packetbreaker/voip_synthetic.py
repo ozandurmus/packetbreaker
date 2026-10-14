@@ -197,8 +197,8 @@ def generate(directory, location="FW2", ip_id="zero", ipv6=False, media_mode="fa
         ip_id=ip_id,
     )
     truth.update(media_truth)
-    (directory / "topology.json").write_text(json.dumps(topology, indent=2))
-    (directory / "ground-truth.json").write_text(json.dumps(truth, indent=2))
+    (directory / "topology.json").write_text(json.dumps(topology, indent=2), encoding="utf-8")
+    (directory / "ground-truth.json").write_text(json.dumps(truth, indent=2), encoding="utf-8")
     return truth, topology
 
 

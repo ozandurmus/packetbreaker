@@ -281,6 +281,6 @@ def generate_realistic(directory, scenario="realistic_healthy", rounds=20, ip_id
         reported_drops={"p5": dict(ifdrop=7, osdrop=2)},
         clock_note="One-way-only points use ground-truth clock overrides, never an invented offset estimate.",
     )
-    (directory / "ground-truth.json").write_text(json.dumps(truth, indent=2))
-    (directory / "topology.json").write_text(json.dumps(topology, indent=2))
+    (directory / "ground-truth.json").write_text(json.dumps(truth, indent=2), encoding="utf-8")
+    (directory / "topology.json").write_text(json.dumps(topology, indent=2), encoding="utf-8")
     return truth, topology

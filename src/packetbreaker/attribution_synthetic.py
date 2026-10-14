@@ -214,5 +214,5 @@ def generate_attribution(directory, asymmetric=False, fault_location="FW", ip_id
             )
         )
     truth = dict(files=[str(file)], findings=expected, guards=guards, fault_location=fault_location)
-    (directory / "ground_truth.json").write_text(json.dumps(truth, indent=2))
+    (directory / "ground_truth.json").write_text(json.dumps(truth, indent=2), encoding="utf-8")
     return truth, topology
