@@ -38,6 +38,12 @@ def main():
     )
     case = commands.add_parser("case", help="Ingest a capture folder into a sibling project and open Path")
     case.add_argument("folder", type=Path)
+    case.add_argument(
+        "--prefilter",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Pre-filter captures with >5x the frames of the others to shared IP pairs (default: on)",
+    )
     case.add_argument("--no-browser", action="store_true", default=argparse.SUPPRESS)
     case.add_argument("--port", type=int, default=argparse.SUPPRESS)
     demo = commands.add_parser("demo", help="Generate and ingest five synthetic captures")
@@ -169,6 +175,7 @@ def main():
             project = create_case(
                 args.folder,
                 memory_limit_mb=args.memory_limit_mb,
+                prefilter=args.prefilter,
                 progress=lambda **s: print(f"\rIngest: {s.get('frames', 0):,} frames", end="", flush=True),
             )
             print("\n" + json.dumps(inventory_overview(project.inventory()), indent=2))

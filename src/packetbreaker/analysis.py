@@ -1117,6 +1117,8 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             q["index_scope"] = index_counts.get(q["point"])
             inv = inventories[points[q["point"]].capture_id]
             q["ifdrop"], q["osdrop"] = inv.get("ifdrop"), inv.get("osdrop")
+            q["prefilter_excluded"] = inv.get("prefilter_excluded", 0)
+            q["prefilter_total"] = inv.get("prefilter_total")
             q["evidence"] = evidence(
                 db,
                 "o.point=? AND (NOT o.eligible OR o.caplen<o.wirelen OR o.length>1500 OR o.direction='unknown')",

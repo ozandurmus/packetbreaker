@@ -254,6 +254,8 @@ def ingest(
     checkpoint_uuid=False,
     source_metadata=None,
     f5_trailer=None,
+    read_filter=None,
+    prefilter_total=None,
 ):
     cancel = cancel or threading.Event()
     progress = progress or (lambda **kw: None)
@@ -281,6 +283,7 @@ def ingest(
                 checkpoint_uuid,
                 source_metadata,
                 f5_trailer,
+                *([read_filter] if read_filter else []),
             ]
         )
         if existing and existing[1] == identity and existing[2] == "ready":
@@ -348,6 +351,8 @@ def ingest(
         info["checkpoint_uuid"] = checkpoint_uuid
     if info.get("frame_limit") is not None:
         cmd += ["-c", str(info["frame_limit"])]
+    if read_filter:
+        cmd += ["-Y", read_filter]
     for field in active_fields:
         cmd += ["-e", field]
     metrics = dict(csv_write_cpu_s=0.0, duckdb_cpu_s=0.0, duckdb_wait_s=0.0, duckdb_hold_s=0.0)
@@ -469,7 +474,7 @@ def ingest(
                         FROM packets WHERE capture_id=?""",
                         [cid],
                     ).fetchone()
-                    if not r[2]:
+                    if not r[2] and not read_filter:
                         raise ValueError("Capture contains zero usable frames")
                     info["warnings"] = (
                         [f"File ends mid-packet; last partial record ignored; {r[2]} packets usable"]
@@ -491,6 +496,22 @@ def ingest(
                         info["warnings"].append(
                             f"Excluded {sum(reasons.values())} packets with invalid capture timestamps: "
                             + ", ".join(f"{k}: {v}" for k, v in sorted(reasons.items()))
+                        )
+                    if read_filter:
+                        total_records = (
+                            prefilter_total
+                            if prefilter_total is not None
+                            else (info.get("complete_records") or 0)
+                        )
+                        if info.get("frame_limit") is not None:
+                            total_records = min(total_records, info["frame_limit"])
+                        prefilter_retained = r[2] + sum(reasons.values())
+                        prefilter_excluded = max(0, total_records - prefilter_retained)
+                        info["prefilter_total"] = total_records
+                        info["prefilter_retained"] = prefilter_retained
+                        info["prefilter_excluded"] = prefilter_excluded
+                        info["warnings"].append(
+                            f"Ingest pre-filter kept {prefilter_retained} of {total_records} frames matching IP pairs in other captures ({prefilter_excluded} excluded)"
                         )
                     info["vendor_stages"] = [
                         dict(stage=stage, count=count)

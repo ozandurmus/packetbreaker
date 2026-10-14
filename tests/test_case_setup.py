@@ -138,3 +138,62 @@ def test_keyboard_interrupt_signals_workers_before_join(monkeypatch, tmp_path):
     with pytest.raises(KeyboardInterrupt):
         batch.ingest_many(object(), [tmp_path / "a.pcap"], cancel=cancel)
     assert cancel.is_set()
+
+
+def test_ingest_prefilter_excludes_unshared_ip_pairs_only_above_5x_threshold(tmp_path, tshark):
+    from packetbreaker.synthetic import tcp_packet, write_pcap
+
+    # Negative case: 2 frames vs 10 frames (exactly 5x, not >5x) -> no pre-filter applied
+    neg_folder = tmp_path / "below_threshold"
+    neg_folder.mkdir()
+    shared = [
+        (1700000000.0, tcp_packet("198.51.100.10", "203.0.113.20", 41000, 443, 1, 0, 2, b"", 10, ttl=63)),
+        (1700000000.001, tcp_packet("203.0.113.20", "198.51.100.10", 443, 41000, 500, 2, 18, b"", 11, ttl=63)),
+    ]
+    noise = [
+        (
+            1700000000.01 + i * 0.001,
+            tcp_packet(f"192.0.2.{(i % 20) + 1}", "198.51.100.250", 50000 + i, 80, 100 + i, 1, 16, b"x" * 20, 100 + i),
+        )
+        for i in range(8)
+    ]
+    write_pcap(neg_folder / "hop_a.pcap", shared)
+    write_pcap(neg_folder / "hop_b.pcap", shared + noise)  # 10 frames == 5 * 2 (not >5x)
+    neg_project = create_case(neg_folder, tshark=tshark)
+    neg_overview = inventory_overview(neg_project.inventory())
+    assert not neg_overview["prefilter_excluded"]
+    by_name_neg = {f["name"]: f for f in neg_overview["files"]}
+    assert by_name_neg["hop_b.pcap"]["packet_count"] == 10
+    assert by_name_neg["hop_b.pcap"]["prefilter_excluded"] == 0
+
+    # Positive case: 2 captures with 2 frames each, 1 capture with 15 frames (>5x) containing 13 distractor frames
+    pos_folder = tmp_path / "above_threshold"
+    pos_folder.mkdir()
+    more_noise = [
+        (
+            1700000000.01 + i * 0.001,
+            tcp_packet(f"192.0.2.{(i % 20) + 1}", "198.51.100.250", 50000 + i, 80, 100 + i, 1, 16, b"x" * 20, 200 + i),
+        )
+        for i in range(13)
+    ]
+    write_pcap(pos_folder / "fw_in.pcap", shared)
+    write_pcap(pos_folder / "fw_out.pcap", shared)
+    write_pcap(pos_folder / "host_noisy.pcap", shared + more_noise)  # 15 frames > 5 * 2
+
+    pos_project = create_case(pos_folder, tshark=tshark)
+    pos_overview = inventory_overview(pos_project.inventory())
+    assert pos_overview["prefilter_excluded"] == {"host_noisy.pcap": 13}
+    by_name = {f["name"]: f for f in pos_overview["files"]}
+    assert by_name["host_noisy.pcap"]["packet_count"] == 2
+    assert by_name["host_noisy.pcap"]["prefilter_total"] == 15
+    assert by_name["host_noisy.pcap"]["prefilter_retained"] == 2
+    assert by_name["host_noisy.pcap"]["prefilter_excluded"] == 13
+    assert any("13 excluded" in w for w in by_name["host_noisy.pcap"]["warnings"])
+
+    # Disabling prefilter retains all 15 frames
+    unfiltered_project = create_case(pos_folder, tshark=tshark, prefilter=False)
+    unfiltered_overview = inventory_overview(unfiltered_project.inventory())
+    assert not unfiltered_overview["prefilter_excluded"]
+    by_name_unfiltered = {f["name"]: f for f in unfiltered_overview["files"]}
+    assert by_name_unfiltered["host_noisy.pcap"]["packet_count"] == 15
+

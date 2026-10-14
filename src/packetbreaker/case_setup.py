@@ -67,6 +67,9 @@ def inventory_overview(captures):
                 start=info.get("start"),
                 end=info.get("end"),
                 packet_count=info.get("packet_count"),
+                prefilter_total=info.get("prefilter_total"),
+                prefilter_retained=info.get("prefilter_retained"),
+                prefilter_excluded=info.get("prefilter_excluded", 0),
                 header_snaplen=snaplens[0] if len(snaplens) == 1 else info.get("snaplen"),
                 header_snaplens=snaplens,
                 observed_max_caplen=info.get("observed_max_caplen"),
@@ -92,10 +95,14 @@ def inventory_overview(captures):
             if start < end
             else "Capture time ranges have no positive-duration overlap. Clock offsets may explain this; verify capture windows and clock settings before analysis.",
         )
-    return dict(files=files, overlap=overlap)
+    return dict(
+        files=files,
+        overlap=overlap,
+        prefilter_excluded={f["name"]: f["prefilter_excluded"] for f in files if f.get("prefilter_excluded")},
+    )
 
 
-def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None):
+def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None, prefilter=True):
     paths = capture_paths(folder)
     root = Path(folder).expanduser().resolve()
     project = Project(root.with_name(root.name + ".packetbreaker"), memory_limit_mb=memory_limit_mb)
@@ -108,11 +115,16 @@ def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None):
             progress(**state)
 
     try:
-        ingest_many(project, paths, tshark=tshark, progress=update)
+        ingest_many(project, paths, tshark=tshark, progress=update, prefilter=prefilter)
     except ValueError as exc:
         warning = str(exc)
     inventory = project.inventory()
     labels = {str(p.resolve()): p.relative_to(root).as_posix() for p in paths}
+    prefilter_excluded = {
+        c["name"]: c["inventory"].get("prefilter_excluded", 0)
+        for c in inventory
+        if c["inventory"].get("prefilter_excluded")
+    }
     with project.connect() as db:
         saved = project.get(db, "topology")
         topology = Topology.model_validate(saved) if saved else Topology()
@@ -139,6 +151,8 @@ def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None):
                 folder=str(root),
                 files=len(paths),
                 warning=warning,
+                prefilter=prefilter,
+                prefilter_excluded=prefilter_excluded,
                 issues=[
                     dict(file=f["file"], error=f.get("error"))
                     for f in latest.get("files", [])
