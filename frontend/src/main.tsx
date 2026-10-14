@@ -230,6 +230,7 @@ function App() {
     offset: number;
   } | null>(null);
   const [parallelIngest, setParallelIngest] = useState(false);
+  const [memoryLimit,setMemoryLimit] = useState("");
   const [checkpointUuid, setCheckpointUuid] = useState(false);
   const [f5Trailer, setF5Trailer] = useState(false);
   const [assistantEnabled, setAssistantEnabled] = useState(false);
@@ -274,6 +275,7 @@ function App() {
     setTsharkPath(s.settings.tshark || "");
     setPrefix(s.settings.prefix_bytes || 64);
     setParallelIngest(s.settings.parallel ?? false);
+    setMemoryLimit(s.settings.memory_limit_mb == null ? "" : String(s.settings.memory_limit_mb));
     setCheckpointUuid(s.settings.checkpoint_uuid ?? false);
     setF5Trailer(s.settings.f5_trailer ?? false);
     setAssistantEnabled(s.settings.assistant_enabled ?? false);
@@ -1032,6 +1034,7 @@ function App() {
                             Drops: {num(q.ifdrop, "", 0)} /{" "}
                             {num(q.osdrop, "", 0)}
                           </span>
+                          {q.index_scope&&<span title="Before per-point application/TCP indexing: shared flows or explicit client CIDRs; declared proxy/vendor evidence retained.">{q.index_scope.excluded_flows} flows / {q.index_scope.excluded_frames} frames outside indexing scope</span>}
                           <span title="Frames excluded because their fingerprint repeats, conflicts, or is unsupported.">
                             {num(q.excluded, " excluded", 0)}
                           </span>
@@ -2125,6 +2128,9 @@ function App() {
                     onChange={(e) => setPrefix(Number(e.target.value))}
                   />
                 </label>
+                <label>DuckDB memory limit (MiB; blank = automatic 25% RAM, 1–8 GiB)
+                  <input type="number" min="64" value={memoryLimit} onChange={e=>setMemoryLimit(e.target.value)} />
+                </label>
                 <button
                   disabled={busy}
                   onClick={() =>
@@ -2134,6 +2140,7 @@ function App() {
                         tshark: tsharkPath || null,
                         prefix_bytes: prefix,
                         parallel: parallelIngest,
+                        memory_limit_mb: memoryLimit === "" ? null : Number(memoryLimit),
                         checkpoint_uuid: checkpointUuid,
                         f5_trailer: f5Trailer,
                         assistant_enabled: assistantEnabled,

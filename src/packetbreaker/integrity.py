@@ -55,23 +55,35 @@ def link_modified_payloads(db, topology, models):
         if "full_proxy" not in (points[a].translation, points[b].translation)
     ]
     db.execute(
-        """CREATE OR REPLACE TEMP TABLE modified_payload_pairs AS
-        WITH edges AS (SELECT unnest(?::VARCHAR[]) AS point_a,unnest(?::VARCHAR[]) AS point_b,unnest(?::VARCHAR[]) AS direction),
-        pairs AS (SELECT e.point_a,e.point_b,e.direction,a.frame AS frame_a,b.frame AS frame_b,
-            a.path_fields AS before_fields,b.path_fields AS after_fields
-            FROM edges e JOIN obs a ON a.point=e.point_a AND a.direction=e.direction
-            JOIN obs b ON b.point=e.point_b AND a.canon=b.canon AND a.seq=b.seq AND a.ack=b.ack
-                AND a.flags=b.flags AND a.length=b.length AND a.direction=b.direction
-            WHERE a.proto='TCP' AND a.length>0 AND a.eligible AND b.eligible
-                AND a.translation_reason IS NULL AND b.translation_reason IS NULL AND abs(a.corrected-b.corrected)<=?
-            QUALIFY count(*) OVER(PARTITION BY e.point_a,e.point_b,a.frame)=1
-                AND count(*) OVER(PARTITION BY e.point_a,e.point_b,b.frame)=1)
-        SELECT point_a,point_b,direction,frame_a,frame_b FROM pairs
-        WHERE json_extract_string(before_fields,'$.payload_complete')='true'
-            AND json_extract_string(after_fields,'$.payload_complete')='true'
-            AND json_extract_string(before_fields,'$.payload_sha256')<>json_extract_string(after_fields,'$.payload_sha256')""",
-        [[e[i] for e in edges] for i in range(3)] + [topology.match_window_ms / 1000],
+        "CREATE OR REPLACE TEMP TABLE modified_payload_pairs(point_a VARCHAR,point_b VARCHAR,direction VARCHAR,frame_a BIGINT,frame_b BIGINT)"
     )
+    db.execute("""CREATE OR REPLACE TEMP TABLE modified_headers AS SELECT point,canon,seq,ack,flags,length,direction,frame,corrected,
+        json_extract_string(path_fields,'$.payload_complete') AS complete,json_extract_string(path_fields,'$.payload_sha256') AS digest
+        FROM obs WHERE proto='TCP' AND length>0 AND eligible AND translation_reason IS NULL""")
+    # Narrow rows, one edge at a time; keep uniqueness before filtering changed hashes.
+    for point_a, point_b, direction in edges:
+        db.execute(
+            """INSERT INTO modified_payload_pairs WITH pairs AS (
+            SELECT a.frame AS frame_a,b.frame AS frame_b,a.complete AS complete_a,b.complete AS complete_b,
+                a.digest AS digest_a,b.digest AS digest_b
+            FROM (SELECT * FROM modified_headers WHERE point=? AND direction=?) a
+            JOIN (SELECT * FROM modified_headers WHERE point=? AND direction=?) b
+            ON a.canon=b.canon AND a.seq=b.seq AND a.ack=b.ack AND a.flags=b.flags AND a.length=b.length
+            WHERE abs(a.corrected-b.corrected)<=?
+            QUALIFY count(*) OVER(PARTITION BY a.frame)=1 AND count(*) OVER(PARTITION BY b.frame)=1)
+            SELECT ?,?,?,frame_a,frame_b FROM pairs WHERE complete_a='true' AND complete_b='true' AND digest_a<>digest_b""",
+            [
+                point_a,
+                direction,
+                point_b,
+                direction,
+                topology.match_window_ms / 1000,
+                point_a,
+                point_b,
+                direction,
+            ],
+        )
+    db.execute("DROP TABLE modified_headers")
     changed = set(db.execute("SELECT DISTINCT point_a,point_b FROM modified_payload_pairs").fetchall())
     for a, b, _ in edges:
         if (a, b) not in changed or any(models[points[p].capture_id].uncertainty is None for p in (a, b)):
@@ -520,17 +532,35 @@ class Checks:
                 )
 
     def changed_pair(self, segment, condition):
-        if condition not in self.change_cache:
-            data = rows(
+        key = (segment["id"], condition)
+        if key not in self.change_cache:
+            pair = rows(
                 self.db,
-                f"""SELECT e.id,first(a ORDER BY a.corrected,a.frame) AS before_packet,
-                first(b ORDER BY a.corrected,a.frame) AS after_packet,count(*) AS count
-                FROM integrity_edges e JOIN integrity_obs a ON a.point=e.point_a AND a.direction=e.direction
-                JOIN integrity_obs b ON b.point=e.point_b AND a.packet_key=b.packet_key
-                WHERE a.eligible AND b.eligible AND ({condition}) GROUP BY e.id""",
-            )
-            self.change_cache[condition] = {row["id"]: row for row in data}
-        item = self.change_cache[condition].get(segment["id"])
+                f"""SELECT arg_min(a.frame,(a.corrected,a.frame)) AS frame_a,
+                arg_min(b.frame,(a.corrected,a.frame)) AS frame_b,count(*) AS count
+                FROM (SELECT * FROM integrity_obs WHERE point=? AND direction=? AND eligible) a
+                JOIN (SELECT * FROM integrity_obs WHERE point=? AND direction=? AND eligible) b USING(packet_key)
+                WHERE ({condition})""",
+                [segment["point_a"], segment["direction"], segment["point_b"], segment["direction"]],
+            )[0]
+            item = None
+            if pair["count"]:
+                item = dict(
+                    id=segment["id"],
+                    count=pair["count"],
+                    before_packet=rows(
+                        self.db,
+                        "SELECT * FROM integrity_obs WHERE point=? AND frame=? LIMIT 1",
+                        [segment["point_a"], pair["frame_a"]],
+                    )[0],
+                    after_packet=rows(
+                        self.db,
+                        "SELECT * FROM integrity_obs WHERE point=? AND frame=? LIMIT 1",
+                        [segment["point_b"], pair["frame_b"]],
+                    )[0],
+                )
+            self.change_cache[key] = item
+        item = self.change_cache[key]
         return [item] if item else []
 
     def mtu(self):

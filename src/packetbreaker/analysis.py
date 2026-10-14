@@ -58,7 +58,7 @@ def prepare(db, topology, project=None, cancel=None):
     used = set(topology.forward + (topology.reverse or list(reversed(topology.forward))))
     used.update(p.id for p in topology.points if p.vendor == "paloalto")
     db.execute(
-        "CREATE OR REPLACE TABLE analysis_scope(point VARCHAR,input_frames BIGINT,retained_frames BIGINT,excluded_single_point_frames BIGINT)"
+        "CREATE OR REPLACE TABLE analysis_scope(point VARCHAR,input_frames BIGINT,retained_frames BIGINT,excluded_single_point_frames BIGINT,excluded_single_point_flows BIGINT)"
     )
     for point in sorted(topology.points, key=lambda p: p.host_capture):
         if point.id not in used:
@@ -80,6 +80,9 @@ def prepare(db, topology, project=None, cancel=None):
             clause += " AND iface=?"
             params.append(point.interface)
         input_frames = db.execute(f"SELECT count(*) FROM packets WHERE {clause}", params).fetchone()[0]
+        input_flows = db.execute(
+            f"SELECT count(DISTINCT least(tuple_key,reverse_tuple)) FROM packets WHERE {clause}", params
+        ).fetchone()[0]
         if point.host_capture and any(not p.host_capture and p.id in used for p in topology.points):
             # Non-host points have already selected/decapsulated their identities. Keep both local NAT tuples.
             db.execute(
@@ -97,11 +100,30 @@ def prepare(db, topology, project=None, cancel=None):
             ]
             if mapped:
                 db.executemany("INSERT INTO path_tuples VALUES (?)", [(k,) for k in mapped])
-            clause += " AND (least(tuple_key,reverse_tuple) IN (SELECT tuple_key FROM path_tuples) OR tuple_key IN (SELECT tuple_key FROM path_tuples))"
+            nets = [ipaddress.ip_network(n, strict=False) for n in topology.client_cidrs]
+            addresses = db.execute(
+                "SELECT DISTINCT src FROM packets WHERE capture_id=? UNION SELECT DISTINCT dst FROM packets WHERE capture_id=?",
+                [point.capture_id, point.capture_id],
+            ).fetchall()
+            chosen = [(a,) for (a,) in addresses if a and any(ipaddress.ip_address(a) in n for n in nets)]
+            db.execute("CREATE OR REPLACE TEMP TABLE selected_clients(ip VARCHAR)")
+            if chosen:
+                db.executemany("INSERT INTO selected_clients VALUES (?)", chosen)
+            clause += " AND (least(tuple_key,reverse_tuple) IN (SELECT tuple_key FROM path_tuples) OR tuple_key IN (SELECT tuple_key FROM path_tuples) OR src IN(SELECT ip FROM selected_clients) OR dst IN(SELECT ip FROM selected_clients))"
         retained = db.execute(f"SELECT count(*) FROM packets WHERE {clause}", params).fetchone()[0]
         db.execute(
-            "INSERT INTO analysis_scope VALUES (?,?,?,?)",
-            [point.id, input_frames, retained, input_frames - retained],
+            "INSERT INTO analysis_scope VALUES (?,?,?,?,?)",
+            [
+                point.id,
+                input_frames,
+                retained,
+                input_frames - retained,
+                input_flows
+                - db.execute(
+                    f"SELECT count(DISTINCT least(tuple_key,reverse_tuple)) FROM packets WHERE {clause}",
+                    params,
+                ).fetchone()[0],
+            ],
         )
         db.execute(
             f"INSERT INTO obs SELECT *,seq,ack,NULL,NULL,?,tuple_key FROM packets WHERE {clause}",
@@ -251,6 +273,7 @@ def prepare(db, topology, project=None, cancel=None):
             WHEN (c.role='client') = (lower(json_extract_string(obs.vendor,'$."f5ethtrailer.ingress"')) IN ('true','1')) THEN 'forward'
             ELSE 'reverse' END FROM f5_connections c WHERE obs.capture_id=c.capture_id AND obs.stream=c.stream
             AND c.role IN ('client','server') AND json_extract_string(obs.vendor,'$."f5ethtrailer.ingress"') IS NOT NULL""")
+    restrict_index_scope(db, topology)
     normalize_sequences(db, topology)
     partition_proxy_legs(db, topology)
     # Compare the shared captured prefix, not the digest of different-length payloads.
@@ -277,6 +300,45 @@ def prepare(db, topology, project=None, cancel=None):
     if db.execute("SELECT count(*) FROM obs WHERE proto='TCP' AND length>1500 AND eligible").fetchone()[0]:
         add_byte_calibration(db)
     return suggestions
+
+
+def restrict_index_scope(db, topology):
+    # Canonical flow IDs include confirmed NAT mappings. Explicit proxy/stage evidence must survive.
+    evidence_points = [
+        p.id
+        for p in topology.points
+        if p.translation == "full_proxy" or p.vendor in ("f5", "paloalto", "checkpoint")
+    ]
+    nets = [ipaddress.ip_network(n, strict=False) for n in topology.client_cidrs]
+    selected = []
+    for (canon,) in db.execute("SELECT DISTINCT canon FROM obs").fetchall():
+        try:
+            key = json.loads(canon)
+            if any(ipaddress.ip_address(ip) in net for ip in (key[1], key[3]) for net in nets):
+                selected.append((canon,))
+        except (ValueError, TypeError, IndexError):
+            pass
+    db.execute("CREATE OR REPLACE TEMP TABLE client_tuples(canon VARCHAR)")
+    if selected:
+        db.executemany("INSERT INTO client_tuples VALUES (?)", selected)
+    db.execute("""CREATE OR REPLACE TEMP TABLE scoped_flows AS SELECT flow FROM obs GROUP BY flow
+        HAVING count(DISTINCT point)>=2 OR bool_or(canon IN(SELECT canon FROM client_tuples))""")
+    db.execute(
+        """CREATE OR REPLACE TABLE index_scope AS SELECT point,count(*) AS input_frames,count(DISTINCT flow) AS input_flows,
+        count(*) FILTER(WHERE flow IN(SELECT flow FROM scoped_flows) OR point IN(SELECT unnest(?::VARCHAR[]))) AS retained_frames,
+        count(DISTINCT flow) FILTER(WHERE flow IN(SELECT flow FROM scoped_flows) OR point IN(SELECT unnest(?::VARCHAR[]))) AS retained_flows
+        FROM obs GROUP BY point""",
+        [evidence_points, evidence_points],
+    )
+    db.execute(
+        """UPDATE index_scope SET input_frames=s.input_frames,input_flows=index_scope.input_flows+s.excluded_single_point_flows FROM analysis_scope s WHERE index_scope.point=s.point"""
+    )
+    db.execute(
+        "CREATE OR REPLACE TABLE obs AS SELECT * FROM obs WHERE flow IN(SELECT flow FROM scoped_flows) OR point IN(SELECT unnest(?::VARCHAR[]))",
+        [evidence_points],
+    )
+    db.execute("""UPDATE analysis_scope SET retained_frames=i.retained_frames,
+        excluded_single_point_frames=analysis_scope.input_frames-i.retained_frames FROM index_scope i WHERE analysis_scope.point=i.point""")
 
 
 def align(db, topology):
@@ -1038,7 +1100,21 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         inventories = {
             cid: json.loads(inv) for cid, inv in db.execute("SELECT id,inventory FROM captures").fetchall()
         }
+        index_counts = {
+            r["point"]: r
+            for r in rows(
+                db,
+                "SELECT *,input_frames-retained_frames AS excluded_frames,input_flows-retained_flows AS excluded_flows FROM index_scope",
+            )
+        }
+        present = {q["point"] for q in quality}
+        quality.extend(
+            dict(point=p, packets=0, excluded=0, truncated=0, possible_offload=0, unknown_direction=0)
+            for p in index_counts
+            if p not in present
+        )
         for q in quality:
+            q["index_scope"] = index_counts.get(q["point"])
             inv = inventories[points[q["point"]].capture_id]
             q["ifdrop"], q["osdrop"] = inv.get("ifdrop"), inv.get("osdrop")
             q["evidence"] = evidence(

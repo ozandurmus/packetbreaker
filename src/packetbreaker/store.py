@@ -4,6 +4,8 @@ from pathlib import Path
 import threading
 import importlib.util
 import sys
+import os
+import psutil
 
 import duckdb
 from . import __version__
@@ -63,8 +65,18 @@ PACKET_COLUMNS = {
 }
 
 
+def memory_budget_mb(override=None):
+    if override is not None:
+        if isinstance(override, bool) or not isinstance(override, int) or override < 64:
+            raise ValueError("DuckDB memory limit must be at least 64 MiB")
+        return override
+    return min(8192, max(1024, psutil.virtual_memory().total // (4 * 1024**2)))
+
+
 class Project:
-    def __init__(self, path: Path | str):
+    def __init__(self, path: Path | str, *, memory_limit_mb=None):
+        self.memory_limit_mb = memory_limit_mb
+        memory_budget_mb(memory_limit_mb)
         self.path = Path(path).resolve()
         self.path.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
@@ -122,8 +134,8 @@ class Project:
             db = duckdb.connect(
                 str(self.path / "project.duckdb"),
                 config={
-                    "memory_limit": "512MB",
-                    "threads": "2",
+                    "memory_limit": f"{memory_budget_mb(getattr(self, 'memory_limit_mb', None))}MiB",
+                    "threads": str(min(8, max(1, (os.cpu_count() or 1) - 1))),
                     "preserve_insertion_order": "false",
                     "enable_external_access": str(allow_external).lower(),
                     "temp_directory": str(self.path / ".spill"),
@@ -132,6 +144,15 @@ class Project:
                 },
             )
             try:
+                if (
+                    getattr(self, "memory_limit_mb", None) is None
+                    and db.execute(
+                        "SELECT count(*) FROM duckdb_tables() WHERE table_name='settings'"
+                    ).fetchone()[0]
+                ):
+                    configured = self.get(db, "preferences", {}).get("memory_limit_mb")
+                    if configured is not None:
+                        db.execute(f"SET memory_limit='{memory_budget_mb(configured)}MiB'")
                 yield db
             except duckdb.OutOfMemoryException as exc:
                 raise ValueError(

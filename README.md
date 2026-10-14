@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.3.8-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.3.10-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -840,3 +840,23 @@ Windows offline exports and compare files explicitly use UTF-8.
 After installing `.[test]`, `pytest -n auto` runs independent test files in CPU/RAM-bounded
 workers with one shared source fixture build and private worker databases. This is the
 standard local parallel test command; `-n 0` remains available for serial debugging.
+
+### Constrained memory and captures starting during an incident
+
+Settings → **DuckDB memory limit** accepts MiB; blank uses 25% of physical RAM (minimum
+1 GiB, maximum 8 GiB). Changes apply to the next connection. A CLI override takes precedence
+for that process:
+
+```sh
+packetbreaker --project /path/to/project analyze --memory-limit-mb 512
+packetbreaker --memory-limit-mb 2048 --project /path/to/project
+```
+
+Native threads use at most eight and leave one CPU where possible. Spill remains enabled.
+Quality cards show flow/frame counts excluded before point indexing. Only shared flows or
+explicit client CIDRs are indexed, with existing declared proxy/vendor evidence retained.
+
+If capture starts during a slow period, a measured host-boundary delay >= `stall_ms` still
+appears and leads the summary when dominant. It says **Onset unknown: no pre-event coverage**;
+the measured delay is available while the true beginning/recovery remains unknown. Re-run
+analysis to apply these changes to an already cached report.

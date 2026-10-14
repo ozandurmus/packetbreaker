@@ -732,3 +732,22 @@ existing planned session fixtures are lazy, generated once behind run-local lock
 to private writable worker databases. This prevents repeated whole-suite prefetch and shared
 DuckDB writers. Cache pickle files are only generated/read inside the trusted test-run temp
 directory. Production dependencies and analysis concurrency are unchanged.
+
+### Adaptive memory and absolute host-delay reporting
+
+Use physical RAM for the stable default budget, with a 1–8 GiB clamp; available RAM would
+make the same project unpredictably change budget under background load. Retain explicit
+512 MiB overrides and native spill so constrained correctness can be verified. The chosen
+thread count is capped at eight, leaving one CPU where possible. Avoid wide in-place TCP
+metadata updates and full-packet aggregates in integrity joins; keep only narrow frame keys
+until evidence is needed. No dissector or packet identity rule changes.
+
+Scope to shared canonical flows or explicit client CIDRs before point indexing, with counts
+visible in quality. Preserve declared full-proxy/vendor evidence because its separate TCP
+legs or positive drop stages need not repeat a tuple at another point. The normal host/noise
+case uses the shared-flow/CIDR rule. Per-point scope is part of the application cache key.
+
+An unavailable baseline limits onset timing, not a directly measured 1,212 ms boundary delay.
+Use the configured absolute stall threshold when no change window can be learned; require
+usable clock evidence and excess over uncertainty. Retain unknown onset/recovery and label
+the interval observed. Do not replace this with a fabricated pre-event baseline.

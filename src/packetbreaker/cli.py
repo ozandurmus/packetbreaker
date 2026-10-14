@@ -18,6 +18,9 @@ def main():
     parser = argparse.ArgumentParser(description="PacketBreaker — local multi-hop capture analysis")
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--project", default=str(Path.home() / "PacketBreaker" / "default"))
+    parser.add_argument(
+        "--memory-limit-mb", type=int, help="DuckDB MiB override (>=64); default 25% RAM, 1–8 GiB"
+    )
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
     commands = parser.add_subparsers(dest="command")
@@ -95,6 +98,7 @@ def main():
     )
     run = commands.add_parser("analyze", help="Analyze saved or supplied topology; print JSON")
     run.add_argument("--topology", type=Path)
+    run.add_argument("--memory-limit-mb", type=int, default=argparse.SUPPRESS)
     export = commands.add_parser("export", help="Export the last analysis as offline HTML or versioned JSON")
     export.add_argument("--format", required=True, choices=["html", "json", "csv", "xlsx"])
     export.add_argument("--output", "-o", type=Path, help="New output file; defaults to stdout")
@@ -119,7 +123,7 @@ def main():
             if args.report:
                 saved = json.loads(args.report.read_text(encoding="utf-8"))
             else:
-                project = Project(args.project)
+                project = Project(args.project, memory_limit_mb=args.memory_limit_mb)
                 with project.connect() as db:
                     saved = project.get(db, "report")
             if not saved:
@@ -164,6 +168,7 @@ def main():
 
             project = create_case(
                 args.folder,
+                memory_limit_mb=args.memory_limit_mb,
                 progress=lambda **s: print(f"\rIngest: {s.get('frames', 0):,} frames", end="", flush=True),
             )
             print("\n" + json.dumps(inventory_overview(project.inventory()), indent=2))
@@ -174,7 +179,7 @@ def main():
             truth, topology = generate(
                 args.directory, scenario=args.scenario, rounds=args.rounds, ip_id=args.ip_id, ipv6=args.ipv6
             )
-            project = Project(args.directory / "project")
+            project = Project(args.directory / "project", memory_limit_mb=args.memory_limit_mb)
             ids = ingest_many(project, truth["files"], parallel=args.parallel_ingest)
             bind_capture_ids(topology, {Path(path).name: cid for path, cid in zip(truth["files"], ids)})
             report = analyze(project, topology)
@@ -188,7 +193,7 @@ def main():
             (args.directory / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
             print(f'{report["verdict"]}\nOpen: packetbreaker --project "{project.path}"')
         elif args.command == "analyze":
-            project = Project(args.project)
+            project = Project(args.project, memory_limit_mb=args.memory_limit_mb)
             with project.connect() as db:
                 topology = (
                     json.loads(args.topology.read_text(encoding="utf-8"))
@@ -203,7 +208,13 @@ def main():
 
             print(
                 json.dumps(
-                    import_text(Project(args.project), args.path, args.start_time, args.device), indent=2
+                    import_text(
+                        Project(args.project, memory_limit_mb=args.memory_limit_mb),
+                        args.path,
+                        args.start_time,
+                        args.device,
+                    ),
+                    indent=2,
                 )
             )
         elif args.command == "export":
@@ -212,12 +223,14 @@ def main():
 
                 if not args.output:
                     parser.error("CSV/XLSX engine exports require --output (CSV is a ZIP of tables)")
-                content = export_tables(Project(args.project), args.format)
+                content = export_tables(
+                    Project(args.project, memory_limit_mb=args.memory_limit_mb), args.format
+                )
                 with args.output.open("xb") as output:
                     output.write(content)
                 print(f"Exported {args.output}")
                 return
-            content = export_report(Project(args.project), args.format)
+            content = export_report(Project(args.project, memory_limit_mb=args.memory_limit_mb), args.format)
             if args.output:
                 with args.output.open("x", encoding="utf-8") as output:
                     output.write(content)
@@ -236,7 +249,7 @@ def main():
             import uvicorn
             from .app import create_app
 
-            app = create_app(args.project)
+            app = create_app(args.project, memory_limit_mb=args.memory_limit_mb)
             if not args.no_browser:
 
                 def open_when_ready():

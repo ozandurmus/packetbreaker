@@ -185,14 +185,19 @@ def aggregate_host(db, topology, segments, report):
             )
         current = window
         if current is None:
-            # Preserve a short-capture observation, with explicitly unknown onset.
-            if len(series) >= 8 or item["p95_ms"] <= max(1, 2 * item["uncertainty_ms"]):
+            absolute = item["max_ms"] >= max(topology.stall_ms, 2 * item["uncertainty_ms"])
+            if not absolute and (len(series) >= 8 or item["p95_ms"] <= max(1, 2 * item["uncertainty_ms"])):
                 continue
+            baseline_missing = not global_series or global_series[0]["latency_p95_ms"] > max(
+                1, 2 * uncertainty
+            )
+            why = "no pre-event coverage" if absolute and baseline_missing else why
             current = dict(
                 start=series[0]["start"],
                 time=series[0]["start"],
                 end=series[-1]["end"],
                 status="unknown",
+                absolute_threshold_ms=topology.stall_ms if absolute else None,
                 reason=why,
                 recovery_confirmed=False,
             )
@@ -203,6 +208,9 @@ def aggregate_host(db, topology, segments, report):
             FROM host_transit WHERE direction=? AND reason IS NULL GROUP BY period ORDER BY min(time)""",
             [current["start"], current["end"], direction],
         )
+        if current.get("status") == "unknown":
+            for period in periods:
+                period["period"] = "observed; onset/recovery unknown"
         for detail in details:
             detail["window"] = current
         item.update(
@@ -248,7 +256,7 @@ def finish_host_summary(db, topology, segments, report):
         w = item["window"]
         headline = f"Delay occurs between {item['segment_label'].replace(' → ', ' and ')}; {text}. {item['affected_flow_count']} affected flow(s)."
         if w.get("status") == "unknown":
-            headline += f" Onset/recovery unknown: {w.get('reason')}."
+            headline += f" Onset unknown: {w.get('reason')}; recovery unknown."
         else:
             headline += f" Global event window {time_labels(w['start'], topology.report_timezone)['local']} / {time_labels(w['start'], topology.report_timezone)['utc']} through {time_labels(w['end'], topology.report_timezone)['utc']}; recovery {'confirmed' if w['recovery_confirmed'] else 'unknown'}."
         headline += f" Clock uncertainty ±{item['uncertainty_ms']:.3f} ms."
