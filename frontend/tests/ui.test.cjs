@@ -18,8 +18,8 @@ test('all non-Overview views still render their existing controls',()=>{for(cons
 
 const cycles=require('../src/cycleDisplay.ts');
 test('materiality keeps tiny recovered loss clean, distinguishes event impact and outside-event minor',()=>{
- const topology={min_eligible_ratio:.9}, segment={id:'fw',reason:null,max_ms:.1,p95_ms:.01,loss_percent:.01,eligible_ratio:1,classes:{recovered_loss:2},latency_uncertainty_ms:.01};
- const report={incident:{window:{start:20,end:45}},findings:[]};
+ const topology={min_eligible_ratio:.9,points:[{id:'fw_rx',device:'FW'},{id:'fw_tx',device:'FW'}]}, segment={id:'fw',point_a:'fw_rx',point_b:'fw_tx',reason:null,max_ms:.1,p95_ms:.01,loss_percent:.01,eligible_ratio:1,classes:{recovered_loss:2},latency_uncertainty_ms:.01};
+ const report={incident:{window:{start:20,end:45}},findings:[],segments:[segment],clocks:{}};
  assert.equal(model.segmentHealth(segment,topology,report),'clean');
  assert.equal(model.segmentHealth({...segment,reason:'Clock unknown'},topology,report),'unknown');
  assert.equal(model.segmentHealth({...segment,loss_percent:.1},topology,report),'degraded');
@@ -27,6 +27,13 @@ test('materiality keeps tiny recovered loss clean, distinguishes event impact an
  assert.equal(model.segmentHealth({...segment,classes:{impactful_loss:1}},topology,{...report,findings:[loss]}),'degraded');
  assert.equal(model.segmentHealth({...segment,classes:{impactful_loss:1}},topology,{...report,findings:[{...loss,time_range:[1,2]}]}),'minor');
  assert.equal(model.segmentHealth({...segment,max_ms:11},topology,report),'degraded');
+ const chronicSeg={...segment,loss_percent:.013,chronic_loss:true,classes:{impactful_loss:26}};
+ const chronicLoss={...loss,chronic_loss:true,metrics:{chronic_loss:true}};
+ assert.equal(model.segmentHealth(chronicSeg,topology,{...report,findings:[chronicLoss]}),'clean');
+ const React=require('react'),{renderToStaticMarkup}=require('react-dom/server'),{WorkspaceContext}=require('../src/WorkspaceContext.tsx'),{ResultCard}=require('../src/ResultCard.tsx');
+ const html=renderToStaticMarkup(React.createElement(WorkspaceContext.Provider,{value:{report:{...report,segments:[chronicSeg],findings:[chronicLoss]},topology,setEvidence:()=>{}}},React.createElement(ResultCard)));
+ assert.ok(html.includes('transit clean; chronic loss 0.013%'));
+ assert.ok(!html.includes('No segment can be marked clean'));
 });
 test('cycle stacks omit local service/client wait and retain missing components as unknown',()=>{
  const bar={parts:[{component:'RX',ms:100},{component:'TX',ms:1123},{component:'local',ms:4000},{component:'wait',ms:2000}]};

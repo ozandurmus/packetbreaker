@@ -388,6 +388,164 @@ def polish_findings(findings, segments, topology, onsets):
     return dominant
 
 
+def classify_chronic_losses(db, topology, segments, findings, host_report, onsets, start, end):
+    window = host_report.get("window")
+    if not window or window.get("status") == "unknown":
+        window = onsets.get("global_event_window")
+    if not window or window.get("status") == "unknown":
+        net_onset = next(
+            (
+                i
+                for i in onsets.get("items", [])
+                if i.get("scope") in ("network_segment", "host_capture_boundary")
+                and i.get("time") is not None
+                and (i.get("window_end") or i.get("end")) is not None
+            ),
+            None,
+        )
+        if net_onset:
+            window = dict(
+                start=net_onset["time"],
+                time=net_onset["time"],
+                end=net_onset.get("window_end") or net_onset["end"],
+                status="detected",
+            )
+            if not host_report.get("window"):
+                host_report["window"] = window
+    if not window or window.get("status") == "unknown":
+        return
+    w_start, w_end = window.get("start"), window.get("end")
+    if start is None or end is None or w_start is None or w_end is None:
+        return
+    if not (start < w_start < w_end < end):
+        return
+
+    loss_types = {
+        "impactful_loss",
+        "recovered_loss",
+        "unrecovered_loss",
+        "confirmed_device_drop",
+        "host_transmit_path_loss",
+        "host_receive_path_loss",
+    }
+    label_text = "chronic low-rate loss (not event-correlated)"
+    dur_before = max(1e-6, w_start - start)
+    dur_during = max(1e-6, w_end - w_start)
+    dur_after = max(1e-6, end - w_end)
+
+    for s in segments:
+        if s.get("reason") or not s.get("eligible_packets") or s.get("loss_percent") is None:
+            continue
+        stats = rows(
+            db,
+            """SELECT count(*) AS total_drops,
+            count(*) FILTER(WHERE ts < ?) AS drops_before,
+            count(*) FILTER(WHERE ts >= ? AND ts < ?) AS drops_during,
+            count(*) FILTER(WHERE ts >= ?) AS drops_after,
+            median(recovery_ms) AS median_recovery_ms
+            FROM events WHERE point_a=? AND point_b=? AND direction=?
+            AND kind IN ('impactful_loss','recovered_loss','unrecovered_loss','confirmed_device_drop')""",
+            [w_start, w_start, w_end, w_end, s["point_a"], s["point_b"], s["direction"]],
+        )[0]
+        if not (stats["drops_before"] > 0 and stats["drops_during"] > 0 and stats["drops_after"] > 0):
+            continue
+        totals = rows(
+            db,
+            """SELECT
+            count(*) FILTER(WHERE coalesce(corrected,ts) < ?) AS total_before,
+            count(*) FILTER(WHERE coalesce(corrected,ts) >= ? AND coalesce(corrected,ts) < ?) AS total_during,
+            count(*) FILTER(WHERE coalesce(corrected,ts) >= ?) AS total_after
+            FROM obs WHERE point=? AND direction=? AND eligible
+            AND (length>0 OR (proto='TCP' AND (flags&7)>0) OR proto IN ('UDP','ICMP'))
+            AND (? IS NULL OR coalesce(corrected,ts)>=?) AND (? IS NULL OR coalesce(corrected,ts)<=?)""",
+            [
+                w_start,
+                w_start,
+                w_end,
+                w_end,
+                s["point_a"],
+                s["direction"],
+                start,
+                start,
+                end,
+                end,
+            ],
+        )[0]
+        if not (totals["total_before"] > 0 and totals["total_during"] > 0 and totals["total_after"] > 0):
+            continue
+        rate_before = 100.0 * stats["drops_before"] / totals["total_before"]
+        rate_during = 100.0 * stats["drops_during"] / totals["total_during"]
+        rate_after = 100.0 * stats["drops_after"] / totals["total_after"]
+        lps_before = stats["drops_before"] / dur_before
+        lps_during = stats["drops_during"] / dur_during
+        lps_after = stats["drops_after"] / dur_after
+        if s["loss_percent"] >= 1.0 or max(rate_before, rate_during, rate_after) >= 1.0:
+            continue
+        pct_ratio = max(rate_before, rate_during, rate_after) / max(
+            1e-9, min(rate_before, rate_during, rate_after)
+        )
+        lps_ratio = max(lps_before, lps_during, lps_after) / max(
+            1e-9, min(lps_before, lps_during, lps_after)
+        )
+        not_spiking = rate_during <= 2.5 * min(rate_before, rate_after) or lps_during <= 2.5 * min(
+            lps_before, lps_after
+        )
+        if not ((pct_ratio <= 3.0 or lps_ratio <= 3.0) and not_spiking):
+            continue
+
+        total_drops = stats["total_drops"]
+        med_rto = stats["median_recovery_ms"]
+        typical_recovery = (
+            f"{total_drops} drops, ~{round(med_rto)} ms RTO each"
+            if med_rto is not None
+            else f"{total_drops} drops, unrecovered"
+        )
+        period_rates = dict(
+            before_loss_percent=round(rate_before, 4),
+            during_loss_percent=round(rate_during, 4),
+            after_loss_percent=round(rate_after, 4),
+            before_per_s=round(lps_before, 3),
+            during_per_s=round(lps_during, 3),
+            after_per_s=round(lps_after, 3),
+        )
+        rate_text = (
+            f"before {rate_before:.3f}% ({lps_before:.2f}/s), "
+            f"during {rate_during:.3f}% ({lps_during:.2f}/s), "
+            f"after {rate_after:.3f}% ({lps_after:.2f}/s)"
+        )
+        s["chronic_loss"] = True
+        s["loss_suspect"] = False
+        s["loss_class"] = label_text
+        s["typical_recovery"] = typical_recovery
+        s["period_rates"] = period_rates
+        uncertainty = s.get("latency_uncertainty_ms") or s.get("offset_uncertainty_ms") or 0
+        if (
+            not s.get("reason")
+            and s.get("p95_ms") is not None
+            and s.get("max_ms") is not None
+            and s["p95_ms"] + uncertainty < 1
+            and s["max_ms"] + uncertainty < 10
+        ):
+            s["chronic_loss_summary"] = f"transit clean; chronic loss {s['loss_percent']:.3f}%"
+
+        matching = [f for f in findings if f["hop"] == s["id"] and f["type"] in loss_types]
+        if matching:
+            primary_f = matching[0]
+            summary_text = f"{s['label']}: {label_text} — {typical_recovery}; rate per period: {rate_text}."
+            primary_f["chronic_loss"] = True
+            primary_f["loss_class"] = label_text
+            primary_f["severity"] = "low"
+            primary_f["summary"] = summary_text
+            primary_f["headline"] = summary_text
+            primary_f["metrics"]["chronic_loss"] = True
+            primary_f["metrics"]["loss_class"] = label_text
+            primary_f["metrics"]["typical_recovery"] = typical_recovery
+            primary_f["metrics"]["period_rates"] = period_rates
+            primary_f["metrics"]["count"] = total_drops
+            for extra in matching[1:]:
+                findings.remove(extra)
+
+
 def lead_degradation(report, findings, segments):
     """Direct degradation measurements outrank diagnostic integrity hypotheses."""
     allowed = {
@@ -408,13 +566,21 @@ def lead_degradation(report, findings, segments):
         m = f["metrics"]
         return (
             bool(m.get("primary_degradation")),
+            not bool(m.get("chronic_loss") or f.get("chronic_loss")),
             bool(m.get("window")),
             (m.get("max_ms") or m.get("max_recovery_ms") or m.get("max_stall_ms") or 0)
             * max(1, m.get("count", 1)),
         )
 
     primary = max(candidates, key=score)
-    findings.sort(key=lambda f: (f is not primary, f["severity"] not in ("high", "low"), f["time_range"][0]))
+    findings.sort(
+        key=lambda f: (
+            f is not primary,
+            bool(f.get("chronic_loss") or f["metrics"].get("chronic_loss")),
+            f["severity"] not in ("high", "low"),
+            f["time_range"][0],
+        )
+    )
     report["findings"] = findings[:200]
     report["finding_count"] = len(findings)
     if (
@@ -425,3 +591,4 @@ def lead_degradation(report, findings, segments):
         report["verdict"] = primary.get("headline") or primary["summary"]
     elif report["verdict"] == "Path integrity findings observed":
         report["verdict"] = primary.get("headline") or primary["summary"]
+
