@@ -1,10 +1,32 @@
-import {Chart} from "./Charts";
-import {num} from "./api";
-import type {Ref,Report} from "./types";
+export type CycleAggregate = {
+  max_added_ms: number | null;
+  max_added?: {
+    cycle_id: string;
+    flow: string;
+    time: number;
+    host: string;
+    rx_ms: number;
+    tx_ms: number;
+    added_ms: number;
+    uncertainty_ms: number;
+    frames: {
+      point_a: string;
+      point_b: string;
+      frame_a: number;
+      frame_b: number;
+    }[];
+    evidence: Ref[];
+  };
+};
+import { Chart } from "./Charts";
+import { num } from "./api";
+import type { Ref, Report } from "./types";
 export type CycleReport = {
+  event?: CycleAggregate;
+  analysis?: CycleAggregate;
   total?: number;
   stalled_total?: number;
-  max_added_ms?: number|null;
+  max_added_ms?: number | null;
   note: string;
   scope: string;
   stall_ms: number;
