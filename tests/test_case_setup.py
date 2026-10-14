@@ -528,22 +528,22 @@ def test_multi_path_folder_b_replica_assembles_both_paths_and_stops_when_group_a
     from packetbreaker.synthetic import tcp_packet, write_pcap
     from packetbreaker.topology_suggest import assemble_topology
 
-    def build_folder_b(folder, *, ambiguous_group_x: bool = False):
+    def build_folder_b(folder, *, inconsistent_ttl_lb: bool = False, inconsistent_ttl_gen: bool = False):
         folder.mkdir()
         gen1, gen2, lb, segin, segout, host = [], [], [], [], [], []
         # Group X: GenisSegment1 -> GenisSegment2 -> host (Client X: 10.1.0.10/32, Server: 203.0.113.20:443)
-        # Uses 12 rounds (24 frames per GenisSegment capture, >5x of Group Y's 4 frames -> exercises pre-filter too)
+        # Uses 12 rounds (24 frames per GenisSegment capture, >5x of Group Y's 4 rounds -> exercises pre-filter too)
         for i in range(12):
-            t = 1700000100.0 + i * 0.01
+            t = 1700000100.0 + i * 0.5
             flags_fwd = 2 if i == 0 else 24
             flags_rev = 18 if i == 0 else 24
             pay_fwd = b"" if i == 0 else f"req_x_{i:02d}_".encode() + b"x" * 60
             pay_rev = b"" if i == 0 else f"rsp_x_{i:02d}_".encode() + b"y" * 60
             ttl_g1_f = 62
-            ttl_g2_f = 62 if ambiguous_group_x else 61
-            ttl_g1_r = 61 if ambiguous_group_x else 60
+            ttl_g2_f = 62 if inconsistent_ttl_gen else 61
+            ttl_g1_r = 61 if inconsistent_ttl_gen else 60
             ttl_g2_r = 61
-            dt_g2 = 1.5 if ambiguous_group_x else 0.000025
+            dt_g2 = 1.5 if inconsistent_ttl_gen else 0.000025
             gen1.append(
                 (t, tcp_packet("10.1.0.10", "203.0.113.20", 42100, 443, 1 + i * 100, 1 + i * 100, flags_fwd, pay_fwd, 100 + i, ttl=ttl_g1_f))
             )
@@ -567,37 +567,46 @@ def test_multi_path_folder_b_replica_assembles_both_paths_and_stops_when_group_a
             )
 
         # Group Y: LB -> Segin -> Segout -> host (Client Y: 198.51.100.10/32, Server: 203.0.113.20:443)
+        # LB is 7-8 TTL hops upstream of Segin/Segout in both directions, but its clock is offset by -120 us
+        # so its timestamps are ~84-168 us earlier than Segin/Segout in BOTH directions.
+        lb_clock_offset = -0.000120
         for i in range(4):
-            t = 1700000100.005 + i * 0.015
+            t = 1700000100.005 + i * 2.0
             flags_fwd = 2 if i == 0 else 24
             flags_rev = 18 if i == 0 else 24
             pay_fwd = b"" if i == 0 else f"req_y_{i:02d}_".encode() + b"a" * 50
             pay_rev = b"" if i == 0 else f"rsp_y_{i:02d}_".encode() + b"b" * 50
+            # Forward true transit: LB (t), Segin (t + 28us), Segout (t + 48us), host (t + 70us)
+            # With lb_clock_offset = -120us, LB timestamp is 148us earlier than Segin and 168us earlier than Segout.
+            ttl_lb_fwd = 63  # 8 TTL hops above Segin (55)
+            ttl_lb_rev = 63 if inconsistent_ttl_lb else 54  # inconsistent (above Segin in reverse too) vs 8 hops below Segin (62)
             lb.append(
-                (t, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=63))
+                (t + lb_clock_offset, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=ttl_lb_fwd))
             )
             segin.append(
-                (t + 0.00002, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=62))
+                (t + 0.000028, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=55))
             )
             segout.append(
-                (t + 0.00004, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=61))
+                (t + 0.000048, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=54))
             )
             host.append(
-                (t + 0.00006, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=60))
+                (t + 0.000070, tcp_packet("198.51.100.10", "203.0.113.20", 43100, 443, 1 + i * 80, 1 + i * 80, flags_fwd, pay_fwd, 500 + i, ttl=53))
             )
+            # Reverse true transit: host (t_rev), Segout (t_rev + 20us), Segin (t_rev + 36us), LB (t_rev + 64us)
+            # With lb_clock_offset = -120us, LB timestamp is t_rev - 56us -> 92us earlier than Segin and 76us earlier than Segout!
             t_rev = t + 0.002
             host_pay_rev = b"T" * 2200 if i == 1 else pay_rev
             host.append(
                 (t_rev, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, host_pay_rev, 700 + i, ttl=64))
             )
             segout.append(
-                (t_rev + 0.00002, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, pay_rev, 700 + i, ttl=63))
+                (t_rev + 0.000020, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, pay_rev, 700 + i, ttl=63))
             )
             segin.append(
-                (t_rev + 0.00004, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, pay_rev, 700 + i, ttl=62))
+                (t_rev + 0.000036, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, pay_rev, 700 + i, ttl=62))
             )
             lb.append(
-                (t_rev + 0.00006, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, pay_rev, 700 + i, ttl=61))
+                (t_rev + 0.000064 + lb_clock_offset, tcp_packet("203.0.113.20", "198.51.100.10", 443, 43100, 800 + i * 80, 40 + i * 80, flags_rev, pay_rev, 700 + i, ttl=ttl_lb_rev))
             )
 
         # Unrelated host noise (filtered out by pre-filter without losing either client X or client Y)
@@ -616,17 +625,39 @@ def test_multi_path_folder_b_replica_assembles_both_paths_and_stops_when_group_a
         write_pcap(folder / "Segout.pcap", segout)
         write_pcap(folder / "host.pcap", host)
 
-    # 1. Negative case: when one group itself is ambiguous, stop as ambiguous
-    amb_folder = tmp_path / "folder_b_ambiguous"
-    build_folder_b(amb_folder, ambiguous_group_x=True)
-    amb_proj = create_case(amb_folder, tshark=tshark)
-    amb_res = assemble_topology(amb_proj)
-    assert amb_res["ambiguous"] is True
-    assert "Ambiguous path order" in amb_res["reason"]
+    # 1. Group isolation + negative TTL check: when LB group has inconsistent TTLs, it is marked ambiguous,
+    #    but the unambiguous GenisSegment group is still assembled and analyzed.
+    iso_folder = tmp_path / "folder_b_isolated"
+    build_folder_b(iso_folder, inconsistent_ttl_lb=True, inconsistent_ttl_gen=False)
+    iso_proj = create_case(iso_folder, tshark=tshark)
+    with iso_proj.connect() as db:
+        iso_suggested = iso_proj.get(db, "suggested_topology")
+        iso_report = iso_proj.get(db, "report")
+    assert iso_suggested["ambiguous"] is False
+    assert iso_suggested["multi_path"] is True
+    iso_groups = {g["name"]: g for g in iso_suggested["groups"]}
+    assert iso_groups["10.1.0.10/32"]["ambiguous"] is False
+    assert iso_groups["10.1.0.10/32"]["status"] == "ready"
+    assert iso_groups["10.1.0.10/32"]["report"] is not None
+    assert iso_groups["10.1.0.10/32"]["topology"]["forward"] == ["GenisSegment1", "GenisSegment2", "host"]
+    assert iso_groups["198.51.100.10/32"]["ambiguous"] is True
+    assert iso_groups["198.51.100.10/32"]["status"] == "ambiguous"
+    assert iso_groups["198.51.100.10/32"]["report"] is None
+    assert "Conflicting forward and reverse TTL order" in iso_groups["198.51.100.10/32"]["reason"]
+    assert set(iso_report["group_reports"]) == {"10.1.0.10/32"}
 
-    # 2. Acceptance case: Folder B 2-path replica assembles both paths with zero input
+    # 1b. When all groups have inconsistent TTLs, top-level assembly stops as ambiguous.
+    both_amb_folder = tmp_path / "folder_b_both_ambiguous"
+    build_folder_b(both_amb_folder, inconsistent_ttl_lb=True, inconsistent_ttl_gen=True)
+    both_amb_proj = create_case(both_amb_folder, tshark=tshark)
+    both_amb_res = assemble_topology(both_amb_proj)
+    assert both_amb_res["ambiguous"] is True
+    assert all(g["ambiguous"] for g in both_amb_res["groups"])
+
+    # 2. Acceptance case: Folder B replica (two client groups; LB in a separate clock offset by ~120 us)
+    #    assembles and analyses both groups with zero input.
     ok_folder = tmp_path / "folder_b_ok"
-    build_folder_b(ok_folder, ambiguous_group_x=False)
+    build_folder_b(ok_folder, inconsistent_ttl_lb=False, inconsistent_ttl_gen=False)
     ok_proj = create_case(ok_folder, tshark=tshark)
     with ok_proj.connect() as db:
         suggested = ok_proj.get(db, "suggested_topology")
@@ -640,10 +671,28 @@ def test_multi_path_folder_b_replica_assembles_both_paths_and_stops_when_group_a
 
     gx = groups_by_name["10.1.0.10/32"]
     gy = groups_by_name["198.51.100.10/32"]
+    assert gx["status"] == "ready" and gy["status"] == "ready"
     assert gx["topology"]["forward"] == ["GenisSegment1", "GenisSegment2", "host"]
     assert gx["topology"]["reverse"] == ["host", "GenisSegment2", "GenisSegment1"]
     assert gy["topology"]["forward"] == ["LB", "Segin", "Segout", "host"]
     assert gy["topology"]["reverse"] == ["host", "Segout", "Segin", "LB"]
+
+    # LB must be in its own clock domain (not shared with Segin/Segout) and emit the TTL vs timestamp warning
+    gy_points = {p["id"]: p for p in gy["topology"]["points"]}
+    assert gy_points["LB"]["clock_domain"] is None
+    assert gy_points["Segin"]["clock_domain"] == "appliance"
+    assert gy_points["Segout"]["clock_domain"] == "appliance"
+    expected_warn = "LB.pcap timestamps are inconsistent with its TTL position; treated as a separate clock (offset fitted)"
+    assert expected_warn in gy["warnings"]
+    assert expected_warn in suggested["warnings"]
+
+    # Normal clock fit estimates the ~120 us offset between LB and Segin/Segout
+    lb_cid = gy_points["LB"]["capture_id"]
+    segin_cid = gy_points["Segin"]["capture_id"]
+    assert gy["report"]["clocks"][lb_cid]["confidence"] == "reference"
+    assert gy["report"]["clocks"][segin_cid]["confidence"] in ("estimated", "declared_shared")
+    assert abs(gy["report"]["clocks"][segin_cid]["offset"] - 0.000120) < 0.000040
+
     # Both groups include the shared host capture and have separate analyses and review & confirm states
     assert gx["report"] is not None and gy["report"] is not None
     assert set(report["group_reports"]) == {"10.1.0.10/32", "198.51.100.10/32"}
@@ -668,4 +717,5 @@ def test_multi_path_folder_b_replica_assembles_both_paths_and_stops_when_group_a
     c2_data = c2.json()
     assert c2_data["confirmed"] is True
     assert c2_data["topology"]["forward"] == ["LB", "Segin", "Segout", "host"]
+
 

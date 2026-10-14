@@ -814,6 +814,13 @@ comparison therefore permits 1 ms rounding, without scaling or rewriting reporte
   unsupported encapsulation), report the concrete exclusion counts in the ambiguity reason
   instead of stating that captures share no directional TCP traffic.
 - When captures form disjoint client-CIDR groups that share a host capture, assemble and analyze
-  each client-CIDR path separately with its own `Suggested topology — review & confirm` state
-  while reusing the shared host capture in each group; stop as ambiguous only when an individual
-  group's path order or client direction is ambiguous.
+  each unambiguous client-CIDR path independently with its own `status` (`ready` vs `ambiguous`)
+  and `Suggested topology — review & confirm` state while reusing the shared host capture in each
+  group; an ambiguous group never blocks unambiguous peer groups.
+- When TTL steps across both directions establish a consistent hop order (`strict_ttl_sep`) and
+  microsecond timestamps disagree (such as an upstream load balancer whose local clock is offset
+  by ~120 µs so its timestamps are earlier in both directions), take the path order from TTL,
+  isolate that capture in its own clock domain (`clock_domain = None`) so `fit_clock` estimates
+  the offset, and emit `<file> timestamps are inconsistent with its TTL position; treated as a separate clock (offset fitted)`.
+  Stop as `ambiguous` only when TTL itself is inconsistent.
+

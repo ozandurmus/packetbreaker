@@ -1582,10 +1582,14 @@ acceptance for every item:
   (`GenisSegment1/2`) and both client paths on a shared host capture remain intact, skips the
   filter with a warning when `<10%` of frames would remain, and exposes per-file excluded counts
   in the case summary and inventory.
-- **Truthful exclusion ambiguity & multi-path Folder B replica:** Reports empty or mostly-excluded
-  captures with exact excluded/usable counts instead of `"share no directional TCP traffic"`.
-  Builds one suggested topology per client CIDR (`10.1.0.10/32` and `198.51.100.10/32`) sharing
-  `host.pcap`, runs both analyses separately, confirms each group independently via
-  `POST /api/topology/confirm`, and stops as `ambiguous` when a group itself has ambiguous order.
+- **Truthful exclusion ambiguity & multi-path Folder B replica (`multipath-fix`):** Reports empty
+  or mostly-excluded captures with exact excluded/usable counts instead of `"share no directional
+  TCP traffic"`. Isolates groups so an inconsistent-TTL `LB` group (`status="ambiguous"`) does not
+  block the unambiguous `GenisSegment` group (`status="ready"`, assembled and analyzed). When `LB`
+  is 7–8 TTL hops upstream of `Segin`/`Segout` in both directions with a `-120 µs` clock offset
+  (timestamps ~84–168 µs earlier in both directions), takes order from TTL (`LB -> Segin -> Segout -> host`),
+  isolates `LB` into its own clock domain (`clock_domain=None`), fits the ~120 µs clock offset,
+  and emits `"LB.pcap timestamps are inconsistent with its TTL position; treated as a separate clock (offset fitted)"`.
 
 Full fast suite (`pytest -n auto -q`): **611 passed**, frontend build and unit tests pass.
+
