@@ -348,6 +348,7 @@ export type Report = {
   >;
   coverage: { point: string; start: number | null; end: number | null }[];
   quality: {
+    index_scope?: {input_frames:number;retained_frames:number;input_flows:number;retained_flows:number;excluded_frames:number;excluded_flows:number};
     ifdrop: number | null;
     osdrop: number | null;
     point: string;
@@ -420,6 +421,7 @@ export type State = {
     files: { interface: string; packets: number; clock_confidence: string }[];
   };
   settings: {
+    memory_limit_mb?: number | null;
     assistant_enabled?: boolean;
     checkpoint_uuid?: boolean;
     f5_trailer?: boolean;

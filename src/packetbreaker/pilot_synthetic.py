@@ -27,6 +27,7 @@ def make_pilot(
     rounds=27,
     affected_flows=1,
     slow_local_flow=False,
+    opaque=False,
 ):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -89,6 +90,8 @@ def make_pilot(
             res_header = b"HTTP/1.1 200 OK\r\nContent-Length: 3159\r\n\r\n"
             res_header = f"HTTP/1.1 200 OK\r\nContent-Length: {3200 - len(res_header)}\r\n\r\n".encode()
             response = (res_header + b"y" * 3200)[:3200]
+            if opaque:
+                req, response = b"Q" * 3200, b"R" * 3200
             host_receive = t + 0.00008 + (rx if fault == "host" else rx + tx)
             if boundary_loss and call == 0 and n == 3:
                 host_receive += 0.3

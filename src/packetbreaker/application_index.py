@@ -637,20 +637,24 @@ def index_applications(project, db, topology, cancel=None, progress=None):
 def apply_tcp_analysis(db, point):
     # A merged multi-point file makes tshark mistake traveling copies for retransmissions.
     # Replace stateful TCP fields only after a successful isolated decode.
+    # CTAS streams untouched points and joins only the selected point; no wide UPDATE undo buffers.
+    fields = []
+    for name in ("retrans", "fast_retrans", "spurious", "out_of_order", "zero_window"):
+        fields.append(
+            f"CASE WHEN a.frame IS NULL THEN false ELSE try_cast(json_extract_string(a.metadata,'$.{name}') AS BOOLEAN) END AS {name}"
+        )
+    fields.append("try_cast(json_extract_string(a.metadata,'$.rtt') AS DOUBLE) AS rtt")
+    fields.append("""CAST(json_merge_patch(json_merge_patch(o.path_fields,
+        '{"duplicate_ack":false,"window_full":false,"zero_probe":false,"rto_seconds":null,"rto_frame":null,"bytes_in_flight":null}'),
+        coalesce(a.metadata,'{}')) AS VARCHAR) AS path_fields""")
     db.execute(
-        """UPDATE obs SET retrans=false,fast_retrans=false,spurious=false,out_of_order=false,
-        zero_window=false,rtt=NULL,path_fields=json_merge_patch(path_fields,
-        '{"duplicate_ack":false,"window_full":false,"zero_probe":false,"rto_seconds":null,"rto_frame":null,"bytes_in_flight":null}') WHERE point=?""",
+        "CREATE OR REPLACE TEMP TABLE point_tcp_state AS SELECT * FROM tcp_point_analysis WHERE point=?",
         [point],
     )
     db.execute(
-        """UPDATE obs SET retrans=try_cast(json_extract_string(a.metadata,'$.retrans') AS BOOLEAN),
-        fast_retrans=try_cast(json_extract_string(a.metadata,'$.fast_retrans') AS BOOLEAN),
-        spurious=try_cast(json_extract_string(a.metadata,'$.spurious') AS BOOLEAN),
-        out_of_order=try_cast(json_extract_string(a.metadata,'$.out_of_order') AS BOOLEAN),
-        zero_window=try_cast(json_extract_string(a.metadata,'$.zero_window') AS BOOLEAN),
-        rtt=try_cast(json_extract_string(a.metadata,'$.rtt') AS DOUBLE),
-        path_fields=json_merge_patch(obs.path_fields,a.metadata)
-        FROM tcp_point_analysis a WHERE obs.point=a.point AND obs.frame=a.frame AND a.point=?""",
-        [point],
+        "CREATE OR REPLACE TABLE obs AS SELECT * FROM obs WHERE point<>? UNION ALL SELECT o.* REPLACE("
+        + ",".join(fields)
+        + ") FROM (SELECT * FROM obs WHERE point=?) o LEFT JOIN point_tcp_state a ON o.point=a.point AND o.frame=a.frame",
+        [point, point],
     )
+    db.execute("DROP TABLE point_tcp_state")

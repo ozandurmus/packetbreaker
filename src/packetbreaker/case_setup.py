@@ -95,10 +95,10 @@ def inventory_overview(captures):
     return dict(files=files, overlap=overlap)
 
 
-def create_case(folder, *, tshark=None, progress=None):
+def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None):
     paths = capture_paths(folder)
     root = Path(folder).expanduser().resolve()
-    project = Project(root.with_name(root.name + ".packetbreaker"))
+    project = Project(root.with_name(root.name + ".packetbreaker"), memory_limit_mb=memory_limit_mb)
     latest = {}
     warning = None
 

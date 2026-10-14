@@ -28,6 +28,7 @@ class Attach(BaseModel):
 
 
 class Settings(BaseModel):
+    memory_limit_mb: int | None = Field(default=None, ge=64)
     assistant_enabled: bool = False
     f5_trailer: bool = False
     checkpoint_uuid: bool = False
@@ -83,8 +84,8 @@ class Jobs:
         return self.status.copy()
 
 
-def create_app(project_path):
-    project = Project(project_path)
+def create_app(project_path, *, memory_limit_mb=None):
+    project = Project(project_path, memory_limit_mb=memory_limit_mb)
     jobs = Jobs()
 
     @asynccontextmanager
@@ -204,7 +205,7 @@ def create_app(project_path):
     def open_project(body: OpenProject):
         nonlocal project
         idle()
-        project = Project(Path(body.path).expanduser())
+        project = Project(Path(body.path).expanduser(), memory_limit_mb=memory_limit_mb)
         return {"path": str(project.path)}
 
     @app.post("/api/settings")
@@ -231,6 +232,7 @@ def create_app(project_path):
         with project.connect() as db:
             preferences = project.get(db, "preferences", {})
         preferences.pop("assistant_enabled", None)
+        preferences.pop("memory_limit_mb", None)
         if f5_trailer is not None:
             preferences["f5_trailer"] = f5_trailer
         with jobs.lock:
