@@ -179,7 +179,9 @@ def test_group_downstream_findings_under_upstream_capture_miss():
     miss = pos_findings[0]
     assert miss["downstream_count"] == 2
     assert miss["metrics"]["downstream_packet_count"] == 2
-    assert "2 downstream-only packet observation(s) at Hop 3, Hop 4 follow this capture miss" in miss["downstream_summary"]
+    assert (
+        "2 downstream-only packet observation(s) at Hop 3, Hop 4 follow this capture miss"
+        in miss["downstream_summary"]
+    )
     assert miss["downstream_summary"] in miss["summary"]
     assert len(miss["evidence"]) == 3
-

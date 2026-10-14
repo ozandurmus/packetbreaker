@@ -29,8 +29,7 @@ def _device_stem(name_a: str, name_b: str) -> str:
         return [
             t
             for t in tokens
-            if t.lower() not in (INGRESS_TOKENS | EGRESS_TOKENS)
-            and not re.fullmatch(r"case\d*", t.lower())
+            if t.lower() not in (INGRESS_TOKENS | EGRESS_TOKENS) and not re.fullmatch(r"case\d*", t.lower())
         ]
 
     ta, tb = clean(name_a), clean(name_b)
@@ -255,7 +254,9 @@ def _infer_client_cidrs(db, names, ready_ids):
                 return [], None, "Ambiguous client direction: no TCP SYN/SYN-ACK and identical TCP ports."
             low_ep, high_ep = (a, b) if pa < pb else (b, a)
             low_p, high_p = low_ep[1], high_ep[1]
-            if (low_p < 1024 and high_p >= 1024) or (low_p <= 10000 and high_p >= 10000 and high_p >= 2 * low_p):
+            if (low_p < 1024 and high_p >= 1024) or (
+                low_p <= 10000 and high_p >= 10000 and high_p >= 2 * low_p
+            ):
                 server_ep, client_ep = low_ep, high_ep
             else:
                 return (
@@ -301,10 +302,7 @@ def _infer_client_cidrs(db, names, ready_ids):
 
 def _default_points(captures, existing_points=None):
     by_cid = {p.capture_id: p.model_copy(deep=True) for p in (existing_points or []) if p.capture_id}
-    stems = [
-        re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(c["name"]).stem).strip("_")
-        for c in captures
-    ]
+    stems = [re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(c["name"]).stem).strip("_") for c in captures]
     unique_stems = len(set(stems)) == len(captures) and all(stems)
     result = {}
     for i, c in enumerate(captures):
@@ -399,13 +397,25 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
             WHERE p.capture_id IN ({placeholders}) AND p.proto='TCP'
               AND (p.unsupported IS NULL OR p.unsupported='')
             GROUP BY p.capture_id""",
-            [*ready_ids, *client_ips, *client_ips, *client_ips, *client_ips, *client_ips, *client_ips, * client_ips, *client_ips, *ready_ids],
+            [
+                *ready_ids,
+                *client_ips,
+                *client_ips,
+                *client_ips,
+                *client_ips,
+                *client_ips,
+                *client_ips,
+                *client_ips,
+                *client_ips,
+                *ready_ids,
+            ],
         )
         ttl_by_cid = {r["capture_id"]: r for r in ttl_rows}
         missing_cids = [
             names[cid]
             for cid in ready_ids
-            if cid not in ttl_by_cid or ((ttl_by_cid[cid]["fwd_n"] or 0) == 0 and (ttl_by_cid[cid]["rev_n"] or 0) == 0)
+            if cid not in ttl_by_cid
+            or ((ttl_by_cid[cid]["fwd_n"] or 0) == 0 and (ttl_by_cid[cid]["rev_n"] or 0) == 0)
         ]
         if missing_cids:
             return dict(
@@ -445,7 +455,11 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
         pair_stats = {(r["a"], r["b"], r["dir"]): r for r in dir_pairs}
 
     # 1a. Host captures
-    host_items = [s for s in raw_suggestions["items"] if s["kind"] == "host_capture" and s["capture_ids"][0] in points_by_cid]
+    host_items = [
+        s
+        for s in raw_suggestions["items"]
+        if s["kind"] == "host_capture" and s["capture_ids"][0] in points_by_cid
+    ]
     host_cids = set()
     client_host_cids, server_host_cids = [], []
     for item in host_items:
@@ -564,7 +578,11 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
             elif f2[0] >= f1[0] and f2[1] >= f1[1] and (f2[0] > f1[0] or f2[1] > f1[1]):
                 ttl_dir = 1
             elif f1 != f2:
-                return 0, f"Ambiguous forward TTL profile between {[names[c] for c in u1]} ({f1}) and {[names[c] for c in u2]} ({f2}).", []
+                return (
+                    0,
+                    f"Ambiguous forward TTL profile between {[names[c] for c in u1]} ({f1}) and {[names[c] for c in u2]} ({f2}).",
+                    [],
+                )
         if r1 is not None and r2 is not None:
             rev_dir = 0
             if r1[0] <= r2[0] and r1[1] <= r2[1] and (r1[0] < r2[0] or r1[1] < r2[1]):
@@ -572,7 +590,11 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
             elif r2[0] <= r1[0] and r2[1] <= r1[1] and (r2[0] < r1[0] or r2[1] < r1[1]):
                 rev_dir = 1
             elif r1 != r2:
-                return 0, f"Ambiguous reverse TTL profile between {[names[c] for c in u1]} ({r1}) and {[names[c] for c in u2]} ({r2}).", []
+                return (
+                    0,
+                    f"Ambiguous reverse TTL profile between {[names[c] for c in u1]} ({r1}) and {[names[c] for c in u2]} ({r2}).",
+                    [],
+                )
             if ttl_dir and rev_dir and ttl_dir != rev_dir:
                 return (
                     0,
@@ -583,10 +605,9 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
 
         a_fwd, b_fwd = u1[-1], u2[0]
         a_rev, b_rev = u1[0], u2[-1]
-        same_clock = (
-            clock_domain_of.get(a_fwd) is not None
-            and clock_domain_of.get(a_fwd) == clock_domain_of.get(b_fwd)
-        )
+        same_clock = clock_domain_of.get(a_fwd) is not None and clock_domain_of.get(
+            a_fwd
+        ) == clock_domain_of.get(b_fwd)
         fwd_stat = pair_stats.get((a_fwd, b_fwd, "forward"))
         rev_stat = pair_stats.get((a_rev, b_rev, "reverse"))
         us_dir = 0
@@ -820,4 +841,3 @@ def confirm_suggested_topology(project):
             report["suggested_topology"] = suggested
             project.set(db, "report", report)
         return suggested
-

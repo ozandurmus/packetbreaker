@@ -138,10 +138,10 @@ def ingest_many(
     def execute_batch(indices, extra_for=None):
         if not indices:
             return
-        with ThreadPoolExecutor(max_workers=min(count, len(indices)), thread_name_prefix="capture-ingest") as pool:
-            futures = {
-                pool.submit(run, i, paths[i], extra_for(i) if extra_for else None): i for i in indices
-            }
+        with ThreadPoolExecutor(
+            max_workers=min(count, len(indices)), thread_name_prefix="capture-ingest"
+        ) as pool:
+            futures = {pool.submit(run, i, paths[i], extra_for(i) if extra_for else None): i for i in indices}
             try:
                 for f in as_completed(futures):
                     i = futures[f]

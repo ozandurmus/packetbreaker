@@ -875,9 +875,7 @@ def group_downstream_findings(findings, topology):
         candidates = [
             (m_idx, m_f)
             for m_idx, m_f in captures_by_dir.get(f["direction"], [])
-            if idx is not None
-            and m_idx <= idx
-            and f["time_range"][0] + 0.005 >= m_f["time_range"][0]
+            if idx is not None and m_idx <= idx and f["time_range"][0] + 0.005 >= m_f["time_range"][0]
         ]
         if not candidates:
             kept.append(f)
@@ -912,4 +910,3 @@ def group_downstream_findings(findings, topology):
                     target_miss["evidence"].append(r)
 
     findings[:] = kept
-

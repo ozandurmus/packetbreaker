@@ -1557,3 +1557,28 @@ moved to slow or repeated for wall-clock timing. At an actual 800 px browser vie
 point labels used nowrap/ellipsis with full-title tooltips; the ten RX/TX legend entries were
 one row without pagination, and the browser console had no errors. CI is inspected once
 following the single branch push. Existing bundle-size advisory remains unchanged.
+
+## Seamless case setup and finding hygiene (`auto-assemble`)
+
+Synthetic fixtures only on branch `auto-assemble` from `main`. Negative guards precede positive
+acceptance for every item:
+
+- **Auto-assemble suggested topology & mismatch warning:** Rejects equal-TTL unaligned captures
+  and mid-stream ephemeral-port captures as `ambiguous` instead of guessing from filenames.
+  Assembles the 6-file stage-pair + shared-clock + host replica and the 50-flow replica with
+  zero manual input, displaying `Suggested topology — review & confirm` with frame-level
+  evidence and confirming via one click (`POST /api/topology/confirm`). Reversed stage labels
+  (`ark_fw_in.pcap` vs `ark_fw_out.pcap`) emit the informational mismatch warning while keeping
+  packet-derived ordering.
+- **Downstream-only grouping:** Rejects grouping when `downstream_packet` is upstream of or
+  earlier than a `capture_miss`; groups downstream observations following an upstream
+  `capture_miss` into one summary line and combined evidence under that `capture_miss`.
+- **Chronic low-rate loss:** Rejects event-concentrated burst loss (`sw_rx -> sw_tx`, 24 of 26
+  drops during event) while labelling uniform low-rate loss (`fw_rx -> fw_tx`, 26 drops across
+  before/during/after, `~205 ms RTO each`) as `chronic low-rate loss (not event-correlated)` and
+  rendering `transit clean; chronic loss 0.013%` in `ResultCard`.
+- **Ingest pre-filter:** Does not filter captures `<=5x` peer size; filters `>5x` captures by
+  peer IP pairs via `tshark -Y` and reports excluded counts.
+
+Full fast suite (`pytest -n auto -q`): **609 passed in 117.41 s**, frontend build and unit tests
+pass.

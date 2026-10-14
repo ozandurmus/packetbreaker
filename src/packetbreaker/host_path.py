@@ -484,9 +484,7 @@ def classify_chronic_losses(db, topology, segments, findings, host_report, onset
         pct_ratio = max(rate_before, rate_during, rate_after) / max(
             1e-9, min(rate_before, rate_during, rate_after)
         )
-        lps_ratio = max(lps_before, lps_during, lps_after) / max(
-            1e-9, min(lps_before, lps_during, lps_after)
-        )
+        lps_ratio = max(lps_before, lps_during, lps_after) / max(1e-9, min(lps_before, lps_during, lps_after))
         not_spiking = rate_during <= 2.5 * min(rate_before, rate_after) or lps_during <= 2.5 * min(
             lps_before, lps_after
         )
@@ -591,4 +589,3 @@ def lead_degradation(report, findings, segments):
         report["verdict"] = primary.get("headline") or primary["summary"]
     elif report["verdict"] == "Path integrity findings observed":
         report["verdict"] = primary.get("headline") or primary["summary"]
-

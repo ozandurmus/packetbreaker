@@ -1000,3 +1000,35 @@ in tooltips. If the existing aggregate maximum cycle is absent from top-N, its r
 values and frame evidence are included. The p99 display cap uses displayed complete additions.
 Short RX/TX path indices form a plain, single-row legend at 800 px; point labels ellipsize with
 full names in native tooltips. No engine fields, exports or matching change.
+
+## Seamless case setup and finding hygiene
+
+`assemble_topology` combines `suggest_topology` inferences (`stage_pair`, `shared_clock`,
+`path_order` and `host_capture`) with client-direction inference (`client_cidrs` from SYN/SYN-ACK
+frame evidence or the well-known server-port fallback). `packetbreaker case <folder>` and the
+UI button `Analyze with suggested topology` run analysis when the inferred path is unambiguous
+and attach `suggested_topology` under the badge `Suggested topology — review & confirm`,
+preserving frame references for every inference. One click (`POST /api/topology/confirm`)
+confirms the topology, while any manual edit clears the provisional state and re-runs analysis.
+Ambiguous TTL/timestamp order or client direction stops without guessing.
+
+When capture file names contain ingress/egress tokens (`in`/`rx` vs `out`/`tx`) that contradict
+the observed packet order in both directions, an informational warning reports that file names
+may describe interfaces rather than traffic direction; path order always comes from packets.
+
+`group_downstream_findings` consolidates `downstream_packet` observations that follow an
+upstream `capture_miss` in the same direction into a single summary line and combined evidence
+on that `capture_miss` finding, leaving standalone or earlier downstream observations separate.
+
+`classify_chronic_losses` compares supported loss rates before, during and after a detected
+global event window. When a segment exhibits low-rate (`<1%`) supported losses across all three
+periods without an event-correlated spike, its loss finding is labelled
+`chronic low-rate loss (not event-correlated)` with per-period rates and typical RTO recovery,
+and `ResultCard` renders a transit-clean device as `transit clean; chronic loss X%` rather than
+withholding clean-segment attribution.
+
+`ingest_many(..., prefilter=True)` (default on in `case`, toggleable via `--prefilter` /
+`--no-prefilter`) pre-scans peer captures when any input has `>5x` the frames of the largest
+other capture, restricts the oversized capture with a `tshark -Y` IP-pair read filter, and
+records `prefilter_total`, `prefilter_retained` and `prefilter_excluded` in the capture inventory
+and quality report.

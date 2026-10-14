@@ -282,4 +282,3 @@ def test_chronic_low_rate_loss_vs_event_correlated_loss():
         assert "chronic low-rate loss" not in sw_find["summary"]
     finally:
         db.close()
-

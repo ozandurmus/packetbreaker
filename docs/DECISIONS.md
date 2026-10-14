@@ -787,3 +787,24 @@ those values separately in tooltips and preserve unknown parts. Include the meas
 maximum when top-N selection by elapsed cycle time omits it. The aggregate describes the host
 boundary, while the chart can additionally contain sub-millisecond network transit; the replica
 comparison therefore permits 1 ms rounding, without scaling or rewriting reported values.
+
+### Seamless case setup and finding hygiene
+
+- Never apply a suggested topology silently: auto-assembled paths carry an explicit
+  `Suggested topology — review & confirm` badge with frame-level evidence for every stage pair,
+  shared clock domain, path order, host offload and client CIDR inference. If TTL steps and
+  microsecond ordering do not resolve a unique path or client direction, stop and ask rather than
+  guess from filenames.
+- File names never override packet evidence. When `in`/`rx` vs `out`/`tx` labels disagree with
+  bidirectional TTL and timestamp order, emit an informational warning while keeping the
+  packet-derived stage and path order.
+- Group `downstream_packet` findings under an upstream `capture_miss` only when they follow that
+  miss along the configured directional path and in time; upstream or earlier downstream-only
+  observations remain standalone.
+- Classify supported losses as `chronic low-rate loss (not event-correlated)` only when a valid
+  before/during/after event window exists, all three periods contain low-rate (`<1%`) drops at
+  comparable rates without an event-window spike, and transit latency remains clean. Event-burst
+  losses and high-rate losses remain degraded.
+- Default ingest pre-filtering in `case` triggers only when a capture exceeds `5x` the frame
+  count of the largest peer capture, using `tshark -Y` over the IP pairs observed in peer
+  captures and reporting excluded frame counts in inventory and quality outputs.

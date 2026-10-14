@@ -148,12 +148,17 @@ def test_ingest_prefilter_excludes_unshared_ip_pairs_only_above_5x_threshold(tmp
     neg_folder.mkdir()
     shared = [
         (1700000000.0, tcp_packet("198.51.100.10", "203.0.113.20", 41000, 443, 1, 0, 2, b"", 10, ttl=63)),
-        (1700000000.001, tcp_packet("203.0.113.20", "198.51.100.10", 443, 41000, 500, 2, 18, b"", 11, ttl=63)),
+        (
+            1700000000.001,
+            tcp_packet("203.0.113.20", "198.51.100.10", 443, 41000, 500, 2, 18, b"", 11, ttl=63),
+        ),
     ]
     noise = [
         (
             1700000000.01 + i * 0.001,
-            tcp_packet(f"192.0.2.{(i % 20) + 1}", "198.51.100.250", 50000 + i, 80, 100 + i, 1, 16, b"x" * 20, 100 + i),
+            tcp_packet(
+                f"192.0.2.{(i % 20) + 1}", "198.51.100.250", 50000 + i, 80, 100 + i, 1, 16, b"x" * 20, 100 + i
+            ),
         )
         for i in range(8)
     ]
@@ -172,7 +177,9 @@ def test_ingest_prefilter_excludes_unshared_ip_pairs_only_above_5x_threshold(tmp
     more_noise = [
         (
             1700000000.01 + i * 0.001,
-            tcp_packet(f"192.0.2.{(i % 20) + 1}", "198.51.100.250", 50000 + i, 80, 100 + i, 1, 16, b"x" * 20, 200 + i),
+            tcp_packet(
+                f"192.0.2.{(i % 20) + 1}", "198.51.100.250", 50000 + i, 80, 100 + i, 1, 16, b"x" * 20, 200 + i
+            ),
         )
         for i in range(13)
     ]
@@ -208,8 +215,30 @@ def test_auto_assemble_stops_on_ambiguous_order_or_direction(tmp_path, tshark):
     records_a, records_b = [], []
     for i in range(4):
         t = 1700000000.0 + i * 0.01
-        fwd = tcp_packet("198.51.100.10", "203.0.113.20", 42000, 443, 1 + i * 100, 1, 2 if i == 0 else 24, b"a" * 50, 10 + i, ttl=60)
-        rev = tcp_packet("203.0.113.20", "198.51.100.10", 443, 42000, 500 + i * 100, 51, 18 if i == 0 else 24, b"b" * 50, 50 + i, ttl=60)
+        fwd = tcp_packet(
+            "198.51.100.10",
+            "203.0.113.20",
+            42000,
+            443,
+            1 + i * 100,
+            1,
+            2 if i == 0 else 24,
+            b"a" * 50,
+            10 + i,
+            ttl=60,
+        )
+        rev = tcp_packet(
+            "203.0.113.20",
+            "198.51.100.10",
+            443,
+            42000,
+            500 + i * 100,
+            51,
+            18 if i == 0 else 24,
+            b"b" * 50,
+            50 + i,
+            ttl=60,
+        )
         records_a.extend([(t, fwd), (t + 0.001, rev)])
         records_b.extend([(t + 2.5, fwd), (t + 2.501, rev)])
     write_pcap(amb_order / "tap_1.pcap", records_a)
@@ -228,10 +257,47 @@ def test_auto_assemble_stops_on_ambiguous_order_or_direction(tmp_path, tshark):
     dir_a, dir_b = [], []
     for i in range(4):
         t = 1700000000.0 + i * 0.01
-        p1 = tcp_packet("198.51.100.10", "203.0.113.20", 45000, 45001, 100 + i * 100, 200, 24, b"a" * 50, 10 + i, ttl=64)
-        p2 = tcp_packet("203.0.113.20", "198.51.100.10", 45001, 45000, 200 + i * 100, 150, 24, b"b" * 50, 50 + i, ttl=62)
+        p1 = tcp_packet(
+            "198.51.100.10", "203.0.113.20", 45000, 45001, 100 + i * 100, 200, 24, b"a" * 50, 10 + i, ttl=64
+        )
+        p2 = tcp_packet(
+            "203.0.113.20", "198.51.100.10", 45001, 45000, 200 + i * 100, 150, 24, b"b" * 50, 50 + i, ttl=62
+        )
         dir_a.extend([(t, p1), (t + 0.001, p2)])
-        dir_b.extend([(t + 0.00002, tcp_packet("198.51.100.10", "203.0.113.20", 45000, 45001, 100 + i * 100, 200, 24, b"a" * 50, 10 + i, ttl=63)), (t + 0.00098, tcp_packet("203.0.113.20", "198.51.100.10", 45001, 45000, 200 + i * 100, 150, 24, b"b" * 50, 50 + i, ttl=63))])
+        dir_b.extend(
+            [
+                (
+                    t + 0.00002,
+                    tcp_packet(
+                        "198.51.100.10",
+                        "203.0.113.20",
+                        45000,
+                        45001,
+                        100 + i * 100,
+                        200,
+                        24,
+                        b"a" * 50,
+                        10 + i,
+                        ttl=63,
+                    ),
+                ),
+                (
+                    t + 0.00098,
+                    tcp_packet(
+                        "203.0.113.20",
+                        "198.51.100.10",
+                        45001,
+                        45000,
+                        200 + i * 100,
+                        150,
+                        24,
+                        b"b" * 50,
+                        50 + i,
+                        ttl=63,
+                    ),
+                ),
+            ]
+        )
     write_pcap(amb_dir / "hop_1.pcap", dir_a)
     write_pcap(amb_dir / "hop_2.pcap", dir_b)
     proj_dir = create_case(amb_dir, tshark=tshark)
@@ -248,7 +314,9 @@ def test_name_order_mismatch_warning_and_stage_pair_shared_clock_host_auto_assem
     from packetbreaker.topology_suggest import suggest_topology, assemble_topology
 
     wire_dir = tmp_path / "pilot_case"
-    truth, expected_topo = make_pilot(wire_dir, flows=2, rounds=12, real_case=True, noise=200, ip_id="increment")
+    truth, expected_topo = make_pilot(
+        wire_dir, flows=2, rounds=12, real_case=True, noise=200, ip_id="increment"
+    )
     for meta_file in ("ground-truth.json", "topology.json"):
         (wire_dir / meta_file).unlink(missing_ok=True)
 
@@ -294,7 +362,7 @@ def test_name_order_mismatch_warning_and_stage_pair_shared_clock_host_auto_assem
     swapped_dir = tmp_path / "swapped_names"
     swapped_dir.mkdir()
     shutil.copy2(wire_dir / "a_rx.pcap", swapped_dir / "ark_fw_out.pcap")  # Actually ingress (first)
-    shutil.copy2(wire_dir / "a_tx.pcap", swapped_dir / "ark_fw_in.pcap")   # Actually egress (second)
+    shutil.copy2(wire_dir / "a_tx.pcap", swapped_dir / "ark_fw_in.pcap")  # Actually egress (second)
     shutil.copy2(wire_dir / "b_rx.pcap", swapped_dir / "b_rx.pcap")
     shutil.copy2(wire_dir / "b_tx.pcap", swapped_dir / "b_tx.pcap")
     shutil.copy2(wire_dir / "mirror.pcap", swapped_dir / "mirror.pcap")
@@ -319,5 +387,3 @@ def test_name_order_mismatch_warning_and_stage_pair_shared_clock_host_auto_assem
         "mirror",
         "host",
     ]
-
-
