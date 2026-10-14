@@ -112,3 +112,39 @@ def test_mixed_host_losses_keep_subtypes_under_one_heading():
     assert len(groups) == 1 and groups[0]["counts"] == {"impactful_loss": 284, "host_transmit_path_loss": 14}
     assert "no mirror point in between" in groups[0]["headline"]
     assert all(f["metrics"]["boundary_loss_heading"] == groups[0]["headline"] for f in findings)
+
+
+def test_reference_aggregates_on_fifty_flow_replica(incident_replica):
+    project, truth, _, report = incident_replica
+    c, h = report["cycles"], report["host_path"]
+    assert c["total"] == 50 * 27
+    assert c["stalled_total"] == 25 * 13 + 27  # One app-only 188 ms distractor remains a stalled cycle.
+    assert 1299 < c["max_added_ms"] < 1302
+    assert c["max_added"]["port"] == 8080  # Existing engine port is the request service port.
+    assert {e["point"] for e in c["max_added"]["evidence"]} == {"b_tx", "host", "b_rx"}
+    assert 648 <= c["event"]["total"] <= 651  # Window edges carry <=1 s uncertainty and timestamp jitter.
+    expected = 100 * sum(truth["rx"]) / (sum(truth["rx"]) + sum(truth["tx"]))
+    assert h["event"]["rx_share"] == pytest.approx(expected, abs=3)
+    assert 0 < h["max_silence_ms"] < 2000
+    assert all(
+        i["affected_flows_ge_stall"] == 25 and i["affected_flows_ge_stall_event"] == 25 for i in h["items"]
+    )
+    assert c["repeat_groups"] == {
+        "forward": 0,
+        "reverse": 0,
+    }  # Seeing a packet at many points is not a repeat.
+    with project.connect() as db:
+        client_port = db.execute(
+            "SELECT min(sport) FROM obs WHERE flow=? AND direction='forward'", [c["max_added"]["flow"]]
+        ).fetchone()[0]
+        assert 41000 <= client_port < 41025  # Never select the app-only distractor.
+        silence = h["event"]["silence"][0]
+        frames = [e["frame"] for e in silence["evidence"]]
+        times = db.execute(
+            "SELECT ts FROM packets WHERE capture_id=? AND frame IN(SELECT unnest(?::BIGINT[])) ORDER BY ts",
+            [silence["evidence"][0]["capture_id"], frames],
+        ).fetchall()
+        clock = report["clocks"][silence["evidence"][0]["capture_id"]]
+        assert (times[1][0] - times[0][0]) * 1000 / (1 + clock["drift_ppm"] / 1e6) == pytest.approx(
+            h["max_silence_ms"], abs=0.001
+        )

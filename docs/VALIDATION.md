@@ -1444,3 +1444,36 @@ passed (**2 passed, 3.90 s**); the same assertions passed against the cached 50-
 without repeating ingest. Final collection is **594 fast + 186 slow** (22 new fast tests).
 Runner partition guards passed (**7 passed, 0.03 s**); subsequent runs reuse per-file timings
 from the same platform to balance shards instead of using only hosted Windows estimates.
+
+## Aggregate reference metrics (0.3.9)
+
+PR #20 merged before branching `aggregate-metrics`. The Windows asset decode failure is
+reproduced by decoding the installed ECharts asset as cp1252. The HTML guard asserts explicit
+UTF-8 at every asset text read; the source AST guard requires explicit encoding for all text
+read/write/open calls, excluding binary captures and ZipFile streams. Both guards passed
+(2 tests, 0.17 s). Compare/report/template CLI text files and synthetic JSON writes also
+use UTF-8. No real capture is used.
+
+`pytest -n auto` uses four resource-bounded workers on this 10-core machine, loadfile scheduling
+and locked shared source fixtures/private DB copies. Focused UTF-8/reference checks passed
+(20 tests, 1.11 s); pilot/host-jitter checks passed (4 tests, 5.51 s). The initial aggregate
+fixture check correctly matched 1,350 unique cycles and 352 stalled cycles, but its test
+expected a client port where the existing engine stores service port 8080. The assertion now
+checks service port plus the selected flow's client-port range, preserving the app-only
+slow-flow distractor guard. The full fast suite runs once at close-out.
+
+Final complete fast suite, once: **599 passed in 146.53 s**, `pytest -n auto` (four workers,
+loadfile), with shared source fixtures and private writable DBs. All 599 fast tests executed;
+186 slow tests retain their existing policy. Ruff and whitespace checks pass.
+
+The 50-flow replica verifies **1,350 unique cycles**, **352 stalled** (325 incident cycles
+plus 27 app-only 188 ms distractor cycles), a ~1,300 ms maximum RX+TX boundary addition at
+the affected flow/service port, and frames at both sides. Server-local application time is
+excluded from that maximum. Event counts tolerate only the documented onset edge/jitter;
+RX share is checked against generated truth, and silence against the actual bracketing host
+frame timestamps. Both directions have exactly 25 flows with >= stall_ms boundary samples.
+Multi-hop packet appearances produce zero repeat groups. The separate RTO replica produces
+positive repeat groups in both directions and verifies peak count against the selected host
+point, without multiplying by capture hops. Missing host/event metrics are not-computed.
+No real captures or new large benchmark were used. Windows jobs are read once after PR
+creation, with pending/failure status reported without a monitoring loop.

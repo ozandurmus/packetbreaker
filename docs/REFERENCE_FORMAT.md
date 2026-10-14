@@ -51,3 +51,44 @@ classes/hops, confidence, time windows and metrics. Findings are grouped by type
 list ordering remains significant. Address mapping is a real reported difference, not silently
 ignored. The first 1,000 metric changes are displayed with the full difference count.
 The UI/API accepts at most 64 MiB per comparison; large reports can be compared using the CLI.
+
+## Stable engine aggregates (0.3.9)
+
+The scalar paths below are in the analysis report and in JSON export `report`.
+`cycles.analysis`, `host_path.analysis`, and `onsets.analysis` hold whole-analysis details;
+`.event` holds the corresponding half-open global host event window `[start,end)`.
+Without a supported global window, event metrics are null with a reason.
+Whole-analysis convenience scalars use `.analysis`, except `max_silence_ms`, which explicitly
+uses `.event` because it describes silence **during the incident**.
+
+| Stable metric | Units / definition |
+|---|---|
+| `$.cycles.total` | Distinct measured opaque cycle IDs across all capture points; no hop multiplication |
+| `$.cycles.stalled_total` | Distinct cycles with at least one measured point at or above configured `stall_ms`; application-only waiting also counts as a stalled cycle |
+| `$.cycles.max_added_ms` | Largest complete clock-valid RX + TX host-boundary added time for one cycle, ms; server-local time excluded |
+| `$.cycles.max_added` | Winning cycle ID, flow/port, host, time, RX/TX ms, uncertainty and boundary frame evidence |
+| `$.host_path.rx_share` | Percentage (0–100): sum of positive RX cycle components / sum of complete RX+TX added time; not byte-weighted |
+| `$.host_path.max_silence_ms` | Longest observed host inter-packet gap clipped to the global event window, ms; all valid capture frames/flows included |
+| `$.cycles.repeat_groups.forward` / `.reverse` | Distinct repeated TCP data ranges at any one point, deduplicated across points; SPAN copies excluded, offload uses existing canonical byte ranges |
+| `$.onsets.retrans_peak_time` | Earliest UTC epoch-second bucket attaining the largest retransmission count at one host point (first path point if no host) |
+| `$.onsets.retrans_peak_count` | Retransmission count in that bucket; observations from multiple hops are not summed |
+| `$.host_path.items[0].affected_flows_ge_stall` | Distinct flows with at least one clock-valid same-copy host-boundary sample `>= stall_ms`, alongside `affected_flow_count` |
+
+For global-event equivalents use `$.cycles.event.total`, `.stalled_total`, `.max_added_ms`,
+`.repeat_groups`, `$.host_path.event.rx_share`, `.max_silence_ms`, and
+`$.onsets.event.retrans_peak_time` / `.retrans_peak_count`. Each host item also has
+`affected_flows_ge_stall_event`. Item order is not a stable direction identity: inspect
+`direction` (`rx` / `tx`) before choosing its explicit array index in a reference.
+
+Repeat groups need two observations at the **same point**; seeing one packet at five hops
+is not repetition. An event repeat group has at least one copy in the event, while its
+original can precede the event. Counts describe canonical matching ranges, not an assertion
+that offload capture units equal wire packet counts. Delay shares and added-time components
+include observed retry recovery wait and retain clock uncertainty; they are not proof of
+physical transit or a device cause. Missing components make added time unknown.
+
+Silence requires a known clock and capture endpoints bracketing the requested scope. No
+packet does not prove an application stall or continuous capture. Evidence contains the
+bracketing host frames. No host, unknown clock or insufficient coverage yields null. No
+observed retransmissions yields count zero and peak time null. Templates include these key
+metrics for editing against an independent reference.

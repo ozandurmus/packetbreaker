@@ -1112,6 +1112,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
 
         findings.extend(hold_release(db, segments))
         host_report["loss_groups"] = group_host_losses(findings, segments, topology)
+        from .aggregates import add_aggregates
+
+        add_aggregates(db, engine_topology, segments, host_report, cycle_report, onsets, models, byte_active)
         from .incident import build_incident
 
         incident = build_incident(db, topology, host_report, cycle_report, delivery, findings)

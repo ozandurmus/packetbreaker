@@ -830,3 +830,13 @@ This works on macOS too. It preserves every assertion, shared fixture families a
 collection counts, budgets CPU/RAM, and writes `fast-suite-summary.json`. Plain `pytest` still
 works for targeted/serial debugging; Windows defaults to two workers. No test moved to slow
 for this change.
+
+Version 0.3.9 adds stable aggregate metrics to reference templates: unique/stalled cycle
+counts, maximum host-boundary RX+TX added time, RX share, event host silence, repeated data
+ranges and retransmission peak. See [REFERENCE_FORMAT.md](docs/REFERENCE_FORMAT.md) for scope,
+units and evidence paths. Re-analyze to populate them; existing capture indexes are reused.
+Windows offline exports and compare files explicitly use UTF-8.
+
+After installing `.[test]`, `pytest -n auto` runs independent test files in CPU/RAM-bounded
+workers with one shared source fixture build and private worker databases. This is the
+standard local parallel test command; `-n 0` remains available for serial debugging.

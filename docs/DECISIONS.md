@@ -715,3 +715,20 @@ Default is four on macOS and two on Windows, capped by CPU/RAM; each shard keeps
 fixture families together and uses one fixture producer/one SQL thread. This avoids an
 xdist dependency and four copies of the session-wide fixture prefetch. CI uses the same
 runner, retaining the measured two-process Windows cap. Timing remains advisory.
+
+### Aggregate metrics and pytest-xdist
+
+Whole-analysis scalar aliases are stable; event equivalents are nested under `.event`.
+The requested `host_path.max_silence_ms` specifically describes the global event. Count
+measured opaque cycles once by cycle ID, with a stall at any measured point. Compute RX
+share from positive, complete RX+TX cycle components (percentage), excluding server-local
+turnaround. Preserve null for missing boundary components, host clock, event window or
+bracketing coverage. Silence is an observed gap, not a claimed capture outage or application
+cause. Repeat groups require repeated data at one point and deduplicate across points.
+
+Support the requested `pytest -n auto` with pytest-xdist and filelock in test dependencies.
+Auto worker count is CPU/RAM bounded. Loadfile keeps module fixtures together. Under xdist,
+existing planned session fixtures are lazy, generated once behind run-local locks and copied
+to private writable worker databases. This prevents repeated whole-suite prefetch and shared
+DuckDB writers. Cache pickle files are only generated/read inside the trusted test-run temp
+directory. Production dependencies and analysis concurrency are unchanged.
