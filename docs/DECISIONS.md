@@ -682,3 +682,36 @@ its missing atoms to ACKs and retries. Do not increase the DuckDB memory budget 
 allocation failure. Flow equality is explicit even when synthetic base keys collide. The
 requested scale reproduction uses 50 concurrent flows, 750 request/response rounds, GRO,
 stage/shared clocks, timestamp jitter, capture misses, RX holds and TX retry delivery.
+
+### Real-case 2b presentation semantics
+
+Use one global event window across host-path flow details. Learn onset from per-second max
+of flow p95s so a sparse affected population remains visible; compute the reported local
+p95 from all valid host cycles so a single slow application flow cannot own the headline.
+The direction-level affected-flow count requires positive excess boundary delay and usable
+clock evidence. Preserve unknown clocks/application turns. Loss subtype findings remain
+traceable, with one boundary heading and subtype counts; without an adjacent mirror the
+localisation cannot distinguish host TX path from intervening network.
+
+Reuse existing engine tables and exports. Show observed-pair units explicitly: segmentation
+means these are not packet-for-packet loss counts or byte-weighted rates. Offload mismatch is
+only an unknown copy pair with differing segmentation and a super-frame; other unknowns
+remain a separate grey class. It is never reclassified as network loss.
+
+Every incident chart offers brushing and frame evidence. Capture-local hold/release spacing
+uses a local evidence selection, not an inferred global time correction. Top-cycle components
+carry their existing clock uncertainty; unknown components are null and do not claim a
+complete stack. Offline exports embed a copy of the installed ECharts bundle at UI build
+rather than adding a CDN or a new dependency.
+
+Reference checks have a small documented JSONPath grammar, not an executable expression
+language. A missing or null product metric is not-computed. Run diffs ignore generated IDs,
+timestamps and frame-reference metadata, but expose actual metric/finding/address differences;
+list order remains significant. Templates contain current values for reviewer editing and
+are not independent ground truth.
+
+The existing isolated-process fast-suite runner now accepts --workers on all platforms.
+Default is four on macOS and two on Windows, capped by CPU/RAM; each shard keeps expensive
+fixture families together and uses one fixture producer/one SQL thread. This avoids an
+xdist dependency and four copies of the session-wide fixture prefetch. CI uses the same
+runner, retaining the measured two-process Windows cap. Timing remains advisory.

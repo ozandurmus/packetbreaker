@@ -19,7 +19,7 @@ python3 -m venv .venv
 
 The prebuilt frontend is included. Node is not needed to install or run the app.
 To install the built wheel instead, use `python -m pip install
-/path/to/packetbreaker-0.3.7-py3-none-any.whl`, then run `packetbreaker` in that
+/path/to/packetbreaker-0.3.8-py3-none-any.whl`, then run `packetbreaker` in that
 Python environment. This project has not been published to PyPI.
 
 ## Install on Windows 10/11
@@ -790,3 +790,43 @@ populate the new engine tables. XLSX has Excel's per-sheet row limit; use CSV ab
 Version 0.3.7 makes host clock fitting tolerant of timestamp jitter and bounds the
 byte-range ACK guard to one flow at a time. Reopen the project and run analysis again;
 existing capture indexes are reused. Clock uncertainty remains visible.
+
+### Real-case incident views (0.3.8)
+
+After re-analyzing, Overview starts with **Incident timeline**: RX/TX maximum same-copy
+latency, TX original drops, TX delays and retransmissions. The shaded global window labels
+before/event/recovery; the line below uses the server-local p95 across all valid cycles and
+the affected flow count. Host-path findings are one per direction; expand their flow detail
+for individual streams. Mixed loss classes at a host boundary appear beneath one boundary
+heading with subtype counts. Without an adjacent mirror, host-path versus intervening network
+cause remains unresolved.
+
+**Where was the time added?** stacks adjacent RX/TX components plus server-local turnaround
+for existing top cycles; sort by total, RX or TX. The existing **Opaque TCP cycles** table
+adds before/event/recovery p95s and per-hop added time, and keeps the CSV/XLSX downloads.
+**Hold and release** compares copy spacing at wire/host using each capture's local clock.
+**Delay versus drop** explains why a seq-only retry match can turn RTO recovery into a false
+delay. **Capture quality** splits mismatch percentages into capture miss, supported loss,
+offload mismatch and other unknowns.
+
+Brush time charts to filter the shared incident interval; click points/bars for frame and
+content filters. Hold/release brushing selects local copy evidence. Full-window aggregate
+views say so explicitly. Path → Suggested capture roles/clocks provides **Apply**, **Dismiss**
+and evidence per suggestion; Apply changes the editor, and Save persists it.
+All six incident views also work in the self-contained offline HTML export.
+
+Overview → **Reference and run comparison** accepts a local reference and/or a previous JSON
+export, with pass/fail/not-computed and both product/expected values. Download **Export
+reference template** and fill independently expected values. CLI examples and the schema are
+in [REFERENCE_FORMAT.md](docs/REFERENCE_FORMAT.md).
+
+On a multi-core development machine run the complete fast suite in isolated parallel workers:
+
+```sh
+python tools/windows_fast_suite.py --workers 4
+```
+
+This works on macOS too. It preserves every assertion, shared fixture families and exact
+collection counts, budgets CPU/RAM, and writes `fast-suite-summary.json`. Plain `pytest` still
+works for targeted/serial debugging; Windows defaults to two workers. No test moved to slow
+for this change.

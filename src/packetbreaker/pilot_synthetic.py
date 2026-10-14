@@ -25,6 +25,8 @@ def make_pilot(
     real_case=False,
     host_jitter_us=1,
     rounds=27,
+    affected_flows=1,
+    slow_local_flow=False,
 ):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -73,7 +75,7 @@ def make_pilot(
         rq += 1
         for n in range(rounds):
             t = 4 + n * 2 + call * 0.02
-            active = not healthy and call == 0 and 20 <= t < 45
+            active = not healthy and call < affected_flows and 20 <= t < 45
             rx = [0.1, 0.35, 0.85, 1.3][n % 4] if active and n % 3 != 1 else 0
             tx = [0.1, 0.45, 0.85, 1.3][n % 4] if active and n % 3 == 1 else 0
             if active:
@@ -90,7 +92,7 @@ def make_pilot(
             host_receive = t + 0.00008 + (rx if fault == "host" else rx + tx)
             if boundary_loss and call == 0 and n == 3:
                 host_receive += 0.3
-            response_time = host_receive + 0.0005
+            response_time = host_receive + (0.188 if slow_local_flow and call == flows - 1 else 0.0005)
             for reverse, path, payload, base_seq, ack in [
                 (False, PATH, req, sq, rq),
                 (True, RETURN, response, rq, sq + 3200),

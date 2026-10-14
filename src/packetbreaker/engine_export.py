@@ -9,9 +9,9 @@ from .store import rows
 
 TABLES = {
     "per_second": "SELECT *,strftime(to_timestamp(start) AT TIME ZONE 'UTC','%Y-%m-%dT%H:%M:%S.%fZ') AS utc_time FROM cycle_series ORDER BY start,point,flow",
-    "flow_port": "SELECT * FROM cycle_flow_ports ORDER BY max_ms DESC",
+    "flow_port": "SELECT * FROM cycle_flow_detail ORDER BY max_ms DESC",
     "periods": "SELECT * FROM cycle_periods ORDER BY point,flow,period",
-    "top_cycles": "SELECT p.*,'frame.number == '||p.request_last_frame||' || frame.number == '||p.response_frame AS display_filter FROM cycle_top_points p",
+    "top_cycles": "SELECT p.*,'frame.number == '||p.request_last_frame||' || frame.number == '||p.response_frame AS display_filter FROM cycle_details p",
     "rx_tx_components": "SELECT * FROM cycle_pairs ORDER BY time,hop,flow",
     "capture_points": "SELECT DISTINCT o.point,o.capture_id,c.name AS file FROM obs o JOIN captures c ON c.id=o.capture_id ORDER BY point",
     "flow_filters": "SELECT * FROM flow_filters ORDER BY capture_id,flow",
