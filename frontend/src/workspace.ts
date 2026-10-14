@@ -233,20 +233,86 @@ export function useWorkspaceController() {
   async function saveTopology(t: Topology) {
     const saved = await api<Topology>("/topology", "PUT", t);
     setTopology(saved);
-    setState((s) => (s ? { ...s, topology: saved, report: null } : s));
+    setState((s) =>
+      s ? { ...s, topology: saved, suggested_topology: null, report: null } : s,
+    );
     setNotice("Topology saved. Run analysis to refresh results.");
   }
-  async function analyze() {
-    if (!topology) return;
+  async function analyzeTopology(t: Topology) {
     setSelectedFlow(null);
     setLadder(null);
     setEvents(null);
     setJob(
       await api<Job>("/analyze", "POST", {
-        ...topology,
+        ...t,
         report_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       }),
     );
+  }
+  async function analyze() {
+    if (!topology) return;
+    await analyzeTopology(topology);
+  }
+  async function editTopology(t: Topology) {
+    setTopology(t);
+    const pending =
+      (state?.suggested_topology || state?.report?.suggested_topology) &&
+      !(state?.suggested_topology || state?.report?.suggested_topology)
+        ?.confirmed;
+    if (pending && t.forward.length >= 2 && !job.busy) {
+      await analyzeTopology(t);
+    }
+  }
+  async function assembleSuggestedTopology() {
+    const res = await api<{
+      suggested_topology: NonNullable<State["suggested_topology"]>;
+      topology: Topology;
+      report: State["report"];
+    }>("/topology/assemble", "POST", {});
+    setTopology(res.topology);
+    setState((s) =>
+      s ? { ...s, suggested_topology: res.suggested_topology, topology: res.topology, report: res.report } : s,
+    );
+    if (res.suggested_topology.ambiguous) {
+      setError(res.suggested_topology.reason || "Suggested path order is ambiguous; assign the path manually.");
+    } else {
+      setNotice(res.suggested_topology.badge || "Suggested topology — review & confirm");
+    }
+  }
+  async function confirmSuggestedTopology(group?: string) {
+    const res = await api<{
+      confirmed: boolean;
+      suggested_topology: NonNullable<State["suggested_topology"]>;
+      topology: Topology;
+      report?: State["report"];
+    }>("/topology/confirm", "POST", group ? { group } : {});
+    if (res.topology) setTopology(res.topology);
+    setState((s) =>
+      s
+        ? {
+            ...s,
+            topology: res.topology || s.topology,
+            suggested_topology: res.suggested_topology,
+            report: res.report ?? (s.report ? { ...s.report, suggested_topology: res.suggested_topology } : null),
+          }
+        : s,
+    );
+    setNotice(group ? `Suggested topology confirmed for ${group}.` : "Suggested topology confirmed.");
+  }
+  function selectSuggestedGroup(g: import("./types").SuggestedTopologyGroup) {
+    setTopology(g.topology);
+    if (g.report) {
+      setState((s) =>
+        s
+          ? {
+              ...s,
+              topology: g.topology,
+              report: { ...g.report!, suggested_topology: s.suggested_topology || g.report!.suggested_topology },
+            }
+          : s,
+      );
+    }
+    setNotice(`Showing analysis for client path ${g.name}.`);
   }
   async function upload(files: FileList | null) {
     if (!files?.length) return;
@@ -256,16 +322,10 @@ export function useWorkspaceController() {
       for (const f of Array.from(files)) {
         await new Promise<void>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
-          xhr.open(
-            "POST",
-            "/api/captures/upload?defer=true&name=" +
-              encodeURIComponent(f.name),
-          );
+          xhr.open("POST", "/api/captures/upload?defer=true&name=" + encodeURIComponent(f.name));
           xhr.setRequestHeader("X-PacketBreaker", "local");
           xhr.upload.onprogress = (e) =>
-            setUploadPercent(
-              e.lengthComputable ? Math.round((e.loaded / e.total) * 100) : 0,
-            );
+            setUploadPercent(e.lengthComputable ? Math.round((e.loaded / e.total) * 100) : 0);
           xhr.onload = () => {
             if (xhr.status < 300) {
               paths.push(JSON.parse(xhr.responseText).path);
@@ -285,10 +345,7 @@ export function useWorkspaceController() {
     }
   }
   async function showEvents(s: Segment, offset = 0) {
-    const page = await api<{
-      items: NonNullable<typeof events>["items"];
-      total: number;
-    }>(
+    const page = await api<{ items: NonNullable<typeof events>["items"]; total: number }>(
       `/events?a=${s.point_a}&b=${s.point_b}&direction=${s.direction}&offset=${offset}${rangeQuery}`,
     );
     setEvents({ label: s.label, ...page, segment: s, offset });
@@ -297,103 +354,24 @@ export function useWorkspaceController() {
   const visibleFindings = range ? rangeFindings || [] : report?.findings || [];
   const ready = state?.captures.filter((c) => c.state === "ready").length ?? 0;
   const kinds =
-    report?.findings.reduce(
-      (acc, f) => {
-        acc[f.type] = (acc[f.type] || 0) + f.metrics.count;
-        return acc;
-      },
-      {} as Record<string, number>,
-    ) || {};
+    report?.findings.reduce((acc, f) => {
+      acc[f.type] = (acc[f.type] || 0) + f.metrics.count;
+      return acc;
+    }, {} as Record<string, number>) || {};
   const busy = job.busy || uploadPercent !== null;
-
   return {
-    series,
-    setSeries,
-    range,
-    setRange,
-    rangeFindings,
-    setRangeFindings,
-    rangeQuery,
-    selectRange,
-    overlay,
-    setOverlay,
-    inspection,
-    setInspection,
-    inspectQuery,
-    setInspectQuery,
-    state,
-    setState,
-    tab,
-    setTab,
-    error,
-    setError,
-    notice,
-    setNotice,
-    job,
-    setJob,
-    topology,
-    setTopology,
-    evidence,
-    setEvidence,
-    path,
-    setPath,
-    projectPath,
-    setProjectPath,
-    uploadPercent,
-    setUploadPercent,
-    flows,
-    setFlows,
-    flowOffset,
-    setFlowOffset,
-    search,
-    setSearch,
-    filter,
-    setFilter,
-    sort,
-    setSort,
-    selectedFlow,
-    setSelectedFlow,
-    ladder,
-    setLadder,
-    ladderOffset,
-    setLadderOffset,
-    fieldDiff,
-    setFieldDiff,
-    events,
-    setEvents,
-    parallelIngest,
-    setParallelIngest,
-    memoryLimit,
-    setMemoryLimit,
-    checkpointUuid,
-    setCheckpointUuid,
-    f5Trailer,
-    setF5Trailer,
-    assistantEnabled,
-    setAssistantEnabled,
-    fortiPath,
-    setFortiPath,
-    fortiStart,
-    setFortiStart,
-    fortiDevice,
-    setFortiDevice,
-    tsharkPath,
-    setTsharkPath,
-    prefix,
-    setPrefix,
-    refresh,
-    fail,
-    action,
-    downloadReport,
-    saveTopology,
-    analyze,
-    upload,
-    showEvents,
-    report,
-    visibleFindings,
-    ready,
-    kinds,
-    busy,
+    series, setSeries, range, setRange, rangeFindings, setRangeFindings, rangeQuery, selectRange,
+    overlay, setOverlay, inspection, setInspection, inspectQuery, setInspectQuery, state, setState,
+    tab, setTab, error, setError, notice, setNotice, job, setJob, topology, setTopology,
+    evidence, setEvidence, path, setPath, projectPath, setProjectPath, uploadPercent, setUploadPercent,
+    flows, setFlows, flowOffset, setFlowOffset, search, setSearch, filter, setFilter, sort, setSort,
+    selectedFlow, setSelectedFlow, ladder, setLadder, ladderOffset, setLadderOffset, fieldDiff, setFieldDiff,
+    events, setEvents, parallelIngest, setParallelIngest, memoryLimit, setMemoryLimit,
+    checkpointUuid, setCheckpointUuid, f5Trailer, setF5Trailer, assistantEnabled, setAssistantEnabled,
+    fortiPath, setFortiPath, fortiStart, setFortiStart, fortiDevice, setFortiDevice,
+    tsharkPath, setTsharkPath, prefix, setPrefix, refresh, fail, action, downloadReport,
+    saveTopology, editTopology, assembleSuggestedTopology, confirmSuggestedTopology, selectSuggestedGroup,
+    analyze, upload, showEvents, report, visibleFindings, ready, kinds, busy,
   };
 }
 export type Workspace = ReturnType<typeof useWorkspaceController>;

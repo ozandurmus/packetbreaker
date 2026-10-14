@@ -180,6 +180,7 @@ def create_app(project_path, *, memory_limit_mb=None):
             report = project.get(db, "report")
             conversion = project.get(db, "fortinet_conversion")
             case_context = project.get(db, "case_context")
+            suggested_topology = project.get(db, "suggested_topology")
         try:
             tshark = dict(path=find_tshark(settings.get("tshark")), error=None)
         except ValueError as exc:
@@ -193,6 +194,7 @@ def create_app(project_path, *, memory_limit_mb=None):
             captures=captures,
             preflight=inventory_overview(captures),
             case_context=case_context,
+            suggested_topology=suggested_topology,
             topology=topology,
             report=report,
             settings=settings,
@@ -312,14 +314,18 @@ def create_app(project_path, *, memory_limit_mb=None):
         idle()
         with project.connect() as db:
             project.set(db, "topology", body.model_dump())
+            project.set(db, "suggested_topology", None)
             project.set(db, "report", None)
         return body
 
     @app.post("/api/analyze")
     def run_analysis(body: Topology):
-        return jobs.start(
-            "analysis", lambda: analyze(project, body, progress=jobs.update, cancel=jobs.cancel)
-        )
+        def _run():
+            with project.connect() as db:
+                project.set(db, "suggested_topology", None)
+            analyze(project, body, progress=jobs.update, cancel=jobs.cancel)
+
+        return jobs.start("analysis", _run)
 
     @app.get("/api/report")
     def report():
@@ -437,6 +443,41 @@ def create_app(project_path, *, memory_limit_mb=None):
 
         idle()
         return suggest_topology(project)
+
+    @app.post("/api/topology/assemble")
+    def topology_assemble():
+        from .topology_suggest import assemble_and_analyze
+
+        idle()
+        res = assemble_and_analyze(project)
+        return dict(
+            suggested_topology=res["suggested_topology"],
+            topology=res["suggested_topology"]["topology"],
+            report=res["report"],
+        )
+
+    @app.post("/api/topology/confirm")
+    async def topology_confirm(request: Request):
+        from .topology_suggest import confirm_suggested_topology
+        import json
+
+        idle()
+        raw = await request.body()
+        group = None
+        if raw:
+            payload = json.loads(raw)
+            if isinstance(payload, dict):
+                group = payload.get("group")
+        suggested = confirm_suggested_topology(project, group=group)
+        with project.connect() as db:
+            rep = project.get(db, "report")
+        return dict(
+            confirmed=bool(suggested.get("confirmed")),
+            group_confirmed=True if group else bool(suggested.get("confirmed")),
+            suggested_topology=suggested,
+            topology=suggested["topology"],
+            report=rep,
+        )
 
     @app.get("/api/findings")
     def findings(

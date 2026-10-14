@@ -67,6 +67,10 @@ def inventory_overview(captures):
                 start=info.get("start"),
                 end=info.get("end"),
                 packet_count=info.get("packet_count"),
+                prefilter_total=info.get("prefilter_total"),
+                prefilter_retained=info.get("prefilter_retained"),
+                prefilter_excluded=info.get("prefilter_excluded", 0),
+                prefilter_skipped=bool(info.get("prefilter_skipped")),
                 header_snaplen=snaplens[0] if len(snaplens) == 1 else info.get("snaplen"),
                 header_snaplens=snaplens,
                 observed_max_caplen=info.get("observed_max_caplen"),
@@ -92,10 +96,33 @@ def inventory_overview(captures):
             if start < end
             else "Capture time ranges have no positive-duration overlap. Clock offsets may explain this; verify capture windows and clock settings before analysis.",
         )
-    return dict(files=files, overlap=overlap)
+    prefilter_by_file = {f["name"]: f["prefilter_excluded"] for f in files}
+    return dict(
+        files=files,
+        overlap=overlap,
+        prefilter_excluded={f["name"]: f["prefilter_excluded"] for f in files if f.get("prefilter_excluded")},
+        prefilter_excluded_by_file=prefilter_by_file,
+        summary=dict(
+            file_count=len(files),
+            prefilter_excluded=prefilter_by_file,
+            files=[
+                dict(
+                    file=f["name"],
+                    packet_count=f["packet_count"],
+                    prefilter_total=f["prefilter_total"],
+                    prefilter_retained=f["prefilter_retained"],
+                    prefilter_excluded=f["prefilter_excluded"],
+                    prefilter_skipped=f["prefilter_skipped"],
+                )
+                for f in files
+            ],
+        ),
+    )
 
 
-def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None):
+def create_case(
+    folder, *, tshark=None, progress=None, memory_limit_mb=None, prefilter=True, auto_assemble=True
+):
     paths = capture_paths(folder)
     root = Path(folder).expanduser().resolve()
     project = Project(root.with_name(root.name + ".packetbreaker"), memory_limit_mb=memory_limit_mb)
@@ -108,11 +135,27 @@ def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None):
             progress(**state)
 
     try:
-        ingest_many(project, paths, tshark=tshark, progress=update)
+        ingest_many(project, paths, tshark=tshark, progress=update, prefilter=prefilter)
     except ValueError as exc:
         warning = str(exc)
     inventory = project.inventory()
     labels = {str(p.resolve()): p.relative_to(root).as_posix() for p in paths}
+    prefilter_by_file = {c["name"]: c["inventory"].get("prefilter_excluded", 0) for c in inventory}
+    summary = dict(
+        file_count=len(paths),
+        prefilter_excluded=prefilter_by_file,
+        files=[
+            dict(
+                file=c["name"],
+                packet_count=c["inventory"].get("packet_count", 0),
+                prefilter_total=c["inventory"].get("prefilter_total"),
+                prefilter_retained=c["inventory"].get("prefilter_retained"),
+                prefilter_excluded=c["inventory"].get("prefilter_excluded", 0),
+                prefilter_skipped=bool(c["inventory"].get("prefilter_skipped")),
+            )
+            for c in inventory
+        ],
+    )
     with project.connect() as db:
         saved = project.get(db, "topology")
         topology = Topology.model_validate(saved) if saved else Topology()
@@ -132,6 +175,17 @@ def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None):
                     )
                 )
         project.set(db, "topology", topology.model_dump())
+
+    suggested_topology = None
+    if auto_assemble and not (saved and saved.get("forward")):
+        from .topology_suggest import assemble_and_analyze
+
+        assembled = assemble_and_analyze(project, base_topology=topology, progress=update)
+        suggested_topology = assembled["suggested_topology"]
+
+    with project.connect() as db:
+        if suggested_topology is None:
+            suggested_topology = project.get(db, "suggested_topology")
         project.set(
             db,
             "case_context",
@@ -139,6 +193,10 @@ def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None):
                 folder=str(root),
                 files=len(paths),
                 warning=warning,
+                prefilter=prefilter,
+                prefilter_excluded=prefilter_by_file,
+                summary=summary,
+                suggested_topology=suggested_topology,
                 issues=[
                     dict(file=f["file"], error=f.get("error"))
                     for f in latest.get("files", [])

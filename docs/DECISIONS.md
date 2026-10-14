@@ -787,3 +787,33 @@ those values separately in tooltips and preserve unknown parts. Include the meas
 maximum when top-N selection by elapsed cycle time omits it. The aggregate describes the host
 boundary, while the chart can additionally contain sub-millisecond network transit; the replica
 comparison therefore permits 1 ms rounding, without scaling or rewriting reported values.
+
+### Seamless case setup and finding hygiene
+
+- Never apply a suggested topology silently: auto-assembled paths carry an explicit
+  `Suggested topology — review & confirm` badge with frame-level evidence for every stage pair,
+  shared clock domain, path order, host offload and client CIDR inference. If TTL steps and
+  microsecond ordering do not resolve a unique path or client direction, stop and ask rather than
+  guess from filenames.
+- File names never override packet evidence. When `in`/`rx` vs `out`/`tx` labels disagree with
+  bidirectional TTL and timestamp order, emit an informational warning while keeping the
+  packet-derived stage and path order.
+- Group `downstream_packet` findings under an upstream `capture_miss` only when they follow that
+  miss along the configured directional path and in time; upstream or earlier downstream-only
+  observations remain standalone.
+- Classify supported losses as `chronic low-rate loss (not event-correlated)` only when a valid
+  before/during/after event window exists, all three periods contain low-rate (`<1%`) drops at
+  comparable rates without an event-window spike, and transit latency remains clean. Event-burst
+  losses and high-rate losses remain degraded.
+- Default ingest pre-filtering in `case` compares each capture with `>5x` the frames of the
+  smallest capture against the union of IP pairs of **all** other captures so same-size peer
+  paths (`GenisSegment1/2`) are never stripped, and skips the filter with a warning whenever it
+  would retain `<10%` of frames. Excluded counts per file are surfaced in the case summary as
+  well as per-file inventory.
+- When a capture is empty or mostly excluded (by pre-filtering, invalid timestamps or
+  unsupported encapsulation), report the concrete exclusion counts in the ambiguity reason
+  instead of stating that captures share no directional TCP traffic.
+- When captures form disjoint client-CIDR groups that share a host capture, assemble and analyze
+  each client-CIDR path separately with its own `Suggested topology — review & confirm` state
+  while reusing the shared host capture in each group; stop as ambiguous only when an individual
+  group's path order or client direction is ambiguous.

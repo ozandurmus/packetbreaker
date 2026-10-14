@@ -254,6 +254,9 @@ def ingest(
     checkpoint_uuid=False,
     source_metadata=None,
     f5_trailer=None,
+    read_filter=None,
+    prefilter_total=None,
+    prefilter_warning=None,
 ):
     cancel = cancel or threading.Event()
     progress = progress or (lambda **kw: None)
@@ -271,21 +274,25 @@ def ingest(
             f5_trailer = bool(existing and json.loads(existing[4]).get("f5_fields"))
         if source_metadata is None and existing:
             source_metadata = json.loads(existing[4]).get("source_metadata")
-        identity = json.dumps(
-            [
-                str(path),
-                stat.st_size,
-                stat.st_mtime_ns,
-                PARSER_VERSION,
-                prefix_bytes,
-                checkpoint_uuid,
-                source_metadata,
-                f5_trailer,
-            ]
-        )
-        if existing and existing[1] == identity and existing[2] == "ready":
-            progress(state="cached", frames=existing[3])
-            return existing[0]
+        base_identity = [
+            str(path),
+            stat.st_size,
+            stat.st_mtime_ns,
+            PARSER_VERSION,
+            prefix_bytes,
+            checkpoint_uuid,
+            source_metadata,
+            f5_trailer,
+        ]
+        identity = json.dumps([*base_identity, *([read_filter] if read_filter else [])])
+        unfiltered_identity = json.dumps(base_identity)
+        if existing and existing[2] == "ready":
+            existing_inv = json.loads(existing[4])
+            if existing[1] == identity or (
+                read_filter and existing_inv.get("prefilter_skipped") and existing[1] == unfiltered_identity
+            ):
+                progress(state="cached", frames=existing[3])
+                return existing[0]
     binary = find_tshark(tshark)
     progress(state="scanning metadata", frames=0)
     info = metadata(path, cancel)
@@ -348,6 +355,8 @@ def ingest(
         info["checkpoint_uuid"] = checkpoint_uuid
     if info.get("frame_limit") is not None:
         cmd += ["-c", str(info["frame_limit"])]
+    if read_filter:
+        cmd += ["-Y", read_filter]
     for field in active_fields:
         cmd += ["-e", field]
     metrics = dict(csv_write_cpu_s=0.0, duckdb_cpu_s=0.0, duckdb_wait_s=0.0, duckdb_hold_s=0.0)
@@ -469,7 +478,7 @@ def ingest(
                         FROM packets WHERE capture_id=?""",
                         [cid],
                     ).fetchone()
-                    if not r[2]:
+                    if not r[2] and not read_filter:
                         raise ValueError("Capture contains zero usable frames")
                     info["warnings"] = (
                         [f"File ends mid-packet; last partial record ignored; {r[2]} packets usable"]
@@ -492,47 +501,84 @@ def ingest(
                             f"Excluded {sum(reasons.values())} packets with invalid capture timestamps: "
                             + ", ".join(f"{k}: {v}" for k, v in sorted(reasons.items()))
                         )
-                    info["vendor_stages"] = [
-                        dict(stage=stage, count=count)
-                        for stage, count in db.execute(
-                            "SELECT json_extract_string(vendor,'$.stage'),count(*) FROM packets WHERE capture_id=? AND vendor IS NOT NULL GROUP BY 1",
-                            [cid],
-                        ).fetchall()
-                    ]
-                    info["tunnel_counts"] = dict(
-                        db.execute(
-                            "SELECT json_extract_string(path_fields,'$.tunnel_hint'),count(*) FROM packets WHERE capture_id=? AND unsupported LIKE 'Tunnel encapsulation%' GROUP BY 1",
-                            [cid],
-                        ).fetchall()
-                    )
-                    if source_metadata:
-                        info["warnings"].append(
-                            f"Fortinet text: {source_metadata.get('skipped_lines', 0)} skipped lines; {source_metadata.get('skipped_packets', 0)} incomplete/unsupported packets skipped"
+                    skip_prefilter_warning = None
+                    if read_filter:
+                        total_records = (
+                            prefilter_total
+                            if prefilter_total is not None
+                            else (info.get("complete_records") or 0)
                         )
-                        if source_metadata.get("relative_timestamps"):
-                            info["warnings"].append(
-                                "Low clock confidence: relative text timestamps use a user-supplied start time"
+                        if info.get("frame_limit") is not None:
+                            total_records = min(total_records, info["frame_limit"])
+                        prefilter_retained = r[2] + sum(reasons.values())
+                        prefilter_excluded = max(0, total_records - prefilter_retained)
+                        if total_records > 0 and prefilter_retained * 10 < total_records:
+                            skip_prefilter_warning = (
+                                f"Ingest pre-filter skipped: reference IP pairs matched {prefilter_retained} of {total_records} frames (<10%); kept all frames"
                             )
-                    info["timestamps_validated"] = True
-                    info["records_read"] = last
-                    info.update(
-                        start=r[0],
-                        end=r[1],
-                        packet_count=r[2],
-                        duration=(r[1] - r[0]) if r[0] is not None else 0,
-                        truncated=r[3],
-                        possible_offload=r[4],
-                        unsupported=r[5],
-                        observed_max_caplen=r[6],
-                        truncated_caplen_min=r[7],
-                        truncated_caplen_max=r[8],
-                    )
-                    db.execute(
-                        "UPDATE captures SET state='ready',inventory=?,error=NULL WHERE id=?",
-                        [json.dumps(info), cid],
-                    )
-                progress(state="ready", frames=last, usable_packets=r[2], warnings=info["warnings"])
-                return cid
+                        elif prefilter_excluded > 0:
+                            info["prefilter_total"] = total_records
+                            info["prefilter_retained"] = prefilter_retained
+                            info["prefilter_excluded"] = prefilter_excluded
+                            info["warnings"].append(
+                                f"Ingest pre-filter kept {prefilter_retained} of {total_records} frames matching IP pairs in other captures ({prefilter_excluded} excluded)"
+                            )
+                        else:
+                            info["prefilter_excluded"] = 0
+                    elif prefilter_warning:
+                        total_records = (
+                            prefilter_total
+                            if prefilter_total is not None
+                            else (info.get("complete_records") or (r[2] + sum(reasons.values())))
+                        )
+                        info["prefilter_total"] = total_records
+                        info["prefilter_retained"] = r[2] + sum(reasons.values())
+                        info["prefilter_excluded"] = 0
+                        info["prefilter_skipped"] = True
+                        info["warnings"].append(prefilter_warning)
+                    if not skip_prefilter_warning:
+                        info["vendor_stages"] = [
+                            dict(stage=stage, count=count)
+                            for stage, count in db.execute(
+                                "SELECT json_extract_string(vendor,'$.stage'),count(*) FROM packets WHERE capture_id=? AND vendor IS NOT NULL GROUP BY 1",
+                                [cid],
+                            ).fetchall()
+                        ]
+                        info["tunnel_counts"] = dict(
+                            db.execute(
+                                "SELECT json_extract_string(path_fields,'$.tunnel_hint'),count(*) FROM packets WHERE capture_id=? AND unsupported LIKE 'Tunnel encapsulation%' GROUP BY 1",
+                                [cid],
+                            ).fetchall()
+                        )
+                        if source_metadata:
+                            info["warnings"].append(
+                                f"Fortinet text: {source_metadata.get('skipped_lines', 0)} skipped lines; {source_metadata.get('skipped_packets', 0)} incomplete/unsupported packets skipped"
+                            )
+                            if source_metadata.get("relative_timestamps"):
+                                info["warnings"].append(
+                                    "Low clock confidence: relative text timestamps use a user-supplied start time"
+                                )
+                        info["timestamps_validated"] = True
+                        info["records_read"] = last
+                        info.update(
+                            start=r[0],
+                            end=r[1],
+                            packet_count=r[2],
+                            duration=(r[1] - r[0]) if r[0] is not None else 0,
+                            truncated=r[3],
+                            possible_offload=r[4],
+                            unsupported=r[5],
+                            observed_max_caplen=r[6],
+                            truncated_caplen_min=r[7],
+                            truncated_caplen_max=r[8],
+                        )
+                        db.execute(
+                            "UPDATE captures SET state='ready',inventory=?,error=NULL WHERE id=?",
+                            [json.dumps(info), cid],
+                        )
+                if not skip_prefilter_warning:
+                    progress(state="ready", frames=last, usable_packets=r[2], warnings=info["warnings"])
+                    return cid
             except BaseException as exc:
                 with project.connect() as db:
                     db.execute(
@@ -561,3 +607,20 @@ def ingest(
                     proc.kill()
                     proc.wait()
                 watcher.join()
+        if skip_prefilter_warning:
+            return ingest(
+                project,
+                path,
+                tshark=tshark,
+                prefix_bytes=prefix_bytes,
+                cancel=cancel,
+                progress=progress,
+                batch_size=batch_size,
+                profile=profile,
+                checkpoint_uuid=checkpoint_uuid,
+                source_metadata=source_metadata,
+                f5_trailer=f5_trailer,
+                read_filter=None,
+                prefilter_total=total_records,
+                prefilter_warning=skip_prefilter_warning,
+            )

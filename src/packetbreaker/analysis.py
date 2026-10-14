@@ -1097,9 +1097,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
             count(*) FILTER(WHERE caplen<wirelen) AS truncated,count(*) FILTER(WHERE length>1500) AS possible_offload,
             count(*) FILTER(WHERE direction='unknown') AS unknown_direction FROM obs GROUP BY point""",
         )
-        inventories = {
-            cid: json.loads(inv) for cid, inv in db.execute("SELECT id,inventory FROM captures").fetchall()
-        }
+        capture_Rows = db.execute("SELECT id,name,inventory FROM captures").fetchall()
+        inventories = {cid: json.loads(inv) for cid, _, inv in capture_Rows}
+        capture_names = {cid: name for cid, name, _ in capture_Rows}
         index_counts = {
             r["point"]: r
             for r in rows(
@@ -1115,8 +1115,13 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         )
         for q in quality:
             q["index_scope"] = index_counts.get(q["point"])
-            inv = inventories[points[q["point"]].capture_id]
+            cid = points[q["point"]].capture_id
+            inv = inventories[cid]
+            q["file"] = capture_names.get(cid, q["point"])
             q["ifdrop"], q["osdrop"] = inv.get("ifdrop"), inv.get("osdrop")
+            q["prefilter_excluded"] = inv.get("prefilter_excluded", 0)
+            q["prefilter_total"] = inv.get("prefilter_total")
+            q["prefilter_skipped"] = bool(inv.get("prefilter_skipped"))
             q["evidence"] = evidence(
                 db,
                 "o.point=? AND (NOT o.eligible OR o.caplen<o.wirelen OR o.length>1500 OR o.direction='unknown')",
@@ -1141,6 +1146,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         fragment_events, fragment_quality = fragment_findings(db, topology, segments)
         findings.extend(fragment_events)
         findings.extend(integrity_findings)
+        from .integrity import group_downstream_findings
+
+        group_downstream_findings(findings, topology)
         proxy_findings, proxy_leg_report = reset_checks(db, topology, segments, models, coverage)
         proxies.update(proxy_leg_report)
         findings.extend(proxy_findings)
@@ -1175,10 +1183,11 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
 
         engine_topology = topology.model_copy(update={"start": start, "end": end})
         cycle_report = build_cycles(db, engine_topology, segments, host_report, onsets)
-        from .host_path import finish_host_summary, group_host_losses
+        from .host_path import finish_host_summary, group_host_losses, classify_chronic_losses
 
         findings.extend(finish_host_summary(db, topology, segments, host_report))
         primary_host = polish_findings(findings, segments, topology, onsets)
+        classify_chronic_losses(db, topology, segments, findings, host_report, onsets, start, end)
         findings.extend(cycle_findings(db, topology, segments))
         from .delivery import delivery_report
 
@@ -1215,6 +1224,9 @@ def analyze(project, topology: Topology | dict, progress=None, cancel=None):
         )
         report = dict(
             schema_version=2,
+            prefilter_excluded={
+                capture_names[cid]: inv.get("prefilter_excluded", 0) for cid, inv in inventories.items()
+            },
             analysis_scope=rows(db, "SELECT * FROM analysis_scope"),
             tunnel_points=tunnel_report(db),
             fragment_points=fragment_quality,

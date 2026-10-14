@@ -110,6 +110,9 @@ export function FindingDetails() {
                             </Badge>
                             <div>
                               <strong>{f.headline || f.summary}</strong>
+                              {f.downstream_summary && (
+                                <small>{f.downstream_summary}</small>
+                              )}
                               <small>
                                 {time(f.time_range[0])} · {f.confidence}
                               </small>

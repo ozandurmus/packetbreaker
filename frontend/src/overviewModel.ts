@@ -44,6 +44,33 @@ export function cycleLabel(
   const port = portFromEvidence(refs, path);
   return `${new Date(bar.time * 1000).toLocaleTimeString([], { hour12: false })}\n:${port ?? "unknown"}`;
 }
+export function isChronicLoss(segment: Segment, report?: Report) {
+  if (segment.chronic_loss) return true;
+  const losses =
+    report?.findings.filter(
+      (f) =>
+        f.hop === segment.id &&
+        [
+          "impactful_loss",
+          "recovered_loss",
+          "unrecovered_loss",
+          "confirmed_device_drop",
+          "handshake_blocked",
+          "host_transmit_path_loss",
+          "host_receive_path_loss",
+        ].includes(f.type),
+    ) || [];
+  return (
+    losses.length > 0 &&
+    losses.every(
+      (f) =>
+        f.chronic_loss ||
+        Boolean(f.metrics?.chronic_loss) ||
+        (f as { loss_class?: string }).loss_class ===
+          "chronic low-rate loss (not event-correlated)",
+    )
+  );
+}
 export function segmentHealth(
   segment: Segment,
   topology: Topology,
@@ -58,6 +85,7 @@ export function segmentHealth(
     segment.eligible_ratio < topology.min_eligible_ratio
   )
     return "unknown";
+  const chronic = isChronicLoss(segment, report);
   const window = report?.incident?.window;
   const losses =
     report?.findings.filter(
@@ -76,9 +104,15 @@ export function segmentHealth(
   const overlaps = (f: (typeof losses)[number]) =>
     !window ||
     (f.time_range[0] < window.end && f.time_range[1] >= window.start);
-  const impactful = losses.some(
-    (f) => f.type !== "recovered_loss" && overlaps(f),
-  );
+  const impactful =
+    !chronic &&
+    losses.some(
+      (f) =>
+        f.type !== "recovered_loss" &&
+        !f.chronic_loss &&
+        !f.metrics?.chronic_loss &&
+        overlaps(f),
+    );
   const count = [
     "impactful_loss",
     "unrecovered_loss",
@@ -87,14 +121,17 @@ export function segmentHealth(
     "host_transmit_path_loss",
     "host_receive_path_loss",
   ].reduce((n, k) => n + (segment.classes[k] || 0), 0);
-  if (impactful || segment.loss_percent >= 0.1) return "degraded";
-  if (count && !losses.length) return window ? "unknown" : "degraded";
+  if (impactful || segment.loss_percent >= (chronic ? 1.0 : 0.1))
+    return "degraded";
+  if (!chronic && count && !losses.length)
+    return window ? "unknown" : "degraded";
   const uncertainty =
     segment.latency_uncertainty_ms ?? segment.offset_uncertainty_ms ?? 0;
   if (segment.max_ms - uncertainty >= 10 || segment.p95_ms - uncertainty >= 1)
     return "degraded";
   if (segment.max_ms + uncertainty >= 10 || segment.p95_ms + uncertainty >= 1)
     return "unknown";
+  if (chronic) return "clean";
   return window && losses.length && losses.every((f) => !overlaps(f))
     ? "minor"
     : "clean";

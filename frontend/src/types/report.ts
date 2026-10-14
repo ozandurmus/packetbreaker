@@ -1,4 +1,38 @@
 import type { Ref, Mapping } from "../types";
+export type SuggestedInference = {
+  kind: string;
+  capture_ids: string[];
+  reason: string;
+  metrics?: unknown;
+  evidence: Ref[];
+  warning?: string;
+};
+export type SuggestedTopologyGroup = {
+  name: string;
+  client_cidrs: string[];
+  capture_ids: string[];
+  status: string;
+  ambiguous: boolean;
+  confirmed: boolean;
+  badge?: string;
+  reason?: string | null;
+  topology: import("../types").Topology;
+  inferences: SuggestedInference[];
+  warnings: string[];
+  report?: Report | null;
+};
+export type SuggestedTopology = {
+  status: string;
+  ambiguous: boolean;
+  confirmed: boolean;
+  multi_path?: boolean;
+  badge?: string;
+  reason?: string | null;
+  topology?: import("../types").Topology;
+  inferences: SuggestedInference[];
+  warnings: string[];
+  groups?: SuggestedTopologyGroup[];
+};
 export type Finding = {
   headline?: string;
   clock_caveat?: string;
@@ -11,6 +45,9 @@ export type Finding = {
   time_range: number[];
   confidence: string;
   summary: string;
+  downstream_summary?: string;
+  downstream_count?: number;
+  chronic_loss?: boolean;
   evidence: Ref[];
   evidence_note: string;
   tooltip?: string;
@@ -18,6 +55,8 @@ export type Finding = {
 };
 export type Segment = {
   loss_suspect?: boolean;
+  chronic_loss?: boolean;
+  chronic_loss_summary?: string;
   symptom_note?: string;
   matching_mode?: string;
   byte_loss_percent?: number | null;
@@ -53,6 +92,7 @@ export type Segment = {
   quality_notes?: string[];
 };
 export type Report = {
+  suggested_topology?: SuggestedTopology;
   delivery?: {
     series: {
       point_a: string;
@@ -257,6 +297,10 @@ export type Report = {
       excluded_frames: number;
       excluded_flows: number;
     };
+    file?: string;
+    prefilter_excluded?: number;
+    prefilter_total?: number | null;
+    prefilter_skipped?: boolean;
     ifdrop: number | null;
     osdrop: number | null;
     point: string;
@@ -267,6 +311,7 @@ export type Report = {
     unknown_direction: number;
     evidence: Ref[];
   }[];
+  prefilter_excluded?: Record<string, number>;
   nat_suggestions: Mapping[];
   segments: Segment[];
   findings: Finding[];

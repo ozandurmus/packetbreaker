@@ -1,5 +1,10 @@
 import { useWorkspace } from "./WorkspaceContext";
-import { boundaryTitle, segmentHealth, segmentRefs } from "./overviewModel";
+import {
+  boundaryTitle,
+  isChronicLoss,
+  segmentHealth,
+  segmentRefs,
+} from "./overviewModel";
 import { num, time } from "./api";
 import type { Ref } from "./types";
 export function ResultCard() {
@@ -116,19 +121,28 @@ export function ResultCard() {
         <strong>Not the cause</strong>
         <span title="Clean means p95 <1 ms, max <10 ms and supported loss <0.1%, without impactful loss in the event window; usable clocks/coverage required. It does not rule out an unobserved fault.">
           {groups.size
-            ? [...groups.entries()].map(([label, segments]) => (
-                <button
-                  className="clean-chip"
-                  key={label}
-                  onClick={() =>
-                    setEvidence(segments.flatMap((s) => segmentRefs(report, s)))
-                  }
-                >
-                  {label}: {num(Math.max(...segments.map((s) => s.max_ms!)))} ms
-                  · {num(Math.max(...segments.map((s) => s.loss_percent!)))}%
-                  loss · clean observed
-                </button>
-              ))
+            ? [...groups.entries()].map(([label, segments]) => {
+                const chronic = segments.some((s) => isChronicLoss(s, report));
+                const maxMs = num(Math.max(...segments.map((s) => s.max_ms!)));
+                const maxLoss = Math.max(
+                  ...segments.map((s) => s.loss_percent!),
+                );
+                return (
+                  <button
+                    className="clean-chip"
+                    key={label}
+                    onClick={() =>
+                      setEvidence(
+                        segments.flatMap((s) => segmentRefs(report, s)),
+                      )
+                    }
+                  >
+                    {chronic
+                      ? `${label}: ${maxMs} ms · transit clean; chronic loss ${maxLoss.toFixed(3)}%`
+                      : `${label}: ${maxMs} ms · ${num(maxLoss)}% loss · clean observed`}
+                  </button>
+                );
+              })
             : "No segment can be marked clean from the available evidence."}
           {unknown.length > 0 && (
             <small>{unknown.length} segment(s) remain unknown; see Path.</small>
