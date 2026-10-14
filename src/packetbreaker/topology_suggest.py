@@ -329,12 +329,65 @@ def _default_points(captures, existing_points=None):
     return result
 
 
+def _capture_exclusion_reason(db, captures, candidate_ids=None) -> str | None:
+    by_id = {c["id"]: c for c in captures if c.get("id")}
+    check_ids = candidate_ids if candidate_ids is not None else [c["id"] for c in captures if c.get("id")]
+    empty_msgs = []
+    mostly_excluded_msgs = []
+    for cid in check_ids:
+        c = by_id.get(cid)
+        if not c:
+            continue
+        name = c["name"]
+        inv = c.get("inventory") or {}
+        prefilter_excluded = int(inv.get("prefilter_excluded") or 0)
+        ts_excluded = sum(int(v) for v in (inv.get("timestamp_excluded_counts") or {}).values())
+        row = db.execute(
+            """SELECT count(*) AS total,
+                      count(*) FILTER (WHERE proto='TCP' AND (unsupported IS NULL OR unsupported='')) AS tcp_usable
+               FROM packets WHERE capture_id=?""",
+            [cid],
+        ).fetchone()
+        total_packets = int(row[0] or 0)
+        tcp_usable = int(row[1] or 0)
+        uniq_row = db.execute(
+            """SELECT count(*) FROM (
+                   SELECT 1 FROM packets
+                   WHERE capture_id=? AND proto='TCP' AND (unsupported IS NULL OR unsupported='')
+                   GROUP BY tuple_key, signature HAVING count(*)=1
+               )""",
+            [cid],
+        ).fetchone()
+        unique_tcp = int(uniq_row[0] or 0)
+        non_matchable = total_packets - unique_tcp
+        excluded_total = prefilter_excluded + ts_excluded + non_matchable
+        raw_total = max(int(inv.get("prefilter_total") or 0), prefilter_excluded + ts_excluded + total_packets)
+        if total_packets == 0 or c.get("state") == "error":
+            if prefilter_excluded > 0:
+                empty_msgs.append(f"{name} is empty ({prefilter_excluded} of {raw_total} frames excluded by pre-filter)")
+            elif ts_excluded > 0:
+                empty_msgs.append(f"{name} is empty ({ts_excluded} frames excluded due to invalid timestamps)")
+            else:
+                empty_msgs.append(f"{name} is empty (0 usable frames)")
+        elif candidate_ids is not None or unique_tcp == 0:
+            if raw_total > 0 and (unique_tcp == 0 or excluded_total > unique_tcp):
+                mostly_excluded_msgs.append(
+                    f"{name} is mostly excluded ({excluded_total} of {raw_total} frames excluded; {unique_tcp} usable TCP frame(s) remain)"
+                )
+    if empty_msgs:
+        return f"Capture(s) {'; '.join(empty_msgs)}; path order is ambiguous."
+    if mostly_excluded_msgs:
+        return f"Capture(s) {'; '.join(mostly_excluded_msgs)}; path order is ambiguous."
+    return None
+
+
 def assemble_topology(project, base_topology: Topology | dict | None = None):
     raw_suggestions = suggest_topology(project)
     warnings = list(raw_suggestions.get("warnings", []))
     inferences = []
 
-    captures = [c for c in project.inventory() if c["state"] == "ready"]
+    all_captures = project.inventory()
+    captures = [c for c in all_captures if c["state"] == "ready"]
     with project.connect() as db:
         if base_topology is None:
             saved = project.get(db, "topology")
@@ -343,6 +396,18 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
             base_model = base_topology.model_copy(deep=True)
         else:
             base_model = Topology.model_validate(base_topology)
+
+        early_exclusion = _capture_exclusion_reason(db, all_captures)
+        if early_exclusion:
+            return dict(
+                status="ambiguous",
+                ambiguous=True,
+                confirmed=False,
+                reason=early_exclusion,
+                topology=base_model.model_dump(),
+                inferences=[],
+                warnings=warnings,
+            )
 
         if len(captures) < 2:
             return dict(
@@ -361,11 +426,12 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
 
         client_cidrs, cidr_inference, cidr_err = _infer_client_cidrs(db, names, ready_ids)
         if cidr_err or not client_cidrs:
+            excl_reason = _capture_exclusion_reason(db, captures, ready_ids)
             return dict(
                 status="ambiguous",
                 ambiguous=True,
                 confirmed=False,
-                reason=cidr_err or "Client direction could not be inferred unambiguously.",
+                reason=excl_reason or cidr_err or "Client direction could not be inferred unambiguously.",
                 topology=base_model.model_dump(),
                 inferences=[],
                 warnings=warnings,
@@ -411,18 +477,21 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
             ],
         )
         ttl_by_cid = {r["capture_id"]: r for r in ttl_rows}
-        missing_cids = [
-            names[cid]
+        missing_cid_ids = [
+            cid
             for cid in ready_ids
             if cid not in ttl_by_cid
             or ((ttl_by_cid[cid]["fwd_n"] or 0) == 0 and (ttl_by_cid[cid]["rev_n"] or 0) == 0)
         ]
-        if missing_cids:
+        if missing_cid_ids:
+            excl_reason = _capture_exclusion_reason(db, captures, missing_cid_ids)
+            missing_names = [names[cid] for cid in missing_cid_ids]
             return dict(
                 status="ambiguous",
                 ambiguous=True,
                 confirmed=False,
-                reason=f"Capture(s) {', '.join(missing_cids)} share no directional TCP traffic with the rest of the folder.",
+                reason=excl_reason
+                or f"Capture(s) {', '.join(missing_names)} share no directional TCP traffic with the rest of the folder.",
                 topology=base_model.model_dump(),
                 inferences=inferences,
                 warnings=warnings,

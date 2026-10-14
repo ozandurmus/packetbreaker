@@ -394,6 +394,57 @@ def test_auto_assemble_stops_on_ambiguous_order_or_direction(tmp_path, tshark):
     assert res_dir["ambiguous"]
     assert "Ambiguous client direction" in res_dir["reason"]
 
+    # 3. Truthful ambiguity reason when a capture is empty or mostly excluded
+    excl_dir = tmp_path / "amb_excluded"
+    excl_dir.mkdir()
+    hop1, hop2 = [], []
+    for i in range(4):
+        t = 1700000000.0 + i * 0.01
+        f1 = tcp_packet("198.51.100.10", "203.0.113.20", 43000, 443, 1 + i * 100, 1, 2 if i == 0 else 24, b"a" * 40, 10 + i, ttl=64)
+        r1 = tcp_packet("203.0.113.20", "198.51.100.10", 443, 43000, 500 + i * 100, 41, 18 if i == 0 else 24, b"b" * 40, 50 + i, ttl=62)
+        f2 = tcp_packet("198.51.100.10", "203.0.113.20", 43000, 443, 1 + i * 100, 1, 2 if i == 0 else 24, b"a" * 40, 10 + i, ttl=63)
+        r2 = tcp_packet("203.0.113.20", "198.51.100.10", 443, 43000, 500 + i * 100, 41, 18 if i == 0 else 24, b"b" * 40, 50 + i, ttl=63)
+        hop1.extend([(t, f1), (t + 0.001, r1)])
+        hop2.extend([(t + 0.00002, f2), (t + 0.00098, r2)])
+    # Third capture has 15 frames (>10% but >50% pre-filter excluded: 2 matching unrelated IP pair in hop4 or 18 excluded)
+    # Specifically: 2 frames on a separate IP pair (shared with hop1's noise IP pair, not the client-server TCP flow) + 14 excluded noise frames
+    noise_pair_pkt = (
+        1700000000.5,
+        tcp_packet("192.0.2.55", "198.51.100.99", 51000, 80, 10, 1, 16, b"", 90, ttl=60),
+    )
+    unshared_noise = [
+        (
+            1700000001.0 + i * 0.001,
+            tcp_packet(f"192.0.2.{(i % 20) + 1}", "198.51.100.250", 52000 + i, 80, 100 + i, 1, 16, b"n" * 20, 900 + i, ttl=60),
+        )
+        for i in range(14)
+    ]
+    write_pcap(excl_dir / "hop_1.pcap", hop1 + [noise_pair_pkt])  # 9 frames
+    write_pcap(excl_dir / "hop_2.pcap", hop2)  # 8 frames
+    # hop_mostly_excluded has 2 frames matching noise_pair_pkt (12.5% >= 10%) + 14 excluded frames = 16 frames total (<5x, so test via unsupported/prefilter)
+    from capture_realism_fixtures import tunnel
+
+    mostly_excl_records = [noise_pair_pkt] + [
+        (1700000001.0 + i * 0.001, tunnel(hop1[0][1], "erspan2")) for i in range(9)
+    ]
+    write_pcap(excl_dir / "hop_mostly_excluded.pcap", mostly_excl_records)
+    proj_excl = create_case(excl_dir, tshark=tshark)
+    res_excl = assemble_topology(proj_excl)
+    assert res_excl["ambiguous"]
+    assert "mostly excluded" in res_excl["reason"]
+    assert "hop_mostly_excluded.pcap" in res_excl["reason"]
+    assert "share no directional TCP traffic" not in res_excl["reason"]
+
+    # Empty capture (0 usable frames in packets table) reports "is empty"
+    with proj_excl.connect() as db:
+        cid_empty = db.execute("SELECT id FROM captures WHERE name='hop_mostly_excluded.pcap'").fetchone()[0]
+        db.execute("DELETE FROM packets WHERE capture_id=?", [cid_empty])
+    res_empty = assemble_topology(proj_excl)
+    assert res_empty["ambiguous"]
+    assert "hop_mostly_excluded.pcap is empty" in res_empty["reason"]
+    assert "share no directional TCP traffic" not in res_empty["reason"]
+
+
 
 def test_name_order_mismatch_warning_and_stage_pair_shared_clock_host_auto_assemble(tmp_path, tshark):
     import shutil
