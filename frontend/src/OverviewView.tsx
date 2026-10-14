@@ -16,9 +16,18 @@ import { HostPath } from "./HostPath";
 import { ReferenceCompare } from "./ReferenceCompare";
 import { Sessions } from "./Sessions";
 import { Microbursts } from "./Microbursts";
+import { SuggestedTopologyBanner } from "./TopologySuggestions";
 import type { ReactNode } from "react";
 export function OverviewView() {
-  const { report, range, selectRange, setEvidence } = useWorkspace();
+  const {
+    state,
+    report,
+    range,
+    selectRange,
+    setEvidence,
+    action,
+    confirmSuggestedTopology,
+  } = useWorkspace();
   const [open, setOpen] = useState<Record<string, boolean>>({
     timeline: true,
     path: true,
@@ -58,6 +67,7 @@ export function OverviewView() {
       </details>
     );
   }
+  const suggested = state?.suggested_topology || report.suggested_topology;
   return (
     <div className="overview">
       <nav className="overview-nav" aria-label="Overview sections">
@@ -69,6 +79,12 @@ export function OverviewView() {
           </button>
         ))}
       </nav>
+      <SuggestedTopologyBanner
+        suggested={suggested}
+        captures={state?.captures || []}
+        onConfirm={() => action(confirmSuggestedTopology)}
+        onEvidence={setEvidence}
+      />
       <ResultCard />
       {section("timeline", "Timeline", <IncidentTimeline />)}
       {section(

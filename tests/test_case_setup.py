@@ -197,3 +197,127 @@ def test_ingest_prefilter_excludes_unshared_ip_pairs_only_above_5x_threshold(tmp
     by_name_unfiltered = {f["name"]: f for f in unfiltered_overview["files"]}
     assert by_name_unfiltered["host_noisy.pcap"]["packet_count"] == 15
 
+
+def test_auto_assemble_stops_on_ambiguous_order_or_direction(tmp_path, tshark):
+    from packetbreaker.synthetic import tcp_packet, write_pcap
+    from packetbreaker.topology_suggest import assemble_topology
+
+    # 1. Equal TTL and unaligned clock -> ambiguous path order, must not guess
+    amb_order = tmp_path / "amb_order"
+    amb_order.mkdir()
+    records_a, records_b = [], []
+    for i in range(4):
+        t = 1700000000.0 + i * 0.01
+        fwd = tcp_packet("198.51.100.10", "203.0.113.20", 42000, 443, 1 + i * 100, 1, 2 if i == 0 else 24, b"a" * 50, 10 + i, ttl=60)
+        rev = tcp_packet("203.0.113.20", "198.51.100.10", 443, 42000, 500 + i * 100, 51, 18 if i == 0 else 24, b"b" * 50, 50 + i, ttl=60)
+        records_a.extend([(t, fwd), (t + 0.001, rev)])
+        records_b.extend([(t + 2.5, fwd), (t + 2.501, rev)])
+    write_pcap(amb_order / "tap_1.pcap", records_a)
+    write_pcap(amb_order / "tap_2.pcap", records_b)
+    proj_order = create_case(amb_order, tshark=tshark)
+    res_order = assemble_topology(proj_order)
+    assert res_order["ambiguous"] and res_order["status"] == "ambiguous"
+    assert "Ambiguous path order" in res_order["reason"]
+    with proj_order.connect() as db:
+        assert proj_order.get(db, "report") is None
+        assert proj_order.get(db, "topology")["forward"] == []
+
+    # 2. Mid-stream capture with two high ephemeral ports and no SYN -> ambiguous client_cidrs
+    amb_dir = tmp_path / "amb_dir"
+    amb_dir.mkdir()
+    dir_a, dir_b = [], []
+    for i in range(4):
+        t = 1700000000.0 + i * 0.01
+        p1 = tcp_packet("198.51.100.10", "203.0.113.20", 45000, 45001, 100 + i * 100, 200, 24, b"a" * 50, 10 + i, ttl=64)
+        p2 = tcp_packet("203.0.113.20", "198.51.100.10", 45001, 45000, 200 + i * 100, 150, 24, b"b" * 50, 50 + i, ttl=62)
+        dir_a.extend([(t, p1), (t + 0.001, p2)])
+        dir_b.extend([(t + 0.00002, tcp_packet("198.51.100.10", "203.0.113.20", 45000, 45001, 100 + i * 100, 200, 24, b"a" * 50, 10 + i, ttl=63)), (t + 0.00098, tcp_packet("203.0.113.20", "198.51.100.10", 45001, 45000, 200 + i * 100, 150, 24, b"b" * 50, 50 + i, ttl=63))])
+    write_pcap(amb_dir / "hop_1.pcap", dir_a)
+    write_pcap(amb_dir / "hop_2.pcap", dir_b)
+    proj_dir = create_case(amb_dir, tshark=tshark)
+    res_dir = assemble_topology(proj_dir)
+    assert res_dir["ambiguous"]
+    assert "Ambiguous client direction" in res_dir["reason"]
+
+
+def test_name_order_mismatch_warning_and_stage_pair_shared_clock_host_auto_assemble(tmp_path, tshark):
+    import shutil
+    from fastapi.testclient import TestClient
+    from packetbreaker.app import create_app
+    from packetbreaker.pilot_synthetic import make_pilot
+    from packetbreaker.topology_suggest import suggest_topology, assemble_topology
+
+    wire_dir = tmp_path / "pilot_case"
+    truth, expected_topo = make_pilot(wire_dir, flows=2, rounds=12, real_case=True, noise=200, ip_id="increment")
+    for meta_file in ("ground-truth.json", "topology.json"):
+        (wire_dir / meta_file).unlink(missing_ok=True)
+
+    # 1. Stage-pair + shared-clock + host replica assembles with zero manual input
+    project = create_case(wire_dir, tshark=tshark)
+    with project.connect() as db:
+        topo = project.get(db, "topology")
+        report = project.get(db, "report")
+        suggested = project.get(db, "suggested_topology")
+
+    assert not suggested["ambiguous"]
+    assert not suggested["confirmed"]
+    assert suggested["badge"] == "Suggested topology — review & confirm"
+    assert topo["forward"] == expected_topo["forward"]
+    assert topo["reverse"] == expected_topo["reverse"]
+    assert topo["client_cidrs"] == expected_topo["client_cidrs"]
+    pts = {p["id"]: p for p in topo["points"]}
+    assert pts["a_rx"]["stage_capture"] and pts["a_rx"]["side"] == "ingress"
+    assert pts["a_tx"]["stage_capture"] and pts["a_tx"]["side"] == "egress"
+    assert pts["a_rx"]["device"] == pts["a_tx"]["device"]
+    assert pts["b_rx"]["stage_capture"] and pts["b_rx"]["side"] == "ingress"
+    assert pts["b_tx"]["stage_capture"] and pts["b_tx"]["side"] == "egress"
+    assert pts["b_rx"]["device"] == pts["b_tx"]["device"]
+    assert pts["a_rx"]["clock_domain"] == pts["mirror"]["clock_domain"]
+    assert pts["host"]["host_capture"] and pts["host"]["clock_domain"] is None
+    assert {"client_cidrs", "stage_pair", "shared_clock", "host_capture", "path_order"} <= {
+        inf["kind"] for inf in suggested["inferences"]
+    }
+    assert all(inf["evidence"] for inf in suggested["inferences"])
+    assert report is not None and report["verdict"].startswith("Delay occurs between")
+    assert report["suggested_topology"]["badge"] == "Suggested topology — review & confirm"
+
+    # Verify UI/API endpoints: one click confirms, and any edit re-runs
+    client = TestClient(create_app(project.path))
+    headers = {"host": "127.0.0.1:8765", "x-packetbreaker": "local"}
+    confirm_res = client.post("/api/topology/confirm", headers=headers)
+    assert confirm_res.status_code == 200 and confirm_res.json()["confirmed"] is True
+    assemble_res = client.post("/api/topology/assemble", headers=headers)
+    assert assemble_res.status_code == 200
+    assert assemble_res.json()["suggested_topology"]["confirmed"] is False
+
+    # 2. Name/order mismatch warning when file names say in/rx on the egress side
+    swapped_dir = tmp_path / "swapped_names"
+    swapped_dir.mkdir()
+    shutil.copy2(wire_dir / "a_rx.pcap", swapped_dir / "ark_fw_out.pcap")  # Actually ingress (first)
+    shutil.copy2(wire_dir / "a_tx.pcap", swapped_dir / "ark_fw_in.pcap")   # Actually egress (second)
+    shutil.copy2(wire_dir / "b_rx.pcap", swapped_dir / "b_rx.pcap")
+    shutil.copy2(wire_dir / "b_tx.pcap", swapped_dir / "b_tx.pcap")
+    shutil.copy2(wire_dir / "mirror.pcap", swapped_dir / "mirror.pcap")
+    shutil.copy2(wire_dir / "host.pcap", swapped_dir / "host.pcap")
+
+    swapped_project = create_case(swapped_dir, tshark=tshark)
+    sugg = suggest_topology(swapped_project)
+    expected_warn = (
+        "File names suggest ark_fw_in.pcap -> ark_fw_out.pcap, "
+        "packets show ark_fw_out.pcap -> ark_fw_in.pcap "
+        "(names may describe interfaces, not direction)"
+    )
+    assert expected_warn in sugg["warnings"]
+    assembled_swapped = assemble_topology(swapped_project)
+    assert expected_warn in assembled_swapped["warnings"]
+    # Order comes from packets (ark_fw_out -> ark_fw_in), not file names
+    assert assembled_swapped["topology"]["forward"] == [
+        "ark_fw_out",
+        "ark_fw_in",
+        "b_rx",
+        "b_tx",
+        "mirror",
+        "host",
+    ]
+
+

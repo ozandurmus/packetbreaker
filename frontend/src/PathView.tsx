@@ -47,9 +47,14 @@ export function PathView() {
     setLadderOffset,
     action,
     saveTopology,
+    editTopology,
+    assembleSuggestedTopology,
+    confirmSuggestedTopology,
     report,
     busy,
   } = useWorkspace();
+  if (!state || !topology) return null;
+  const suggested = state.suggested_topology || report?.suggested_topology;
   return (
     <>
       <CasePreflight state={state} />
@@ -92,7 +97,10 @@ export function PathView() {
       <TopologySuggestions
         topology={topology}
         captures={state.captures}
-        onChange={setTopology}
+        suggested={suggested}
+        onAssemble={() => action(assembleSuggestedTopology)}
+        onConfirmSuggested={() => action(confirmSuggestedTopology)}
+        onChange={(t) => void editTopology(t)}
         onEvidence={setEvidence}
       />
       <section>
@@ -102,7 +110,7 @@ export function PathView() {
           report={report}
           overlay={overlay}
           onInspect={setInspectQuery}
-          onChange={setTopology}
+          onChange={(t) => void editTopology(t)}
           onSave={(t) => action(() => saveTopology(t))}
           onError={setError}
         />

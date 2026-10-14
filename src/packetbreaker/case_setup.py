@@ -102,7 +102,7 @@ def inventory_overview(captures):
     )
 
 
-def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None, prefilter=True):
+def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None, prefilter=True, auto_assemble=True):
     paths = capture_paths(folder)
     root = Path(folder).expanduser().resolve()
     project = Project(root.with_name(root.name + ".packetbreaker"), memory_limit_mb=memory_limit_mb)
@@ -144,6 +144,17 @@ def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None, pre
                     )
                 )
         project.set(db, "topology", topology.model_dump())
+
+    suggested_topology = None
+    if auto_assemble and not (saved and saved.get("forward")):
+        from .topology_suggest import assemble_and_analyze
+
+        assembled = assemble_and_analyze(project, base_topology=topology, progress=update)
+        suggested_topology = assembled["suggested_topology"]
+
+    with project.connect() as db:
+        if suggested_topology is None:
+            suggested_topology = project.get(db, "suggested_topology")
         project.set(
             db,
             "case_context",
@@ -153,6 +164,7 @@ def create_case(folder, *, tshark=None, progress=None, memory_limit_mb=None, pre
                 warning=warning,
                 prefilter=prefilter,
                 prefilter_excluded=prefilter_excluded,
+                suggested_topology=suggested_topology,
                 issues=[
                     dict(file=f["file"], error=f.get("error"))
                     for f in latest.get("files", [])

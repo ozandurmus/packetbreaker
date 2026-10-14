@@ -44,6 +44,7 @@ export type State = {
     warning: string | null;
     issues: { file: string; error: string }[];
   } | null;
+  suggested_topology?: import("./report").SuggestedTopology | null;
   version: string;
   project: string;
   captures: Capture[];

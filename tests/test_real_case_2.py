@@ -99,13 +99,19 @@ def test_fifty_flow_real_case_replica(tmp_path, tshark):
     from packetbreaker.store import Project
     from packetbreaker.synthetic import bind_capture_ids
     from packetbreaker.analysis import analyze
-    from packetbreaker.topology_suggest import suggest_topology
+    from packetbreaker.topology_suggest import suggest_topology, assemble_topology
 
     truth, topology = make_pilot(tmp_path / "wire", flows=50, real_case=True, ip_id="increment")
     project = Project(tmp_path / "project")
     ids = ingest_many(project, truth["files"], tshark=tshark, workers=4)
     bind_capture_ids(topology, {Path(f).name: c for f, c in zip(truth["files"], ids)})
-    report = analyze(project, topology)
+    assembled = assemble_topology(project)
+    assert not assembled["ambiguous"]
+    assert assembled["badge"] == "Suggested topology — review & confirm"
+    assert assembled["topology"]["forward"] == topology["forward"]
+    assert assembled["topology"]["reverse"] == topology["reverse"]
+    assert assembled["topology"]["client_cidrs"] == topology["client_cidrs"]
+    report = analyze(project, assembled["topology"])
     assert report["flow_count"] == 50
     assert report["cycles"]["host_local"]
     assert all(r["local_turnaround_p95_ms"] < 1 for r in report["cycles"]["host_local"])
