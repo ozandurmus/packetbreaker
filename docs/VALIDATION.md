@@ -1511,3 +1511,27 @@ Both retain 56 flows and the supported host degradation. The default run reuses 
 index cache but still reapplies point TCP metadata; these times are not a controlled budget
 speed comparison. Spill stays enabled in both. The corpus is generated from scratch, not
 copied from the user's incident. The real incident remains for the user's local re-run.
+
+## UI clarity and frontend refactor
+
+Branch `ui-clarity` starts from merged PR #22. No Python engine or report schema changes.
+The original synthetic pilot is reused at 50 flows with 25 affected flows, 100 hold/release
+findings, and one application-only 16.188 s cycle. `tools/ui_clarity_replica.py` reproduces it;
+captures/project stay in ignored `demo/ui-clarity`. Screenshots show the same saved report
+before/after, including hash labels/outlier flattening before, and the aggregate card, readable
+labels, display cap and one selector afterward. Only synthetic content appears in images.
+
+Frontend guards: six build-time tests cover unknown/clean classification, uncertainty,
+client-port evidence versus service ports/hashes, p99/outlier handling, lossless signature
+grouping, human metric units and the <=400-line source limit. Four additional local rendering
+checks use the 50-flow report: six evidence-linked summary lines, correct outlier client port,
+100 findings rendered as one chart, and the existing Captures/Path/Flows/Settings controls.
+**10/10 passed in 0.51 s** against the replica. TypeScript/Vite and Ruff/whitespace pass.
+One mandatory `pytest -n auto` run: **604 passed in 127.02 s**; no assertions weakened or tests
+moved to slow. Engine fixture data and exports are not rebuilt by these UI views.
+
+The screenshot files in `docs/screenshots/ui-clarity/` are attached by image links in the PR.
+The display p99 uses available per-bucket maximum samples, not the full engine population;
+partial components remain unknown. Summary/path metrics remain full-window while brushed
+charts and the existing flow/finding/ladder requests use the selected interval. The real
+incident is not opened. CI is checked once after the single push, without polling.

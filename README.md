@@ -860,3 +860,21 @@ If capture starts during a slow period, a measured host-boundary delay >= `stall
 appears and leads the summary when dominant. It says **Onset unknown: no pre-event coverage**;
 the measured delay is available while the true beginning/recovery remains unknown. Re-run
 analysis to apply these changes to an already cached report.
+
+### Read the result, then inspect the evidence
+
+Overview starts with a six-line result card: Where, When, How much, clean observed path
+segments, Server-local p95 and Clock confidence. Every line opens existing evidence. Unknown
+coverage/clock data stays unknown; clean observed does not rule out an unobserved fault.
+The path strip follows capture points left to right and opens device or segment findings.
+
+Use the in-page Summary / Timeline / Path / Cycles / Evidence quality navigation. Long
+protocol, flow, capture and reference details are collapsible. In Cycles, labels show time
+and client port, the supported event window is selected by default, and By total / By RX/TX
+changes ordering. The y-axis uses a clearly labelled display p99 from available samples;
+triangles/tooltips retain clipped values and exports retain the original data. Hold/release
+uses one signature/occurrence selector with counts and typical spacing.
+
+Run `npm test --prefix frontend` for frontend guards, or `pytest -n auto` for the complete
+Python fast suite. The UI build also runs the frontend guards. The frontend source-file
+limit is 400 lines; generated bundles and dependency lock files are excluded.
