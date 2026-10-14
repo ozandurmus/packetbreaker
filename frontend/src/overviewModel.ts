@@ -44,29 +44,60 @@ export function cycleLabel(
   const port = portFromEvidence(refs, path);
   return `${new Date(bar.time * 1000).toLocaleTimeString([], { hour12: false })}\n:${port ?? "unknown"}`;
 }
-export function segmentHealth(segment: Segment, topology: Topology) {
+export function segmentHealth(
+  segment: Segment,
+  topology: Topology,
+  report?: Report,
+) {
   if (
     segment.reason ||
     segment.max_ms == null ||
+    segment.p95_ms == null ||
     segment.loss_percent == null ||
     segment.eligible_ratio == null ||
     segment.eligible_ratio < topology.min_eligible_ratio
   )
     return "unknown";
-  const loss = [
+  const window = report?.incident?.window;
+  const losses =
+    report?.findings.filter(
+      (f) =>
+        f.hop === segment.id &&
+        [
+          "impactful_loss",
+          "recovered_loss",
+          "unrecovered_loss",
+          "confirmed_device_drop",
+          "handshake_blocked",
+          "host_transmit_path_loss",
+          "host_receive_path_loss",
+        ].includes(f.type),
+    ) || [];
+  const overlaps = (f: (typeof losses)[number]) =>
+    !window ||
+    (f.time_range[0] < window.end && f.time_range[1] >= window.start);
+  const impactful = losses.some(
+    (f) => f.type !== "recovered_loss" && overlaps(f),
+  );
+  const count = [
     "impactful_loss",
-    "recovered_loss",
     "unrecovered_loss",
     "confirmed_device_drop",
     "handshake_blocked",
     "host_transmit_path_loss",
     "host_receive_path_loss",
-  ].some((k) => (segment.classes[k] || 0) > 0);
-  if (loss || segment.loss_percent > 0) return "degraded";
+  ].reduce((n, k) => n + (segment.classes[k] || 0), 0);
+  if (impactful || segment.loss_percent >= 0.1) return "degraded";
+  if (count && !losses.length) return window ? "unknown" : "degraded";
   const uncertainty =
     segment.latency_uncertainty_ms ?? segment.offset_uncertainty_ms ?? 0;
-  if (segment.max_ms - uncertainty >= topology.stall_ms) return "degraded";
-  return segment.max_ms + uncertainty < topology.stall_ms ? "clean" : "unknown";
+  if (segment.max_ms - uncertainty >= 10 || segment.p95_ms - uncertainty >= 1)
+    return "degraded";
+  if (segment.max_ms + uncertainty >= 10 || segment.p95_ms + uncertainty >= 1)
+    return "unknown";
+  return window && losses.length && losses.every((f) => !overlaps(f))
+    ? "minor"
+    : "clean";
 }
 export function segmentRefs(report: Report, segment: Segment) {
   const finding = report.findings

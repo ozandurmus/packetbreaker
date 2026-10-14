@@ -53,10 +53,10 @@ export function ResultCard() {
       );
   };
   const clean = report.segments.filter(
-    (s) => segmentHealth(s, topology) === "clean",
+    (s) => segmentHealth(s, topology, report) === "clean",
   );
   const unknown = report.segments.filter(
-    (s) => segmentHealth(s, topology) === "unknown",
+    (s) => segmentHealth(s, topology, report) === "unknown",
   );
   const groups = new Map<string, typeof clean>();
   for (const segment of clean) {
@@ -114,7 +114,7 @@ export function ResultCard() {
       )}
       <div className="result-line">
         <strong>Not the cause</strong>
-        <span title="Clean means no supported loss and observed transit below the stall threshold with usable clocks/coverage. It does not rule out an unobserved fault.">
+        <span title="Clean means p95 <1 ms, max <10 ms and supported loss <0.1%, without impactful loss in the event window; usable clocks/coverage required. It does not rule out an unobserved fault.">
           {groups.size
             ? [...groups.entries()].map(([label, segments]) => (
                 <button
@@ -125,7 +125,8 @@ export function ResultCard() {
                   }
                 >
                   {label}: {num(Math.max(...segments.map((s) => s.max_ms!)))} ms
-                  · clean observed
+                  · {num(Math.max(...segments.map((s) => s.loss_percent!)))}%
+                  loss · clean observed
                 </button>
               ))
             : "No segment can be marked clean from the available evidence."}

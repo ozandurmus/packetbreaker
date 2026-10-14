@@ -210,8 +210,8 @@
   min-width: 68px;
   max-width: 100px;
   padding: 8px 5px;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow-wrap: normal;
   font-size: 12px;
 }
 .path-arrow {
@@ -219,4 +219,17 @@
 }
 .path-arrow small {
   font-size: 9px;
+}
+
+.path-point strong,
+.path-point small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.path-point.minor,
+.path-arrow.minor {
+  color: #8c650f;
+  background: #fff8de;
+  border-color: #d9bd65;
 }
