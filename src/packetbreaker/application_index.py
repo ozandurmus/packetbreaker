@@ -15,7 +15,7 @@ from .ingest import find_tshark
 from .metadata import metadata as capture_metadata
 from .store import rows
 
-VERSION = 7
+VERSION = 8
 MAX_EVENTS = 10000
 MAX_JSON = 4 * 1024 * 1024
 
@@ -378,9 +378,7 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                 VERSION,
                 db.execute(
                     "SELECT count(*),bit_xor(hash(frame,tuple_key)) FROM obs WHERE point=?", [point.id]
-                ).fetchone()
-                if point.host_capture
-                else None,
+                ).fetchone(),
                 binary,
             ],
             sort_keys=True,
@@ -433,19 +431,18 @@ def index_applications(project, db, topology, cancel=None, progress=None):
                     f"fw1.with_uuid:{str(inventory.get('checkpoint_uuid', False)).upper()}",
                 ]
             scoped_filter = read_filter(point, inventory)
-            if point.host_capture:
-                from .evidence import tuple_filter
+            from .evidence import tuple_filter
 
-                tuples = db.execute(
-                    "SELECT DISTINCT proto,src,dst,sport,dport FROM obs WHERE point=? LIMIT 129", [point.id]
-                ).fetchall()
-                if len(tuples) > 128:
-                    raise ValueError(
-                        "Host application decode exceeds 128 scoped tuples; select the incident flow for application timing"
-                    )
-                filters = sorted({tuple_filter(*t, True) for t in tuples if t[0] in ("TCP", "UDP")})
-                if filters:
-                    scoped_filter += " && (" + " || ".join(filters) + ")"
+            tuples = db.execute(
+                "SELECT DISTINCT proto,src,dst,sport,dport FROM obs WHERE point=? LIMIT 129", [point.id]
+            ).fetchall()
+            if len(tuples) > 128:
+                raise ValueError(
+                    "Application decode exceeds 128 scoped tuples; select the incident flow for application timing"
+                )
+            filters = sorted({tuple_filter(*t, True) for t in tuples if t[0] in ("TCP", "UDP")})
+            if filters:
+                scoped_filter += " && (" + " || ".join(filters) + ")"
             environment = os.environ.copy()
             environment.pop("SSLKEYLOGFILE", None)
             with (

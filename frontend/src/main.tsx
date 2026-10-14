@@ -1034,6 +1034,7 @@ function App() {
                             Drops: {num(q.ifdrop, "", 0)} /{" "}
                             {num(q.osdrop, "", 0)}
                           </span>
+                          {q.index_scope&&<span title="Before per-point application/TCP indexing: shared flows or explicit client CIDRs; declared proxy/vendor evidence retained.">{q.index_scope.excluded_flows} flows / {q.index_scope.excluded_frames} frames outside indexing scope</span>}
                           <span title="Frames excluded because their fingerprint repeats, conflicts, or is unsupported.">
                             {num(q.excluded, " excluded", 0)}
                           </span>

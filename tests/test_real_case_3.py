@@ -55,3 +55,26 @@ def test_state_ctas_resets_only_selected_point_and_preserves_metadata(tmp_path):
         assert db.execute("SELECT retrans,rtt FROM obs WHERE point='b'").fetchone() == (True, 9)
 
 
+def test_scope_keeps_shared_and_explicit_clients_but_drops_unrelated(tmp_path):
+    from packetbreaker.analysis import restrict_index_scope
+    from packetbreaker.topology import Topology
+
+    p = Project(tmp_path / "p")
+    with p.connect() as db:
+        db.execute("CREATE TABLE obs(point VARCHAR,flow VARCHAR,direction VARCHAR,canon VARCHAR)")
+        db.execute(
+            "INSERT INTO obs VALUES ('a','shared','unknown','[]'),('b','shared','unknown','[]'),('a','chosen','forward','[\"TCP\",\"10.0.0.1\",123,\"10.0.0.1\",456]'),('b','noise','unknown','[]')"
+        )
+        db.execute(
+            "CREATE TABLE analysis_scope(point VARCHAR,input_frames BIGINT,retained_frames BIGINT,excluded_single_point_frames BIGINT,excluded_single_point_flows BIGINT)"
+        )
+        db.execute("INSERT INTO analysis_scope VALUES ('a',2,2,0,0),('b',2,2,0,0)")
+        restrict_index_scope(db, Topology(client_cidrs=["10.0.0.1/32"]))
+        assert db.execute("SELECT flow FROM obs ORDER BY flow").fetchall() == [
+            ("chosen",),
+            ("shared",),
+            ("shared",),
+        ]
+        assert db.execute(
+            "SELECT input_flows-retained_flows,input_frames-retained_frames FROM index_scope WHERE point='b'"
+        ).fetchone() == (1, 1)
