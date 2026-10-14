@@ -1,5 +1,5 @@
-import { num } from "./api";
-import type { Ref } from "./types";
+import {num} from "./api";
+import type {Ref} from "./types";
 export type UdpReport = {
   note: string;
   scope: string;

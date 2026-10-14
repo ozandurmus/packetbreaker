@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { EChartsOption } from "echarts";
-import { Chart } from "./Charts";
-import { api } from "./api";
-import type { Ref } from "./types";
+import {useCallback,useEffect,useMemo,useState} from "react";
+import type {EChartsOption} from "echarts";
+import {Chart} from "./Charts";
+import {api} from "./api";
+import type {Ref} from "./types";
 type Packet = {
   frame: number;
   time: number;

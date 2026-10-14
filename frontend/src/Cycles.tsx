@@ -1,7 +1,10 @@
-import { Chart } from "./Charts";
-import { num } from "./api";
-import type { Ref, Report } from "./types";
+import {Chart} from "./Charts";
+import {num} from "./api";
+import type {Ref,Report} from "./types";
 export type CycleReport = {
+  total?: number;
+  stalled_total?: number;
+  max_added_ms?: number|null;
   note: string;
   scope: string;
   stall_ms: number;

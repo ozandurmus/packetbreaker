@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { api, num, time } from "./api";
-import type { Ref } from "./types";
+import {useState} from "react";
+import {api,num,time} from "./api";
+import type {Ref} from "./types";
 export type SessionReport = {
   note: string;
   scope: string;

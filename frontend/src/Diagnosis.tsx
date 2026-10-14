@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { api, num } from "./api";
-import type { Ref } from "./types";
+import {useEffect,useState} from "react";
+import {api,num} from "./api";
+import type {Ref} from "./types";
 
 type Diagnosis = {
   flow: string;

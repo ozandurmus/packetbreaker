@@ -1,4 +1,4 @@
-import type { Ref } from "./types";
+import type {Ref} from "./types";
 
 export type FieldDiffData = {
   note: string;

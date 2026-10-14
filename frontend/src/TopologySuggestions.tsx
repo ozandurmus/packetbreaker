@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { api } from "./api";
-import type { Topology, Capture, Ref } from "./types";
+import {useState} from "react";
+import {api} from "./api";
+import type {Topology,Capture,Ref} from "./types";
 type Suggestion = {
   kind: string;
   capture_ids: string[];
