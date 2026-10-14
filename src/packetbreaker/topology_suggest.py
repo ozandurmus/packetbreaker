@@ -491,6 +491,7 @@ def _assemble_single_topology(
             warnings=warnings,
         )
     inferences.append(cidr_inference)
+    base_model = base_model.model_copy(update=dict(client_cidrs=client_cidrs))
     client_ips = [cidr.split("/")[0] for cidr in client_cidrs]
 
     placeholders = ",".join("?" for _ in ready_ids)
@@ -690,8 +691,8 @@ def _assemble_single_topology(
         vals = [ttl_by_cid[c]["rev_ttl"] for c in u if ttl_by_cid[c]["rev_ttl"] is not None]
         return (float(vals[-1]), float(vals[0])) if vals else None
 
-    def compare_units(u1: list[str], u2: list[str]) -> tuple[int, str | None, list[dict]]:
-        """Return (-1 if u1 before u2, +1 if u2 before u1, 0 if ambiguous)."""
+    def compare_units(u1: list[str], u2: list[str]) -> tuple[int, str | None, list[dict], bool]:
+        """Return (-1 if u1 before u2, +1 if u2 before u1, 0 if ambiguous, plus us_conflict flag)."""
         f1, f2 = unit_fwd_profile(u1), unit_fwd_profile(u2)
         r1, r2 = unit_rev_profile(u1), unit_rev_profile(u2)
         ttl_dir = 0
@@ -705,6 +706,7 @@ def _assemble_single_topology(
                     0,
                     f"Ambiguous forward TTL profile between {[names[c] for c in u1]} ({f1}) and {[names[c] for c in u2]} ({f2}).",
                     [],
+                    False,
                 )
         if r1 is not None and r2 is not None:
             rev_dir = 0
@@ -717,12 +719,14 @@ def _assemble_single_topology(
                     0,
                     f"Ambiguous reverse TTL profile between {[names[c] for c in u1]} ({r1}) and {[names[c] for c in u2]} ({r2}).",
                     [],
+                    False,
                 )
             if ttl_dir and rev_dir and ttl_dir != rev_dir:
                 return (
                     0,
                     f"Conflicting forward and reverse TTL order between {[names[c] for c in u1]} and {[names[c] for c in u2]}.",
                     [],
+                    False,
                 )
             ttl_dir = ttl_dir or rev_dir
 
@@ -733,53 +737,59 @@ def _assemble_single_topology(
         ) == clock_domain_of.get(b_fwd)
         fwd_stat = pair_stats.get((a_fwd, b_fwd, "forward"))
         rev_stat = pair_stats.get((a_rev, b_rev, "reverse"))
-        us_dir = 0
+        f_us = fwd_stat["delta_us"] if fwd_stat and fwd_stat["n"] >= 2 else None
+        r_us = rev_stat["delta_us"] if rev_stat and rev_stat["n"] >= 2 else None
+        f_us_dir = (-1 if f_us > 0 else 1) if (f_us is not None and abs(f_us) >= 1.0) else 0
+        r_us_dir = (-1 if r_us < 0 else 1) if (r_us is not None and abs(r_us) >= 1.0) else 0
+        strict_ttl_sep = bool(
+            (f1 is not None and f2 is not None and (f1[1] > f2[0] or f2[1] > f1[0]))
+            or (r1 is not None and r2 is not None and (r1[1] < r2[0] or r2[1] < r1[0]))
+        )
         refs = []
-        if same_clock and (fwd_stat or rev_stat):
-            f_us = fwd_stat["delta_us"] if fwd_stat and fwd_stat["n"] >= 2 else None
-            r_us = rev_stat["delta_us"] if rev_stat and rev_stat["n"] >= 2 else None
-            if f_us is not None and abs(f_us) >= 1.0:
-                us_dir = -1 if f_us > 0 else 1
-            if r_us is not None and abs(r_us) >= 1.0:
-                r_order = -1 if r_us < 0 else 1
-                if us_dir and us_dir != r_order:
+        stat_for_ref = fwd_stat or rev_stat
+        if same_clock and stat_for_ref:
+            refs = [
+                dict(
+                    capture_id=stat_for_ref["a"],
+                    file=names[stat_for_ref["a"]],
+                    frame=stat_for_ref["frame_a"],
+                    display_filter=f"frame.number == {stat_for_ref['frame_a']}",
+                ),
+                dict(
+                    capture_id=stat_for_ref["b"],
+                    file=names[stat_for_ref["b"]],
+                    frame=stat_for_ref["frame_b"],
+                    display_filter=f"frame.number == {stat_for_ref['frame_b']}",
+                ),
+            ]
+
+        us_conflict = False
+        if ttl_dir:
+            if strict_ttl_sep and (
+                (f_us_dir and f_us_dir != ttl_dir) or (r_us_dir and r_us_dir != ttl_dir)
+            ):
+                us_conflict = True
+            chosen = ttl_dir
+        else:
+            us_dir = 0
+            if same_clock and (fwd_stat or rev_stat):
+                if f_us_dir and r_us_dir and f_us_dir != r_us_dir:
                     return (
                         0,
                         f"Conflicting microsecond transit order between {[names[c] for c in u1]} and {[names[c] for c in u2]}.",
                         [],
+                        False,
                     )
-                us_dir = us_dir or r_order
-            stat_for_ref = fwd_stat or rev_stat
-            if stat_for_ref:
-                refs = [
-                    dict(
-                        capture_id=stat_for_ref["a"],
-                        file=names[stat_for_ref["a"]],
-                        frame=stat_for_ref["frame_a"],
-                        display_filter=f"frame.number == {stat_for_ref['frame_a']}",
-                    ),
-                    dict(
-                        capture_id=stat_for_ref["b"],
-                        file=names[stat_for_ref["b"]],
-                        frame=stat_for_ref["frame_b"],
-                        display_filter=f"frame.number == {stat_for_ref['frame_b']}",
-                    ),
-                ]
+                us_dir = f_us_dir or r_us_dir
+            if not us_dir:
+                return (
+                    0,
+                    f"Ambiguous path order between {[names[c] for c in u1]} and {[names[c] for c in u2]}: equal TTLs and no shared-clock microsecond separation.",
+                    [],
+                    False,
+                )
+            chosen = us_dir
 
-        if ttl_dir and us_dir and ttl_dir != us_dir:
-            return (
-                0,
-                f"TTL order and microsecond timestamp order disagree between {[names[c] for c in u1]} and {[names[c] for c in u2]}.",
-                [],
-            )
-
-        chosen = ttl_dir or us_dir
-        if not chosen:
-            return (
-                0,
-                f"Ambiguous path order between {[names[c] for c in u1]} and {[names[c] for c in u2]}: equal TTLs and no shared-clock microsecond separation.",
-                [],
-            )
         if not refs:
             ca, cb = (a_fwd, b_fwd) if chosen < 0 else (u2[-1], u1[0])
             fa = ttl_by_cid[ca]["fwd_frame"] or ttl_by_cid[ca]["rev_frame"]
@@ -789,13 +799,14 @@ def _assemble_single_topology(
                     dict(capture_id=ca, file=names[ca], frame=fa, display_filter=f"frame.number == {fa}"),
                     dict(capture_id=cb, file=names[cb], frame=fb, display_filter=f"frame.number == {fb}"),
                 ]
-        return chosen, None, refs
+        return chosen, None, refs, us_conflict
 
     wins = {i: 0 for i in range(len(units))}
     hop_refs: dict[tuple[int, int], list[dict]] = {}
+    conflicting_unit_pairs: list[tuple[int, int]] = []
     for i in range(len(units)):
         for j in range(i + 1, len(units)):
-            cmp_val, err, refs = compare_units(units[i], units[j])
+            cmp_val, err, refs, us_conflict = compare_units(units[i], units[j])
             if cmp_val == 0:
                 return dict(
                     status="ambiguous",
@@ -806,6 +817,8 @@ def _assemble_single_topology(
                     inferences=inferences,
                     warnings=warnings,
                 )
+            if us_conflict:
+                conflicting_unit_pairs.append((i, j))
             if cmp_val < 0:
                 wins[i] += 1
                 hop_refs[(i, j)] = refs
@@ -826,6 +839,49 @@ def _assemble_single_topology(
 
     ordered_indices = sorted(range(len(units)), key=lambda idx: -wins[idx])
     ordered_units = [units[idx] for idx in ordered_indices]
+
+    if conflicting_unit_pairs:
+        conflict_counts = {idx: 0 for idx in range(len(units))}
+        for ia, ib in conflicting_unit_pairs:
+            conflict_counts[ia] += 1
+            conflict_counts[ib] += 1
+        clean_shared = {idx: (1 if len(units[idx]) > 1 else 0) for idx in range(len(units))}
+        for ia in range(len(units)):
+            for ib in range(ia + 1, len(units)):
+                if (ia, ib) not in conflicting_unit_pairs:
+                    ca, cb = units[ia][-1], units[ib][0]
+                    if clock_domain_of.get(ca) and clock_domain_of.get(ca) == clock_domain_of.get(cb):
+                        clean_shared[ia] += 1
+                        clean_shared[ib] += 1
+        separate_unit_indices: set[int] = set()
+        for ia, ib in conflicting_unit_pairs:
+            key_a = (clean_shared[ia], -conflict_counts[ia], len(units[ia]), -wins[ia])
+            key_b = (clean_shared[ib], -conflict_counts[ib], len(units[ib]), -wins[ib])
+            separate_unit_indices.add(ia if key_a <= key_b else ib)
+        separate_cids = {cid for u_idx in separate_unit_indices for cid in units[u_idx]}
+        for u_idx in sorted(separate_unit_indices, key=lambda idx: -wins[idx]):
+            for cid in units[u_idx]:
+                clock_domain_of.pop(cid, None)
+                points_by_cid[cid].clock_domain = None
+                warn_msg = (
+                    f"{names[cid]} timestamps are inconsistent with its TTL position; "
+                    f"treated as a separate clock (offset fitted)"
+                )
+                if warn_msg not in warnings:
+                    warnings.append(warn_msg)
+        domain_members: dict[str, list[str]] = {}
+        for cid, dom in list(clock_domain_of.items()):
+            domain_members.setdefault(dom, []).append(cid)
+        for dom, members in domain_members.items():
+            if len(members) < 2:
+                for cid in members:
+                    clock_domain_of.pop(cid, None)
+                    points_by_cid[cid].clock_domain = None
+        inferences = [
+            inf
+            for inf in inferences
+            if not (inf.get("kind") == "shared_clock" and set(inf.get("capture_ids", ())) & separate_cids)
+        ]
 
     # Verify host capture TTL consistency against wire units
     if ordered_units and server_host_cids:
@@ -961,6 +1017,11 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
         group_cid_lists = _partition_client_groups(db, captures, raw_suggestions)
         if group_cid_lists and len(group_cid_lists) >= 2:
             by_cid = {c["id"]: c for c in captures}
+            host_cids = {
+                s["capture_ids"][0]
+                for s in raw_suggestions.get("items", [])
+                if s["kind"] == "host_capture" and s["capture_ids"][0] in by_cid
+            }
             groups = []
             seen_cidrs: set[str] = set()
             combined_warnings = list(warnings)
@@ -972,17 +1033,7 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
                 for w in g_res.get("warnings", []):
                     if w not in combined_warnings:
                         combined_warnings.append(w)
-                if g_res["ambiguous"]:
-                    return dict(
-                        status="ambiguous",
-                        ambiguous=True,
-                        confirmed=False,
-                        reason=g_res["reason"],
-                        topology=base_model.model_dump(),
-                        inferences=g_res.get("inferences", []),
-                        warnings=combined_warnings,
-                    )
-                g_cidrs = g_res["topology"]["client_cidrs"]
+                g_cidrs = g_res["topology"].get("client_cidrs") or []
                 if seen_cidrs & set(g_cidrs):
                     return dict(
                         status="ambiguous",
@@ -994,32 +1045,51 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
                         warnings=combined_warnings,
                     )
                 seen_cidrs.update(g_cidrs)
-                group_name = ", ".join(g_cidrs)
+                group_name = (
+                    ", ".join(g_cidrs)
+                    if g_cidrs
+                    else ", ".join(by_cid[cid]["name"] for cid in g_cids if cid not in host_cids)
+                )
                 groups.append(
                     dict(
                         name=group_name,
                         client_cidrs=g_cidrs,
                         capture_ids=g_cids,
-                        status="ready",
-                        ambiguous=False,
+                        status=g_res["status"],
+                        ambiguous=bool(g_res["ambiguous"]),
                         confirmed=False,
-                        badge="Suggested topology — review & confirm",
+                        badge="Suggested topology ambiguous — manual input required"
+                        if g_res["ambiguous"]
+                        else "Suggested topology — review & confirm",
                         reason=g_res["reason"],
                         topology=g_res["topology"],
-                        inferences=g_res["inferences"],
-                        warnings=g_res["warnings"],
+                        inferences=g_res.get("inferences", []),
+                        warnings=g_res.get("warnings", []),
                     )
                 )
             groups.sort(key=lambda g: g["name"])
+            ready_groups = [g for g in groups if not g["ambiguous"]]
+            if not ready_groups:
+                return dict(
+                    status="ambiguous",
+                    ambiguous=True,
+                    confirmed=False,
+                    multi_path=True,
+                    reason="; ".join(f"{g['name']}: {g['reason']}" for g in groups),
+                    topology=base_model.model_dump(),
+                    inferences=[],
+                    warnings=combined_warnings,
+                    groups=groups,
+                )
             return dict(
                 status="ready",
                 ambiguous=False,
                 confirmed=False,
                 multi_path=True,
                 badge="Suggested topology — review & confirm",
-                reason=f"Assembled {len(groups)} independent client paths ({', '.join(g['name'] for g in groups)}) sharing host capture.",
-                topology=groups[0]["topology"],
-                inferences=groups[0]["inferences"],
+                reason=f"Assembled {len(ready_groups)} of {len(groups)} independent client paths ({', '.join(g['name'] for g in ready_groups)}) sharing host capture.",
+                topology=ready_groups[0]["topology"],
+                inferences=ready_groups[0]["inferences"],
                 warnings=combined_warnings,
                 groups=groups,
             )
@@ -1045,18 +1115,22 @@ def assemble_and_analyze(project, base_topology=None, progress=None, cancel=None
         return dict(suggested_topology=assembly, report=None)
     if assembly.get("groups") and len(assembly["groups"]) >= 2:
         for g in reversed(assembly["groups"]):
+            if g.get("ambiguous"):
+                g["report"] = None
+                continue
             g_report = analyze(project, g["topology"], progress=progress, cancel=cancel)
             g_meta = {k: v for k, v in g.items() if k != "report"}
             g_report["suggested_topology"] = g_meta
             g["report"] = g_report
-        group_reports = {g["name"]: dict(g["report"]) for g in assembly["groups"]}
+        ready_groups = [g for g in assembly["groups"] if not g.get("ambiguous") and g.get("report")]
+        group_reports = {g["name"]: dict(g["report"]) for g in ready_groups}
         primary_report = {
-            **assembly["groups"][0]["report"],
+            **ready_groups[0]["report"],
             "suggested_topology": assembly,
             "group_reports": group_reports,
         }
         with project.connect() as db:
-            project.set(db, "topology", assembly["groups"][0]["topology"])
+            project.set(db, "topology", ready_groups[0]["topology"])
             project.set(db, "report", primary_report)
             project.set(db, "suggested_topology", assembly)
         return dict(suggested_topology=assembly, report=primary_report, groups=assembly["groups"])
@@ -1079,9 +1153,11 @@ def confirm_suggested_topology(project, group: str | None = None):
                 matched = [g for g in groups if g["name"] == group]
                 if not matched:
                     raise ValueError(f"Unknown suggested topology group: {group}")
+                if matched[0].get("ambiguous"):
+                    raise ValueError(f"Suggested topology group {group} is ambiguous")
                 target_names = {group}
             else:
-                target_names = {g["name"] for g in groups}
+                target_names = {g["name"] for g in groups if not g.get("ambiguous")}
             for g in groups:
                 if g["name"] in target_names:
                     g["confirmed"] = True
@@ -1090,7 +1166,8 @@ def confirm_suggested_topology(project, group: str | None = None):
                             **g["report"],
                             "suggested_topology": {**g["report"]["suggested_topology"], "confirmed": True},
                         }
-            all_confirmed = all(g.get("confirmed") for g in groups)
+            ready_groups = [g for g in groups if not g.get("ambiguous")]
+            all_confirmed = bool(ready_groups) and all(g.get("confirmed") for g in ready_groups)
             suggested = {**suggested, "groups": groups, "confirmed": all_confirmed}
             if group is not None:
                 chosen = next(g for g in groups if g["name"] == group)

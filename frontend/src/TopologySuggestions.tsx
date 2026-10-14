@@ -30,19 +30,6 @@ export function SuggestedTopologyBanner({
   onEvidence: (e: Ref[]) => void;
 }) {
   if (!suggested) return null;
-  if (suggested.ambiguous) {
-    return (
-      <section role="alert">
-        <Badge kind="bad">Suggested topology ambiguous — manual input required</Badge>
-        <p>{suggested.reason}</p>
-        {suggested.warnings?.map((w, idx) => (
-          <p key={idx} className="hint">
-            {w}
-          </p>
-        ))}
-      </section>
-    );
-  }
   const summaryLine = captures.length > 0 && (
     <p className="hint">
       Case summary (pre-filter excluded per file):{" "}
@@ -64,54 +51,80 @@ export function SuggestedTopologyBanner({
           <article key={g.name}>
             <div className="section-head">
               <h3>Client path: {g.name}</h3>
-              <Badge kind={g.confirmed ? "good" : "warn"}>
-                {g.confirmed
-                  ? "Suggested topology — confirmed"
-                  : g.badge || "Suggested topology — review & confirm"}
+              <Badge kind={g.ambiguous ? "bad" : g.confirmed ? "good" : "warn"}>
+                {g.ambiguous
+                  ? "Suggested topology ambiguous — manual input required"
+                  : g.confirmed
+                    ? "Suggested topology — confirmed"
+                    : g.badge || "Suggested topology — review & confirm"}
               </Badge>
-              {!g.confirmed && (
+              {!g.ambiguous && !g.confirmed && (
                 <button onClick={() => onConfirm(g.name)}>
                   Confirm {g.name} topology
                 </button>
               )}
-              {onSelectGroup && (
+              {!g.ambiguous && onSelectGroup && (
                 <button className="secondary" onClick={() => onSelectGroup(g)}>
                   Show {g.name} analysis
                 </button>
               )}
             </div>
-            {g.report?.verdict && (
-              <p>
-                <strong>Analysis ({g.name}):</strong> {g.report.verdict}
-              </p>
+            {g.ambiguous ? (
+              <p role="alert">{g.reason}</p>
+            ) : (
+              g.report?.verdict && (
+                <p>
+                  <strong>Analysis ({g.name}):</strong> {g.report.verdict}
+                </p>
+              )
             )}
-            <details open={!g.confirmed}>
-              <summary>
-                Inferred topology roles, client direction and path order (
-                {g.inferences.length})
-              </summary>
-              {g.inferences.map((inf, idx) => (
-                <article key={idx}>
-                  <strong>
-                    {inf.kind.replaceAll("_", " ")}:{" "}
-                    {inf.capture_ids
-                      .map((id) => captures.find((c) => c.id === id)?.name || id)
-                      .join(" → ")}
-                  </strong>
-                  <p>{inf.reason}</p>
-                  {inf.warning && <p>{inf.warning}</p>}
-                  {inf.evidence?.length ? (
-                    <button
-                      className="secondary"
-                      onClick={() => onEvidence(inf.evidence)}
-                    >
-                      Evidence frames
-                    </button>
-                  ) : null}
-                </article>
-              ))}
-            </details>
+            {g.warnings?.map((w, idx) => (
+              <p key={idx} role="status">
+                {w}
+              </p>
+            ))}
+            {g.inferences.length > 0 && (
+              <details open={!g.confirmed}>
+                <summary>
+                  Inferred topology roles, client direction and path order (
+                  {g.inferences.length})
+                </summary>
+                {g.inferences.map((inf, idx) => (
+                  <article key={idx}>
+                    <strong>
+                      {inf.kind.replaceAll("_", " ")}:{" "}
+                      {inf.capture_ids
+                        .map((id) => captures.find((c) => c.id === id)?.name || id)
+                        .join(" → ")}
+                    </strong>
+                    <p>{inf.reason}</p>
+                    {inf.warning && <p>{inf.warning}</p>}
+                    {inf.evidence?.length ? (
+                      <button
+                        className="secondary"
+                        onClick={() => onEvidence(inf.evidence)}
+                      >
+                        Evidence frames
+                      </button>
+                    ) : null}
+                  </article>
+                ))}
+              </details>
+            )}
           </article>
+        ))}
+      </section>
+    );
+  }
+  if (suggested.ambiguous) {
+    return (
+      <section role="alert">
+        <Badge kind="bad">Suggested topology ambiguous — manual input required</Badge>
+        <p>{suggested.reason}</p>
+        {suggested.warnings?.map((w, idx) => (
+          <p key={idx} className="hint">
+            {w}
+          </p>
         ))}
       </section>
     );

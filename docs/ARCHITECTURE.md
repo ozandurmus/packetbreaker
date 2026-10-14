@@ -1037,7 +1037,15 @@ Excluded counts per file are reported in `case_context.summary.prefilter_exclude
 
 When non-host captures form disjoint client-CIDR flow components that share a host capture,
 `assemble_topology` builds one suggested topology per group (named by client CIDR, including the
-shared host capture in each), runs and stores each analysis separately with its own
-`review & confirm` state (`POST /api/topology/confirm` accepts `{"group": "<cidr>"}`), and stops
-as `ambiguous` only if a group itself is ambiguous. Empty or mostly-excluded captures report the
-exact exclusion counts in the ambiguity reason rather than claiming no shared directional traffic.
+shared host capture in each), runs and stores each unambiguous group's analysis separately with
+its own `status` (`ready` vs `ambiguous`) and `review & confirm` state (`POST /api/topology/confirm`
+accepts `{"group": "<cidr>"}`). An ambiguous group does not block unambiguous groups; top-level
+assembly stops as `ambiguous` only when all groups are ambiguous. When forward and reverse TTL
+steps define a consistent order between strictly TTL-separated units (`strict_ttl_sep`) and
+microsecond timestamps contradict that order, the order comes from TTL, the conflicting capture
+is placed in its own clock domain (`clock_domain = None`) for normal offset fitting, and the
+warning `<file> timestamps are inconsistent with its TTL position; treated as a separate clock (offset fitted)`
+is emitted. Path ordering stops as `ambiguous` only when TTL itself is inconsistent (or equal
+with missing/conflicting timestamp order). Empty or mostly-excluded captures report the exact
+exclusion counts in the ambiguity reason rather than claiming no shared directional traffic.
+
