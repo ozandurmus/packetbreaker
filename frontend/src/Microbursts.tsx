@@ -1,5 +1,5 @@
-import { num, time } from "./api";
-import type { Ref } from "./types";
+import {num,time} from "./api";
+import type {Ref} from "./types";
 export type MicroburstReport = {
   note: string;
   total: number;

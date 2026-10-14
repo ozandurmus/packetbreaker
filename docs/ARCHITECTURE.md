@@ -963,3 +963,24 @@ When a latency baseline cannot establish onset, measured host-boundary delay at 
 with elevated delay is labelled `Onset unknown: no pre-event coverage`; observed periods are
 not presented as a proven event/recovery window. A dominant measured host delay still leads
 the verdict. Unknown clocks and capture-miss-only data do not gain supported delay findings.
+
+### Overview clarity and frontend boundaries
+
+The Overview projects existing aggregate report fields into a six-line result card, a path
+health strip and Summary / Timeline / Path / Cycles / Evidence quality sections. Long detail
+sections mount on expansion. Shared time selection still filters the existing flow, finding,
+ladder and topology requests; summary and path-strip full-window scope is explicit.
+
+`main.tsx` only boots the app. `workspace.ts` preserves the existing state/effects/API
+controller; `WorkspaceContext` supplies it to Captures, Path, Flows and Settings view
+components. UI primitives/evidence dialog, selected-point inspector, topology helpers,
+public type groups and CSS rules are separated at existing boundaries. Source order and
+handlers outside Overview are preserved. Every frontend TS/TSX/CSS source is <=400 lines,
+with a build-time test enforcing the limit.
+
+Cycle labels use the earliest forward frame's content-filter client port and observed time.
+The y-axis cap is p99 of available per-bucket cycle maximum samples in the selected scope;
+this is a display cap, not a new engine percentile. Clipped markers retain real stack values
+and tooltips; unknown components stay null. Hold/release groups identical spacing signatures
+in one selector and renders one selected occurrence, retaining all frame evidence. Existing
+engine/export schemas and offline HTML analysis are unchanged.

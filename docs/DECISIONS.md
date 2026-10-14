@@ -751,3 +751,25 @@ An unavailable baseline limits onset timing, not a directly measured 1,212 ms bo
 Use the configured absolute stall threshold when no change window can be learned; require
 usable clock evidence and excess over uncertainty. Retain unknown onset/recovery and label
 the interval observed. Do not replace this with a fabricated pre-event baseline.
+
+### Data-led Overview display
+
+Clean means clean **observed** transit: no supported loss, usable clock/coverage and a maximum
+plus uncertainty below the configured stall threshold. Unknown data is never coloured clean
+or printed as zero loss. Clean direction pairs are grouped by device/link only for display,
+with their worst observed maximum and original evidence. The card does not claim to rule out
+an unobserved fault or identify a driver/application cause.
+
+Use available report cycle-series maximum samples for a reproducible display p99, since the
+frontend does not have the complete per-cycle population. Label that definition explicitly.
+Do not rewrite values or CSV/XLSX exports. Small clipped differences keep triangle/tooltips;
+large outliers also get visible real-value labels, avoiding overlapping labels. Default scope
+is the supported event window; without one, say so and show available cycles. Order by total
+or complete RX+TX addition; unknown components remain unknown. Client ports come from forward
+content evidence, not hashes or the engine's service-port field.
+
+One hold/release view groups rounded millisecond spacing signatures, shows occurrence count
+and typical wire/compressed spacing, then lets the user choose every original occurrence.
+It retains capture-local clocks and the existing signature caveat. No new matching or cause
+inference is introduced. The existing controller and all non-Overview handlers are moved
+verbatim into bounded files; protocol, capture and export behaviour is preserved.

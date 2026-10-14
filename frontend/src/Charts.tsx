@@ -1,7 +1,7 @@
-import { useEffect, useRef } from "react";
+import {useEffect,useRef} from "react";
 import * as echarts from "echarts";
-import type { EChartsOption } from "echarts";
-import type { Capture, Ladder, Point, Report, Ref } from "./types";
+import type {EChartsOption} from "echarts";
+import type {Capture,Ladder,Point,Report,Ref} from "./types";
 
 export function Chart({
   option,

@@ -4,7 +4,12 @@ import type { Ref } from "./types";
 export type HostPathReport = {
   note: string;
   scope: string;
-  local_service: { samples?: number; p95_ms?: number | null };
+  window_reason?: string;
+  local_service: {
+    samples?: number;
+    p95_ms?: number | null;
+    cycle_aggregate?: { p95_ms: number | null; samples: number };
+  };
   items: {
     hop: string;
     flow: string | null;
@@ -21,7 +26,13 @@ export type HostPathReport = {
     max_ms: number;
     uncertainty_ms: number;
     delay_share_percent: number;
-    window: { start: number; end: number; recovery_confirmed: boolean; status?: string };
+    window: {
+      start: number;
+      end: number;
+      recovery_confirmed: boolean;
+      status?: string;
+      reason?: string;
+    };
     periods: {
       period: string;
       p95_ms: number;
@@ -74,7 +85,10 @@ export function HostPath({
               {num(item.delay_share_percent)}%.
             </p>
             <p>
-              {item.window.status === "unknown" ? "Observed interval (onset unknown)" : "Event"} {new Date(item.window.start * 1000).toLocaleString()} —{" "}
+              {item.window.status === "unknown"
+                ? "Observed interval (onset unknown)"
+                : "Event"}{" "}
+              {new Date(item.window.start * 1000).toLocaleString()} —{" "}
               {new Date(item.window.end * 1000).toLocaleString()} (
               {new Date(item.window.start * 1000).toISOString()} —{" "}
               {new Date(item.window.end * 1000).toISOString()}); recovery{" "}

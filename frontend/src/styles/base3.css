@@ -1,0 +1,39 @@
+@media (min-width: 1151px) {
+  .topology-layout {
+    grid-template-columns: 145px minmax(250px, 1fr);
+  }
+  .inspector {
+    grid-column: 1/-1;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    border-top: 1px solid #dde6e2;
+  }
+  .inspector > .empty {
+    grid-column: 1/-1;
+    padding: 10px;
+  }
+  .inspector > h3,
+  .inspector > .eyebrow {
+    display: none;
+  }
+}
+
+.finding.onset-symptom {
+  background: #f4f6f5;
+  color: #667772;
+  border-left-color: #bac7c2;
+  font-size: 0.9em;
+}
+
+.capture-node.confirmed-device {
+  border: 2px solid #b64c45;
+  background: #fff3ef;
+}
+
+:root .assistant-preview {
+  max-height: 28rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

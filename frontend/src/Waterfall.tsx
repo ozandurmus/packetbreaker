@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { api, num } from "./api";
-import { Chart } from "./Charts";
-import type { Ref } from "./types";
+import {useEffect,useState} from "react";
+import {api,num} from "./api";
+import {Chart} from "./Charts";
+import type {Ref} from "./types";
 
 type Bar = {
   label: string;

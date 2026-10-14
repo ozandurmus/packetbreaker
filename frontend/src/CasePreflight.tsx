@@ -1,5 +1,5 @@
-import type { State } from "./types";
-import { time } from "./api";
+import type {State} from "./types";
+import {time} from "./api";
 export function CasePreflight({ state }: { state: State }) {
   if (!state.preflight) return null;
   return (

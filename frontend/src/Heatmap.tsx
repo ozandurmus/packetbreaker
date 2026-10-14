@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { EChartsOption } from "echarts";
-import { Chart } from "./Charts";
-import type { Report, TimeSeries } from "./types";
+import {useCallback,useEffect,useMemo,useState} from "react";
+import type {EChartsOption} from "echarts";
+import {Chart} from "./Charts";
+import type {Report,TimeSeries} from "./types";
 
 export function Heatmap({
   data,

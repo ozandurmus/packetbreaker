@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -b && vite build && node -e \"const f=require('fs');f.copyFileSync('node_modules/echarts/dist/echarts.min.js','../src/packetbreaker/static/echarts-offline.js');f.copyFileSync('offline_incident.js','../src/packetbreaker/static/incident-offline.js')\"",
-    "dev": "vite --host 127.0.0.1"
+    "build": "npm run test && tsc -b && vite build && node -e \"const f=require('fs');f.copyFileSync('node_modules/echarts/dist/echarts.min.js','../src/packetbreaker/static/echarts-offline.js');f.copyFileSync('offline_incident.js','../src/packetbreaker/static/incident-offline.js')\"",
+    "dev": "vite --host 127.0.0.1",
+    "test": "node --test tests/ui.test.cjs"
   },
   "dependencies": {
     "@xyflow/react": "^12.8.0",
