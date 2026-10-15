@@ -39,7 +39,7 @@ def _find_nat_suggestions(db, topology, points):
             AND left(a.prefix,least(length(a.prefix),length(b.prefix)))=left(b.prefix,least(length(a.prefix),length(b.prefix)))
             WHERE a.point=? AND b.point=? AND a.tuple_key<>b.tuple_key
             GROUP BY a.tuple_key,b.tuple_key HAVING count(*)>=3 AND max(b.ts-a.ts)-min(b.ts-a.ts)<1
-            ORDER BY samples DESC LIMIT 1000""",
+            ORDER BY samples DESC,tuple_a,tuple_b LIMIT 1000""",
             [a, b],
         )
         for item in found:
