@@ -77,6 +77,26 @@ def _prepare_missing_and_recoveries(
                  AND retry.icmp_type=8 AND retry.icmp_id=m.icmp_id AND retry.icmp_seq=m.icmp_seq
                  AND retry.corrected>m.corrected AND retry.corrected<reply.corrected AND retry.eligible))
         GROUP BY m.packet_key""")
+    # A no-socket RST (RST without ACK, seq = the trigger's ACK) observed at the downstream point B
+    # proves that a segment carrying that ACK got past B. It counts as delivery proof only when there
+    # are at least as many such RSTs as candidate triggers, so each candidate is accounted for. A
+    # middlebox that drops a segment and rejects it never puts its RST on the far side of B.
+    db.execute(
+        """INSERT INTO acked
+        SELECT m.packet_key,arg_min(rst.packet_key,rst.corrected) AS ack_key
+        FROM missing m JOIN obs rst ON rst.point=? AND rst.proto='TCP' AND rst.canon=m.canon_reverse
+        AND (rst.flags&4)>0 AND (rst.flags&16)=0 AND rst.seq=m.ack
+        AND rst.corrected>m.corrected AND rst.corrected<=m.corrected+3
+        WHERE m.proto='TCP' AND (m.flags&4)=0 AND (m.flags&16)>0
+        AND NOT EXISTS(SELECT 1 FROM acked x WHERE x.packet_key=m.packet_key)
+        AND (SELECT count(DISTINCT r2.frame) FROM obs r2 WHERE r2.point=rst.point AND r2.proto='TCP'
+            AND r2.canon=m.canon_reverse AND (r2.flags&4)>0 AND (r2.flags&16)=0 AND r2.seq=m.ack
+            AND r2.corrected>m.corrected AND r2.corrected<=m.corrected+3)
+          >= (SELECT count(*) FROM obs c WHERE c.point=m.point AND c.proto='TCP' AND c.canon=m.canon
+            AND c.ack=m.ack AND (c.flags&4)=0 AND c.corrected>=m.corrected AND c.corrected<rst.corrected)
+        GROUP BY m.packet_key""",
+        [b],
+    )
     db.execute(
         """CREATE OR REPLACE TEMP TABLE failures AS
         SELECT m.packet_key,min(f.corrected) AS failure_time,arg_min(f.packet_key,f.corrected) AS failure_key
@@ -121,7 +141,7 @@ def _insert_segment_events(
         CASE WHEN later_seen THEN 'Packet appears again farther along the path'
             WHEN m.range_unknown IS NOT NULL THEN m.range_unknown
             WHEN ? IS NOT NULL THEN ? WHEN ? IS NULL OR m.corrected<? OR m.corrected>? THEN 'Outside common coverage; absence is not proof of loss'
-            WHEN ack.packet_key IS NOT NULL THEN 'Receiver ACK, DNS response, or echo reply proves delivery without an earlier retry'
+            WHEN ack.packet_key IS NOT NULL THEN 'Receiver ACK, downstream no-socket RST, DNS response, or echo reply proves delivery without an earlier retry'
             WHEN r.recovery_time IS NOT NULL THEN 'Original missing downstream; repeated byte range was delivered'
             WHEN m.corrected+?>? THEN 'Insufficient remaining capture coverage to assess completion'
             WHEN (m.flags&2)>0 AND m.proto='TCP' THEN 'Handshake control segment stops at this boundary; cause unknown'
