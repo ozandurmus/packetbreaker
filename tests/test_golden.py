@@ -49,6 +49,8 @@ def _strip_volatile(obj, cid_map: dict[str, str]):
 
 
 HEX_ID = re.compile(r"(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])")
+# Local-time renderings depend on the runner's time zone; the UTC renderings are kept.
+LOCAL_TIME = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?[+-]\d\d:\d\d local")
 
 
 def _canonical(obj):
@@ -71,7 +73,7 @@ def _canonical(obj):
                 return _canonical(json.loads(stripped))
             except ValueError:
                 pass
-        return HEX_ID.sub("<id>", obj.replace("\\", "/"))
+        return LOCAL_TIME.sub("<local time>", HEX_ID.sub("<id>", obj.replace("\\", "/")))
     return obj
 
 
