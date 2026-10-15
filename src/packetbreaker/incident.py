@@ -154,7 +154,7 @@ def build_incident(db, topology, host, cycles, delivery, findings):
           max(p95_ms) FILTER(WHERE period='unknown') AS unknown_p95_ms FROM cycle_periods GROUP BY point,flow) p USING(point,flow)
         LEFT JOIN(SELECT flow,to_json(list(struct_pack(hop:=hop,component:=component,p95_ms:=p95_ms))) AS per_hop_added
           FROM(SELECT flow,hop,component,quantile_cont(added_ms,.95) AS p95_ms FROM cycle_pairs GROUP BY flow,hop,component) GROUP BY flow) h USING(flow)""")
-    cycles["flow_ports"] = rows(db, "SELECT * FROM cycle_flow_detail ORDER BY max_ms DESC LIMIT 2000")
+    cycles["flow_ports"] = rows(db, "SELECT * FROM cycle_flow_detail ORDER BY max_ms DESC NULLS LAST,point,flow,port LIMIT 2000")
     quality = rows(
         db,
         """SELECT point_a,point_b,direction,start,sum(observations) AS observations,sum(dropped) AS loss,

@@ -1593,3 +1593,17 @@ acceptance for every item:
 
 Full fast suite (`pytest -n auto -q`): **611 passed**, frontend build and unit tests pass.
 
+## Backend refactor (`refactor-backend`)
+
+- **Golden snapshots (`tests/test_golden.py`):** 8 byte-exact golden snapshots committed before
+  refactoring (`fifty_flow_replica`, `folder_b_replica`, `oct8_replica`, `demo`, `nat`, `offload`,
+  `integrity_all`, `dns_diagnosis`), including `suggested_topology` for the case-setup replicas:
+  **8/8 passed**.
+- **Line counts before vs after:**
+  - `analysis.py` (1,526 lines, max fn 727) -> `analysis/` (8 files, max module `report.py` 397 lines, max fn 118 lines).
+  - `topology_suggest.py` (1,197 lines, max fn 539) + `topology.py` (202 lines) -> `topology/` (6 files, max module `assemble.py` 452 lines, max fn 116 lines) + `topology_suggest.py` (15-line shim).
+  - `integrity.py` (912 lines, max fn 116) -> `integrity/` (6 files, max module `path_checks.py` 275 lines, max fn 104 lines).
+- **Import & size guards (`tests/test_runtime_imports.py`):** Verifies zero circular imports across
+  all production modules, no synthetic/test-only imports in production code, and `<= 500` lines per
+  module / `<= 120` lines per function across `analysis/`, `topology/`, and `integrity/`.
+

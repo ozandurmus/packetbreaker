@@ -1,10 +1,11 @@
 import ipaddress
-import math
+from itertools import groupby
 import json
+import math
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, Field, model_validator, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Point(BaseModel):
@@ -146,8 +147,6 @@ class Topology(BaseModel):
                 raise ValueError("Shared clock domain has conflicting clock corrections")
         stage_devices = {p.device for p in self.points if p.stage_capture}
         if stage_devices:
-            from itertools import groupby
-
             points = {p.id: p for p in self.points}
             if any(p not in points for p in self.forward + self.reverse):
                 raise ValueError("Paths must contain existing capture points")

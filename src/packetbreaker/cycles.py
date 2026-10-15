@@ -143,9 +143,9 @@ def build_cycles(db, topology, segments, host_report, onsets):
         top_n=topology.cycle_top_n,
         top=top,
         series=rows(db, "SELECT * FROM cycle_series ORDER BY start,point,flow LIMIT 20000"),
-        flow_ports=rows(db, "SELECT * FROM cycle_flow_ports ORDER BY max_ms DESC LIMIT 2000"),
+        flow_ports=rows(db, "SELECT * FROM cycle_flow_ports ORDER BY max_ms DESC NULLS LAST,point,flow,port LIMIT 2000"),
         periods=rows(db, "SELECT * FROM cycle_periods ORDER BY point,flow,period LIMIT 6000"),
-        pairs=rows(db, "SELECT * FROM cycle_pairs ORDER BY added_ms DESC NULLS LAST LIMIT 2000"),
+        pairs=rows(db, "SELECT * FROM cycle_pairs ORDER BY added_ms DESC NULLS LAST,time,hop,flow,frame_a,frame_b LIMIT 2000"),
         host_local=rows(
             db,
             "SELECT * FROM cycle_flow_ports WHERE point IN (SELECT unnest(?::VARCHAR[])) ORDER BY max_ms DESC",
@@ -174,7 +174,7 @@ def cycle_findings(db, topology, segments):
         [topology.cycle_stall_ms],
     )
     findings = []
-    for r in rows(db, "SELECT * FROM cycle_degradations ORDER BY max_ms DESC LIMIT 100"):
+    for r in rows(db, "SELECT * FROM cycle_degradations ORDER BY max_ms DESC NULLS LAST,hop,flow LIMIT 100"):
         s = next(s for s in segments if s["id"] == r["hop"])
         refs = evidence(
             db,

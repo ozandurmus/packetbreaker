@@ -123,7 +123,7 @@ def delivery_report(db, topology, segments):
         db,
         """SELECT point_a,point_b,direction,flow,count(*) AS count,min(time_a) AS start,max(time_b) AS stop,
         max((time_b-time_a)*1000) AS max_recovery_ms,arg_min(frame_a,time_a) AS frame_a,arg_min(frame_b,time_a) AS frame_b
-        FROM delivery_events WHERE classification='retry_substitution' GROUP BY ALL ORDER BY count DESC LIMIT 100""",
+        FROM delivery_events WHERE classification='retry_substitution' GROUP BY ALL ORDER BY count DESC,start,point_a,point_b,direction,flow LIMIT 100""",
     ):
         segment = next(
             s

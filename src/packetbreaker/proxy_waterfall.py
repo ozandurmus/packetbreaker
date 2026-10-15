@@ -4,7 +4,7 @@ import json
 from .store import rows
 from .proxy_analysis import refs, uncertainty
 from .clock import ClockModel
-from .topology import Topology
+from .topology.models import Topology
 
 
 def interval(a, b, uncertainty_s):

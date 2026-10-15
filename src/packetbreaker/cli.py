@@ -11,7 +11,6 @@ from .analysis import analyze
 from .export import export_report
 from .batch_ingest import ingest_many
 from .store import Project
-from .synthetic import generate, bind_capture_ids
 
 
 def main():
@@ -189,6 +188,8 @@ def main():
             args.project = str(project.path)
 
         if args.command == "demo":
+            from .synthetic import bind_capture_ids, generate
+
             truth, topology = generate(
                 args.directory, scenario=args.scenario, rounds=args.rounds, ip_id=args.ip_id, ipv6=args.ipv6
             )

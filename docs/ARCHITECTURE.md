@@ -1049,3 +1049,12 @@ is emitted. Path ordering stops as `ambiguous` only when TTL itself is inconsist
 with missing/conflicting timestamp order). Empty or mostly-excluded captures report the exact
 exclusion counts in the ambiguity reason rather than claiming no shared directional traffic.
 
+## Backend package map
+
+- `store` / `metadata` / `timestamps`: owns DuckDB project storage, container metadata walking and timestamp bounds; may import only standard library, `duckdb`, `psutil` and `pydantic`.
+- `ingest` / `batch_ingest` / `capture_layers` / `fragments` / `vendors` / `fortinet` / `case_setup`: owns tshark field ingestion, pre-filtering, tunnel/fragment normalization and vendor adapters; may import `store`, `metadata`, `timestamps` and `topology`.
+- `topology/` (`models`, `suggest`, `order`, `groups`, `assemble`): owns `Point`/`Topology` models, stage/shared-clock/host detection, TTL+µs path ordering, multi-path client grouping and topology assembly; may import `store` and `analysis.report` (for `assemble_and_analyze`).
+- `integrity/` (`common`, `origins`, `payloads`, `path_checks`, `grouping`): owns matched payload modification linking, RST/ICMP origin attribution, MTU/MSS/DSCP/option/TTL/asymmetry/duplication checks and downstream capture-miss grouping; may import `store` and `evidence`.
+- `analysis/` (`selection`, `matching`, `clocks`, `classification`, `segments`, `report`, `pages`): owns observation selection, canonical tuple/NAT matching, clock alignment, missing-appearance/chronic-loss classification, segment/report assembly and paginated flow/finding/ladder queries; may import `store`, `topology.models`, `integrity`, `matching`, `clock`, `onset`, `timeseries` and domain analyzers (`host_path`, `cycles`, `delivery`, `hold_release`, `incident`, `aggregates`, `proxy_*`, `tls_analysis`, `transport`, `dns`, `udp*`, `rtp`, `sip`, `security`, `microbursts`, `device_drops`).
+- `app` / `cli` / `export` / `engine_export` / `reference` / `anonymize` / `assistant`: owns HTTP API, CLI subcommands, HTML/JSON/CSV/XLSX export, reference checks and PCAP anonymization; may import `store`, `ingest`, `topology`, `analysis` and domain analyzers (never synthetic/test generators except `cli demo`).
+
