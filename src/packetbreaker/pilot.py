@@ -1,7 +1,7 @@
 """Window-scoped topology measurements and conservative flow inventory columns."""
 
 from .store import rows
-from .analysis import findings_page, flow_page
+from .analysis.pages import findings_page, flow_page
 
 LOSS_CLASSES = (
     "impactful_loss",

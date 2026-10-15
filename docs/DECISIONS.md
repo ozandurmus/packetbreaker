@@ -824,3 +824,19 @@ comparison therefore permits 1 ms rounding, without scaling or rewriting reporte
   the offset, and emit `<file> timestamps are inconsistent with its TTL position; treated as a separate clock (offset fitted)`.
   Stop as `ambiguous` only when TTL itself is inconsistent.
 
+### Backend refactor (`refactor-backend`)
+
+- Commit byte-for-byte golden snapshots (`tests/golden/*.json.gz`, volatile UUIDs/paths/elapsed
+  times normalized) for all 8 canonical scenarios (`fifty_flow_replica`, `folder_b_replica`,
+  `oct8_replica`, `demo`, `nat`, `offload`, `integrity_all`, `dns_diagnosis`) before splitting any
+  module so zero behaviour or schema drift can occur.
+- Split `analysis.py` (1,526 lines) into `analysis/` (`selection`, `matching`, `clocks`,
+  `classification`, `segments`, `report`, `pages`), `topology_suggest.py` (1,197 lines) +
+  `topology.py` (202 lines) into `topology/` (`models`, `suggest`, `order`, `groups`, `assemble`
+  with `topology_suggest.py` as a 15-line compatibility re-export), and `integrity.py` (912 lines)
+  into `integrity/` (`common`, `origins`, `payloads`, `path_checks`, `grouping`), keeping every
+  module `<= 500` lines and every function `<= 120` lines while preserving all public imports.
+- Enforce import hygiene in `tests/test_runtime_imports.py`: zero circular imports in the production
+  import graph (static AST and isolated runtime load order) and no synthetic/test-only modules
+  imported by production code outside the explicit `cli demo` subcommand.
+

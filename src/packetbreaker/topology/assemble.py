@@ -357,7 +357,7 @@ def assemble_topology(project, base_topology: Topology | dict | None = None):
 
 
 def assemble_and_analyze(project, base_topology=None, progress=None, cancel=None):
-    from ..analysis import analyze
+    from ..analysis.report import analyze
 
     with project.connect() as db:
         current = project.get(db, "topology")

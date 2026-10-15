@@ -2,7 +2,7 @@ import json
 
 from ..evidence import evidence
 from ..store import rows
-from ..topology import Topology
+from ..topology.models import Topology
 
 
 def label_host_events(events, topology):

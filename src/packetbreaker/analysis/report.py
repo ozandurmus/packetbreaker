@@ -19,7 +19,7 @@ from ..proxy_waterfall import add_dwell
 from ..store import rows
 from ..timeseries import build_timeseries
 from ..tls_analysis import tls_checks
-from ..topology import Topology
+from ..topology.models import Topology
 from ..translation import sequence_report
 from ..vendors import f5_report
 from .clocks import align

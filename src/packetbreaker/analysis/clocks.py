@@ -1,8 +1,15 @@
 from dataclasses import replace
 import json
+import sys
 
 from ..clock import ClockModel, fit_clock, infer_shared_clock
-from ..evidence import evidence
+from ..evidence import evidence as _default_evidence
+
+
+def evidence(db, where, params=(), limit=8):
+    pkg = sys.modules.get("packetbreaker.analysis")
+    fn = getattr(pkg, "evidence", _default_evidence) if pkg is not None else _default_evidence
+    return fn(db, where, params, limit)
 
 
 def clock_range_candidates(db, a, b):
