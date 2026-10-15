@@ -50,7 +50,9 @@ def _strip_volatile(obj, cid_map: dict[str, str]):
 
 HEX_ID = re.compile(r"(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])")
 # Local-time renderings depend on the runner's time zone; the UTC renderings are kept.
-LOCAL_TIME = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?[+-]\d\d:\d\d local")
+LOCAL_TIME = re.compile(
+    r"(?:\d{4}-\d\d-\d\d )?\d\d:\d\d:\d\d(?:\.\d+)?[+-]\d\d:\d\d(?: local)?"
+)
 
 
 def _canonical(obj):

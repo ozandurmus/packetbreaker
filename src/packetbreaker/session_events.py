@@ -26,8 +26,11 @@ NOTE = (
 )
 
 
-def _clock(ts, zone):
-    return time_labels(ts, zone)["local"].split(" ")[1][:12]
+def _clock(ts, zone, *, millis=True):
+    """Local wall-clock time with its UTC offset, e.g. 10:44:39.017+03:00 (never zone-ambiguous)."""
+    local = time_labels(ts, zone)["local"].split(" ")[1]  # HH:MM:SS.mmm+HH:MM
+    clock, offset = local[:12], local[12:]
+    return (clock if millis else clock[:8]) + offset
 
 
 def _finding(kind, severity, start, end, summary, metrics, refs, hop):
@@ -118,6 +121,7 @@ def connection_lifecycle(db, zone):
                 reconnect_flow=c["next_flow"],
                 close_frame=c["close_frame"],
                 closed_label=None if c["close_t"] is None else _clock(c["close_t"], zone),
+                closed_short=None if c["close_t"] is None else _clock(c["close_t"], zone, millis=False),
             )
         )
     return out
@@ -213,6 +217,7 @@ def _storm(db, point, zone, cluster, flows):
         kind=kind,
         time=start,
         label=_clock(start, zone),
+        short=_clock(start, zone, millis=False),
         side=side,
         connections=len(flows),
         flows=flows,
@@ -421,6 +426,7 @@ def stream_reconnects(connections, point, db, zone):
                         "server",
                         "client",
                         "closed_label",
+                        "closed_short",
                     )
                 },
                 refs,
@@ -485,12 +491,12 @@ def session_summary(storms, reconnect_findings, drops):
     loss = [s for s in storms if s["kind"] == "state_loss"]
     late = [s for s in storms if s["kind"] == "late_close"]
     if loss:
-        times = ", ".join(f"{s['label'][:8]} ({s['connections']})" for s in loss)
+        times = ", ".join(f"{s['short']} ({s['connections']})" for s in loss)
         parts.append(f"{loss[0]['side']}-side state loss (no-socket RST storms) at {times}")
     for f in reconnect_findings:
         m = f["metrics"]
         parts.append(
-            f"{m['closed_by']} closed a bulk stream at {m['closed_label'][:8]} and the client reconnected after "
+            f"{m['closed_by']} closed a bulk stream at {m['closed_short']} and the client reconnected after "
             f"{m['reconnect_after_s']:.1f} s"
         )
     for d in drops:
@@ -498,6 +504,6 @@ def session_summary(storms, reconnect_findings, drops):
             parts.append(f"{d['sender']} reduced its sending rate {d['label']} (−{d['drop_percent']:.0f}%)")
     if late:
         other = "client" if late[0]["side"] == "server" else "server"
-        times = ", ".join(f"{s['label'][:8]} ({s['connections']})" for s in late)
+        times = ", ".join(f"{s['short']} ({s['connections']})" for s in late)
         parts.append(f"{other} closed {late[0]['side']}-closed connections late at {times} (expected RSTs)")
     return "; ".join(parts)
