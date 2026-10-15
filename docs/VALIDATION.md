@@ -1607,3 +1607,22 @@ Full fast suite (`pytest -n auto -q`): **611 passed**, frontend build and unit t
   all production modules, no synthetic/test-only imports in production code, and `<= 500` lines per
   module / `<= 120` lines per function across `analysis/`, `topology/`, and `integrity/`.
 
+## Session behaviour findings
+
+- Synthetic two-point L2 replica (`session_synthetic.py`, IPv4 and IPv6): 30% capture loss of
+  server data at the server-side point; two state-loss storms (4 and 3 connections); a late close of
+  three FIN-closed connections; a client close + reconnect after 13.6 s; a server rate halving;
+  distractors: a receiver-window-limited slowdown, a single no-socket RST, an application RST|ACK,
+  a normal server FIN and a client abort of two connections without trigger. 16 tests pass.
+- Naive implementations rejected by those tests (run as mutants): no RST delivery proof (the storm
+  trigger missing at B became impactful loss), and "any RST-without-ACK cluster is a storm" (the
+  client abort cluster became a storm).
+- Real case (2 points around an L2 device, 52 TLS connections, 1 hour, payloads zeroed, zero input):
+  the earlier verdict "Impactful loss observed" (2 segments that a downstream RST proves delivered)
+  became the session timeline: server rate drop 10:01:10–10:05:10 (−51%, no loss, no RTT increase,
+  no window limit), late closes at 10:05:07 (2), 10:19:01 (4), 10:44:01 (4), 10:54:20 (3) with the
+  server's FIN 19–49 s earlier, client close of the main stream at 10:44:39 with a 13.1 s reconnect,
+  and a server close of a bulk stream at 10:50:28 with a 1.1 s reconnect.
+- Limitation: the close of a connection is taken from the client-nearest point; a FIN that this
+  point missed is seen as the following RST.
+
