@@ -71,6 +71,11 @@ class Finding(BaseModel):
         "capture_duplicate",
         "duplication",
         "asymmetric_routing",
+        "reset_storm",
+        "late_close_resets",
+        "stream_reconnect",
+        "sender_rate_drop",
+        "receiver_rate_drop",
     ]
     tooltip: str | None = None
     device: str | None = None
@@ -95,7 +100,7 @@ class Finding(BaseModel):
 class FindingsExport(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_name: Literal["packetbreaker.findings"] = "packetbreaker.findings"
-    schema_version: Literal[10] = 10
+    schema_version: Literal[11] = 11
     engine_version: str
     exported_at: str
     findings: list[Finding]

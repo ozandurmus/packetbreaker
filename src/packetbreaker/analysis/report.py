@@ -50,6 +50,7 @@ def _select_verdict(
     findings,
     inconclusive_quality,
     segments,
+    session_summary=None,
 ):
     if primary_host:
         return primary_host["headline"]
@@ -68,6 +69,8 @@ def _select_verdict(
         return "Impactful loss observed"
     if any(f["type"] == "handshake_blocked" for f in findings):
         return "Handshake failure observed"
+    if session_summary:
+        return "Session events (no network path degradation): " + session_summary
     if any(f["severity"] == "low" for f in findings):
         return "Loss observed"
     if (
@@ -110,6 +113,7 @@ def _run_secondary_detectors(
     from ..pilot import flow_columns
     from ..rtp import build_rtp
     from ..security import build_lifecycle, security_checks
+    from ..session_events import fold_storm_resets, session_report
     from ..sip import build_sip
     from ..udp import build_udp
 
@@ -160,7 +164,12 @@ def _run_secondary_detectors(
     add_aggregates(db, engine_topology, segments, host_report, cycle_report, onsets, models, byte_active)
     incident = build_incident(db, topology, host_report, cycle_report, delivery, findings)
     flow_columns(db, findings, topology)
+    session, session_findings = session_report(db, topology)
+    findings[:0] = [f for f in session_findings if f["severity"] == "high"]
+    findings.extend(f for f in session_findings if f["severity"] != "high")
+    findings[:] = fold_storm_resets(findings, session.get("storms", []))
     return dict(
+        session_report=session,
         timeseries=timeseries,
         sessions=sessions,
         onsets=onsets,
@@ -231,6 +240,7 @@ def _assemble_report_dict(
         fragment_points=det["fragment_quality"],
         microbursts=det["microbursts"],
         sessions=det["sessions"],
+        session_events=det["session_report"],
         security=det["security_report"],
         udp=det["udp_report"],
         rtp=det["rtp_report"],
@@ -261,6 +271,7 @@ def _assemble_report_dict(
             findings,
             inconclusive_quality,
             segments,
+            det["session_report"].get("summary"),
         ),
         scope="Pilot diagnostics; stage clocks, host boundary delay and evidence-led path analysis",
         window=dict(start=start, end=end, common_start=common_start, common_end=common_end),

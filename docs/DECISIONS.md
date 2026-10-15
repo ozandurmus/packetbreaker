@@ -839,4 +839,10 @@ comparison therefore permits 1 ms rounding, without scaling or rewriting reporte
 - Enforce import hygiene in `tests/test_runtime_imports.py`: zero circular imports in the production
   import graph (static AST and isolated runtime load order) and no synthetic/test-only modules
   imported by production code outside the explicit `cli demo` subcommand.
+- Session behaviour is measured at the capture nearest to the client, from TCP control segments and
+  ACK progression only. A cluster of no-socket RSTs is labelled state loss only when the resetting
+  side had not closed those connections with FIN first; RSTs answering a late close of
+  already-closed connections are expected behaviour (found on a real case where a manual analysis
+  had misread them as silent state loss). Findings schema v11 adds `reset_storm`,
+  `late_close_resets`, `stream_reconnect`, `sender_rate_drop` and `receiver_rate_drop`.
 

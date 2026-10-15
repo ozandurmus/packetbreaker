@@ -1049,12 +1049,41 @@ is emitted. Path ordering stops as `ambiguous` only when TTL itself is inconsist
 with missing/conflicting timestamp order). Empty or mostly-excluded captures report the exact
 exclusion counts in the ambiguity reason rather than claiming no shared directional traffic.
 
+## Session behaviour (session_events)
+
+Some incidents have a healthy path and broken or slowed sessions. `session_events` works at one
+observation point (the capture nearest to the client) so each packet counts once:
+
+- Lifecycle: per connection the first FIN/RST decides who closed it (`client`/`server`) and how
+  (`fin`, `rst_abort` = RST|ACK, `rst_no_socket` = RST without ACK), a small final record before the
+  FIN marks a TLS-close-like close, and the next SYN from the same client to the same server port
+  gives the reconnect gap. Closing and reopening is normal; a `stream_reconnect` finding is raised
+  only for the main stream or an RST close of a bulk stream, with a reconnect gap of at least 1 s.
+- No-socket resets follow RFC 793: RST without ACK, `seq` equal to the ACK of the other side's
+  latest segment, sent within 1 s of it. Two or more connections reset by the same side within
+  50 ms form a cluster. If most of those connections were already closed by the resetting side
+  with FIN, the cluster is `late_close_resets` (low): the other side closed late and the RSTs are
+  the expected answer. Otherwise it is `reset_storm` (high): peer-side state loss without a close.
+  Unattributed reset-origin findings at the same instants are folded under the cluster.
+- Delivered rate comes from the receiver's ACK progression in 10 s buckets, so capture loss of the
+  data segments cannot distort it. A run of >= 6 buckets at <= 60% of the stream's median is a
+  `receiver_rate_drop` when the receiver's advertised window shrinks or hits zero, a network case
+  (no session finding) when loss, retransmissions or RTT rise, and a `sender_rate_drop` otherwise.
+- A segment missing at point B is a capture miss when a no-socket RST from beyond B must be its reply:
+  the resetting side had already closed the connection with FIN before the segment (so it can no
+  longer abort on its own), the RST seq equals the segment's ACK and there are at least as many such
+  RSTs at B as candidate triggers. Without the earlier FIN a spontaneous abort carries the same seq,
+  so the absence stays loss evidence. A middlebox that drops and rejects never puts its RST beyond B.
+- With no path degradation (no host-path, integrity, device-drop or impactful-loss lead), the
+  verdict leads with the session timeline.
+
 ## Backend package map
 
 - `store` / `metadata` / `timestamps`: owns DuckDB project storage, container metadata walking and timestamp bounds; may import only standard library, `duckdb`, `psutil` and `pydantic`.
 - `ingest` / `batch_ingest` / `capture_layers` / `fragments` / `vendors` / `fortinet` / `case_setup`: owns tshark field ingestion, pre-filtering, tunnel/fragment normalization and vendor adapters; may import `store`, `metadata`, `timestamps` and `topology`.
 - `topology/` (`models`, `suggest`, `order`, `groups`, `assemble`): owns `Point`/`Topology` models, stage/shared-clock/host detection, TTL+µs path ordering, multi-path client grouping and topology assembly; may import `store` and `analysis.report` (for `assemble_and_analyze`).
 - `integrity/` (`common`, `origins`, `payloads`, `path_checks`, `grouping`): owns matched payload modification linking, RST/ICMP origin attribution, MTU/MSS/DSCP/option/TTL/asymmetry/duplication checks and downstream capture-miss grouping; may import `store` and `evidence`.
-- `analysis/` (`selection`, `matching`, `clocks`, `classification`, `segments`, `report`, `pages`): owns observation selection, canonical tuple/NAT matching, clock alignment, missing-appearance/chronic-loss classification, segment/report assembly and paginated flow/finding/ladder queries; may import `store`, `topology.models`, `integrity`, `matching`, `clock`, `onset`, `timeseries` and domain analyzers (`host_path`, `cycles`, `delivery`, `hold_release`, `incident`, `aggregates`, `proxy_*`, `tls_analysis`, `transport`, `dns`, `udp*`, `rtp`, `sip`, `security`, `microbursts`, `device_drops`).
+- `analysis/` (`selection`, `matching`, `clocks`, `classification`, `segments`, `report`, `pages`): owns observation selection, canonical tuple/NAT matching, clock alignment, missing-appearance/chronic-loss classification, segment/report assembly and paginated flow/finding/ladder queries; may import `store`, `topology.models`, `integrity`, `matching`, `clock`, `onset`, `timeseries` and domain analyzers (`host_path`, `cycles`, `delivery`, `hold_release`, `incident`, `aggregates`, `proxy_*`, `tls_analysis`, `transport`, `dns`, `udp*`, `rtp`, `sip`, `security`, `session_events`, `microbursts`, `device_drops`).
+- `session_events`: owns connection lifecycle (who closed, how, reconnect gaps), no-socket RST clusters (state loss vs late close) and ACK-based delivered-rate drops (sender vs receiver-window vs network); may import `store`, `evidence` and `headlines`.
 - `app` / `cli` / `export` / `engine_export` / `reference` / `anonymize` / `assistant`: owns HTTP API, CLI subcommands, HTML/JSON/CSV/XLSX export, reference checks and PCAP anonymization; may import `store`, `ingest`, `topology`, `analysis` and domain analyzers (never synthetic/test generators except `cli demo`).
 

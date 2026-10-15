@@ -50,7 +50,7 @@ def test_offline_html_with_cp1252_default(monkeypatch):
         findings=[],
         flow_filters=[],
         engine_version="fixture",
-        schema_version=10,
+        schema_version=11,
         exported_at="fixture",
     )
     html = html_report(data)

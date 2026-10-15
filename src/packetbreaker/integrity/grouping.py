@@ -66,4 +66,39 @@ def group_downstream_findings(findings, topology):
                     seen_refs.add(key)
                     target_miss["evidence"].append(r)
 
-    findings[:] = kept
+    findings[:] = _merge_quality_limited(kept)
+
+
+def _merge_quality_limited(findings):
+    """One line per hop and quality reason for downstream-only packets that coverage, clock or
+    capture quality already explains (e.g. capture edges); true candidates stay individual."""
+    merged, kept = {}, []
+    for f in findings:
+        why = (f.get("metrics") or {}).get("quality_reason")
+        if f["type"] != "downstream_packet" or not why:
+            kept.append(f)
+            continue
+        key = (f["direction"], f["hop"], why)
+        if key not in merged:
+            carrier = dict(f, evidence=list(f["evidence"]), metrics=dict(f["metrics"], count=0))
+            carrier["id"] = f"{f['id']}:merged"
+            carrier["severity"] = "quality"
+            merged[key] = carrier
+            kept.append(carrier)
+        carrier = merged[key]
+        carrier["metrics"]["count"] += f["metrics"].get("count", 1)
+        carrier["time_range"] = [
+            min(carrier["time_range"][0], f["time_range"][0]),
+            max(carrier["time_range"][1], f["time_range"][1]),
+        ]
+        for ref in f["evidence"]:
+            if ref not in carrier["evidence"] and len(carrier["evidence"]) < 16:
+                carrier["evidence"].append(ref)
+    for carrier in merged.values():
+        count = carrier["metrics"]["count"]
+        text = (
+            f"{count} downstream-only packet observation(s) explained by capture limits "
+            f"({carrier['metrics']['quality_reason']}); not evidence of injection."
+        )
+        carrier["summary"] = carrier["headline"] = text
+    return kept
