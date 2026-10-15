@@ -1,6 +1,8 @@
 import gzip
+import os
 import json
 from pathlib import Path
+import re
 import uuid
 
 from packetbreaker.analysis import analyze
@@ -46,17 +48,70 @@ def _strip_volatile(obj, cid_map: dict[str, str]):
     return obj
 
 
+HEX_ID = re.compile(r"(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])")
+
+
+def _canonical(obj):
+    """Platform-independent form: the decision content is kept, run-to-run noise is removed.
+
+    Float sums from parallel SQL aggregation differ in the last digits, unordered SQL results
+    and hash-ordered samples differ in order, and md5/uuid identifiers depend on run state.
+    """
+    if isinstance(obj, dict):
+        return {HEX_ID.sub("<id>", k): _canonical(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        items = [_canonical(v) for v in obj]
+        return sorted(items, key=lambda v: json.dumps(v, sort_keys=True, ensure_ascii=False))
+    if isinstance(obj, float):
+        return float(f"{obj:.9g}")
+    if isinstance(obj, str):
+        stripped = obj.strip()
+        if stripped[:1] in "[{" and stripped[-1:] in "]}":
+            try:
+                return _canonical(json.loads(stripped))
+            except ValueError:
+                pass
+        return HEX_ID.sub("<id>", obj.replace("\\", "/"))
+    return obj
+
+
 def serialize_golden(payload: dict, project: Project) -> bytes:
     cid_map = _capture_id_map(project)
-    cleaned = _strip_volatile(payload, cid_map)
+    cleaned = _canonical(_strip_volatile(payload, cid_map))
     return json.dumps(cleaned, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def _differences(expected, actual, path="$", out=None, limit=20):
+    out = [] if out is None else out
+    if len(out) >= limit:
+        return out
+    if type(expected) is not type(actual):
+        out.append(f"{path}: {str(expected)[:80]!r} != {str(actual)[:80]!r}")
+    elif isinstance(expected, dict):
+        for key in sorted(set(expected) | set(actual)):
+            if key not in expected or key not in actual:
+                out.append(f"{path}.{key}: {'missing' if key not in expected else 'present'} in golden")
+            else:
+                _differences(expected[key], actual[key], f"{path}.{key}", out, limit)
+    elif isinstance(expected, list):
+        if len(expected) != len(actual):
+            out.append(f"{path}: {len(expected)} items in golden, {len(actual)} now")
+        for i, (e, a) in enumerate(zip(expected, actual)):
+            _differences(e, a, f"{path}[{i}]", out, limit)
+    elif expected != actual:
+        out.append(f"{path}: {str(expected)[:80]!r} != {str(actual)[:80]!r}")
+    return out
 
 
 def assert_golden_bytes(name: str, payload: dict, project: Project) -> None:
     actual = serialize_golden(payload, project)
     path = GOLDEN_DIR / f"{name}.json.gz"
+    if os.environ.get("PB_UPDATE_GOLDEN") == "1":
+        path.write_bytes(gzip.compress(actual, mtime=0))
     expected = gzip.decompress(path.read_bytes())
-    assert actual == expected
+    if actual != expected:
+        diffs = _differences(json.loads(expected), json.loads(actual))
+        raise AssertionError(f"Golden {name} differs:\n" + "\n".join(diffs))
 
 
 def _deterministic_uuids(monkeypatch):
