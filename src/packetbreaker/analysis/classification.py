@@ -77,10 +77,13 @@ def _prepare_missing_and_recoveries(
                  AND retry.icmp_type=8 AND retry.icmp_id=m.icmp_id AND retry.icmp_seq=m.icmp_seq
                  AND retry.corrected>m.corrected AND retry.corrected<reply.corrected AND retry.eligible))
         GROUP BY m.packet_key""")
-    # A no-socket RST (RST without ACK, seq = the trigger's ACK) observed at the downstream point B
-    # proves that a segment carrying that ACK got past B. It counts as delivery proof only when there
-    # are at least as many such RSTs as candidate triggers, so each candidate is accounted for. A
-    # middlebox that drops a segment and rejects it never puts its RST on the far side of B.
+    # A reset can prove delivery only when it must be a reply: the resetting side had already closed
+    # the connection with FIN before the missing segment, so it cannot abort on its own any more. Its
+    # RST without ACK (seq = the trigger's ACK) observed at the downstream point B then proves that a
+    # segment carrying that ACK got past B. A spontaneous abort by a side that still holds the
+    # connection carries the same seq, so without the earlier FIN the absence stays loss evidence.
+    # Each candidate trigger needs its own RST; a middlebox that drops and rejects never puts its RST
+    # on the far side of B.
     db.execute(
         """INSERT INTO acked
         SELECT m.packet_key,arg_min(rst.packet_key,rst.corrected) AS ack_key
@@ -89,6 +92,8 @@ def _prepare_missing_and_recoveries(
         AND rst.corrected>m.corrected AND rst.corrected<=m.corrected+3
         WHERE m.proto='TCP' AND (m.flags&4)=0 AND (m.flags&16)>0
         AND NOT EXISTS(SELECT 1 FROM acked x WHERE x.packet_key=m.packet_key)
+        AND EXISTS(SELECT 1 FROM obs fin WHERE fin.point=rst.point AND fin.proto='TCP'
+            AND fin.canon=m.canon_reverse AND (fin.flags&1)>0 AND fin.corrected<m.corrected)
         AND (SELECT count(DISTINCT r2.frame) FROM obs r2 WHERE r2.point=rst.point AND r2.proto='TCP'
             AND r2.canon=m.canon_reverse AND (r2.flags&4)>0 AND (r2.flags&16)=0 AND r2.seq=m.ack
             AND r2.corrected>m.corrected AND r2.corrected<=m.corrected+3)

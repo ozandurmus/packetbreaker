@@ -1611,7 +1611,8 @@ Full fast suite (`pytest -n auto -q`): **611 passed**, frontend build and unit t
 
 - Synthetic two-point L2 replica (`session_synthetic.py`, IPv4 and IPv6): 30% capture loss of
   server data at the server-side point; two state-loss storms (4 and 3 connections); a late close of
-  three FIN-closed connections; a client close + reconnect after 13.6 s; a server rate halving;
+  three FIN-closed connections; a client close + reconnect after 13.6 s; a server rate halving; a late-close record missing at
+  the server-side point (capture miss proven by the server's reply RST);
   distractors: a receiver-window-limited slowdown, a single no-socket RST, an application RST|ACK,
   a normal server FIN and a client abort of two connections without trigger. 16 tests pass.
 - Naive implementations rejected by those tests (run as mutants): no RST delivery proof (the storm
@@ -1622,7 +1623,10 @@ Full fast suite (`pytest -n auto -q`): **611 passed**, frontend build and unit t
   became the session timeline: server rate drop 10:01:10–10:05:10 (−51%, no loss, no RTT increase,
   no window limit), late closes at 10:05:07 (2), 10:19:01 (4), 10:44:01 (4), 10:54:20 (3) with the
   server's FIN 19–49 s earlier, client close of the main stream at 10:44:39 with a 13.1 s reconnect,
-  and a server close of a bulk stream at 10:50:28 with a 1.1 s reconnect.
+  (a server FIN close of a bulk stream at 10:50:28 with a 1.1 s reconnect stays in the lifecycle
+  data and is not raised as a finding).
 - Limitation: the close of a connection is taken from the client-nearest point; a FIN that this
   point missed is seen as the following RST.
-
+- The CI slow suite caught a first, wider delivery-proof rule: a spontaneous abort after a lost
+  segment carries the same RST seq. The proof now requires the resetting side's earlier FIN; the
+  existing `unrecovered_reset` ground truth (impactful loss) is unchanged. Full suite: 822 passed.

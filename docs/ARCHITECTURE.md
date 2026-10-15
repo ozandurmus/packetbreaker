@@ -1057,8 +1057,8 @@ observation point (the capture nearest to the client) so each packet counts once
 - Lifecycle: per connection the first FIN/RST decides who closed it (`client`/`server`) and how
   (`fin`, `rst_abort` = RST|ACK, `rst_no_socket` = RST without ACK), a small final record before the
   FIN marks a TLS-close-like close, and the next SYN from the same client to the same server port
-  gives the reconnect gap. Bulk streams (>= 10% of the largest stream's bytes) that reconnect become
-  `stream_reconnect` findings.
+  gives the reconnect gap. Closing and reopening is normal; a `stream_reconnect` finding is raised
+  only for the main stream or an RST close of a bulk stream, with a reconnect gap of at least 1 s.
 - No-socket resets follow RFC 793: RST without ACK, `seq` equal to the ACK of the other side's
   latest segment, sent within 1 s of it. Two or more connections reset by the same side within
   50 ms form a cluster. If most of those connections were already closed by the resetting side
@@ -1069,9 +1069,11 @@ observation point (the capture nearest to the client) so each packet counts once
   data segments cannot distort it. A run of >= 6 buckets at <= 60% of the stream's median is a
   `receiver_rate_drop` when the receiver's advertised window shrinks or hits zero, a network case
   (no session finding) when loss, retransmissions or RTT rise, and a `sender_rate_drop` otherwise.
-- A segment missing at point B is a capture miss when a no-socket RST from beyond B answers it: the
-  RST seq equals the segment's ACK and there are at least as many such RSTs at B as candidate
-  triggers. A middlebox that drops and rejects a segment never puts its RST beyond B.
+- A segment missing at point B is a capture miss when a no-socket RST from beyond B must be its reply:
+  the resetting side had already closed the connection with FIN before the segment (so it can no
+  longer abort on its own), the RST seq equals the segment's ACK and there are at least as many such
+  RSTs at B as candidate triggers. Without the earlier FIN a spontaneous abort carries the same seq,
+  so the absence stays loss evidence. A middlebox that drops and rejects never puts its RST beyond B.
 - With no path degradation (no host-path, integrity, device-drop or impactful-loss lead), the
   verdict leads with the session timeline.
 

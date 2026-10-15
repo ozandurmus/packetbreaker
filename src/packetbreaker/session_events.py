@@ -15,6 +15,7 @@ from .store import rows
 STORM_GAP_S = 0.05
 TRIGGER_WINDOW_S = 1.0
 RECONNECT_WINDOW_S = 300.0
+RECONNECT_NOTABLE_S = 1.0
 RATE_BUCKET_S = 10.0
 RATE_DROP_RATIO = 0.6
 RATE_DROP_MIN_BUCKETS = 6
@@ -34,6 +35,7 @@ def _clock(ts, zone, *, millis=True):
 
 
 def _finding(kind, severity, start, end, summary, metrics, refs, hop):
+    metrics = dict(metrics, count=metrics.get("connections", 1))
     return dict(
         id=f"session:{kind}:{start:.6f}",
         type=kind,
@@ -395,6 +397,11 @@ def stream_reconnects(connections, point, db, zone):
     for c in connections:
         volume = max(c["bytes_client_to_server"], c["bytes_server_to_client"])
         if volume < BULK_SHARE * largest or c["closed"] is None or c["reconnect_after_s"] is None:
+            continue
+        # Closing a connection and opening the next one is normal; report it only for the main stream
+        # or an RST close, and only when the client stayed disconnected for a noticeable time.
+        notable = volume == largest or (c["close_kind"] or "").startswith("rst")
+        if not notable or c["reconnect_after_s"] < RECONNECT_NOTABLE_S:
             continue
         how = (
             "TLS-close-like final record + FIN"

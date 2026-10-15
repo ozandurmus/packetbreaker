@@ -83,12 +83,12 @@ class Conn:
         self.server(t + RTT, PSH | ACK, b"r" * response)
         self.client(t + RTT + 0.040, ACK)
 
-    def server_close_then_late_client_close(self, fin_t, close_t):
+    def server_close_then_late_client_close(self, fin_t, close_t, record_skip_b=False):
         """Server closes with FIN; the client acknowledges but closes its side late (TLS-close-like
         record + FIN). The server already released the socket, so it answers with RSTs."""
         self.server(fin_t, FIN | ACK)
         self.client(fin_t + RTT, ACK)
-        self.client(close_t, PSH | ACK, b"a" * 40)
+        self.client(close_t, PSH | ACK, b"a" * 40, skip_b=record_skip_b)
         self.client(close_t + 0.00005, FIN | ACK)
         self.server(close_t + RTT, RST, ipid=0, seq=self.sseq, ack=0)
         self.server(close_t + RTT + 0.00005, RST, ipid=0, seq=self.sseq, ack=0)
@@ -176,9 +176,8 @@ def make_session_case(directory, *, seed=7, capture_loss_b=0.30, ipv6=False):
     # Storm 1: four control connections lost their state on the server side; the client sends on all
     # four at once after ~30 s of silence. Connection 41001's trigger is a capture miss at point B.
     for i, port in enumerate((41001, 41002, 41003, 41004)):
-        controls[port].no_socket_reset(300.0 + i * 0.0001, trigger_skip_b=(port == 41001))
+        controls[port].no_socket_reset(300.0 + i * 0.0001)
     truth["storms"].append(dict(time=BASE + 300.0 + RTT, ports=[41001, 41002, 41003, 41004], side="server"))
-    truth["capture_miss_trigger"] = dict(port=41001, time=BASE + 300.0)
 
     # Distractor: a single no-socket RST on one connection is not a storm.
     controls[41005].no_socket_reset(200.0)
@@ -206,8 +205,12 @@ def make_session_case(directory, *, seed=7, capture_loss_b=0.30, ipv6=False):
     lazy = {port: Conn(case, port, 190.0 + i * 0.2) for i, port in enumerate((41021, 41022, 41023))}
     for i, (port, conn) in enumerate(lazy.items()):
         conn.exchange(195.0 + i * 0.4)
-        conn.server_close_then_late_client_close(205.0 + i * 3.0, 230.0 + i * 0.0002)
+        conn.server_close_then_late_client_close(
+            205.0 + i * 3.0, 230.0 + i * 0.0002, record_skip_b=port == 41021
+        )
     truth["late_close"] = dict(time=BASE + 230.0 + RTT, ports=list(lazy), side="server")
+    # The late-close record of 41021 is a capture miss at point B; the server's RST proves delivery.
+    truth["capture_miss_trigger"] = dict(port=41021, time=BASE + 230.0)
 
     # Storm 2 (recurring): three later control connections.
     late = {port: Conn(case, port, 330.0 + i * 0.2) for i, port in enumerate((41011, 41012, 41013))}
