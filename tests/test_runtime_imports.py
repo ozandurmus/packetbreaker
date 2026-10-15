@@ -47,6 +47,7 @@ SYNTHETIC_MODULES = {
     "pilot_synthetic",
     "realistic",
     "security_synthetic",
+    "session_synthetic",
     "synthetic",
     "translation_synthetic",
     "voip_synthetic",
